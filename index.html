@@ -145,6 +145,15 @@ input[type=range]{width:100%;height:36px}
 .nvb{display:flex;gap:6px}
 .nvb button{flex:1;min-height:44px;border-radius:12px;border:0;font:600 13px system-ui;background:#264b5c;color:#fff}
 .nvb #nvEnd{background:var(--buoy)}
+
+#pin{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:950;background:var(--paper);color:var(--ink);border-radius:16px;padding:10px 12px;box-shadow:0 2px 10px rgba(0,0,0,.4)}
+#pin[hidden]{display:none}
+#pin b{display:block;font-size:17px}
+#pin small{color:#566B74}
+#pin .nvb{margin-top:8px}
+#pin .nvb button{background:var(--foam);color:var(--ink)}
+#pin .nvb #pinGo{background:var(--ink);color:#fff;flex:2}
+.tag{display:inline-block;background:var(--kelp);color:#fff;border-radius:8px;padding:0 6px;font-size:12px;font-weight:700}
 </style>
 </head>
 <body>
@@ -165,6 +174,7 @@ input[type=range]{width:100%;height:36px}
   <div class="nvr"><span id="nvEta"></span><span id="nvRem"></span></div>
   <div class="nvb"><button id="nvMute">🔊</button><button id="nvPozo">🕳️ Pozo</button><button id="nvLomo">🚧 Lomo</button><button id="nvEnd">Terminar</button></div>
 </div>
+<div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinSave">📍 Guardar</button><button id="pinX">✕</button></div></div>
 <div id="banner" hidden><span id="bTxt"></span><span class="row"><button class="btn sm" id="bUndo" hidden>Deshacer</button><button class="btn sm primary" id="bOk" hidden>Listo</button><button class="btn sm" id="bCancel">Cancelar</button></span></div>
 
 <div id="fabs">
@@ -1012,12 +1022,23 @@ const DB=(()=>{
     count:n=>w(st(n,'readonly').count()),
     clear:n=>w(st(n,'readwrite').clear()),
     all:(n,prefix)=>cur(n,prefix,c=>c.value),
-    entries:(n)=>cur(n,null,c=>({k:c.key,v:c.value}))
+    entries:(n)=>cur(n,null,c=>({k:c.key,v:c.value})),
+    countp:(n,prefix)=>w(st(n,'readonly').count(IDBKeyRange.bound(prefix,prefix+'\uffff'))),
+    keys:(n,prefix)=>new Promise((res,rej)=>{
+      const out=[],rq=st(n,'readonly').openKeyCursor(prefix?IDBKeyRange.bound(prefix,prefix+'\uffff'):null);
+      rq.onsuccess=()=>{const c=rq.result;if(c){out.push(c.key);c.continue();}else res(out);};
+      rq.onerror=()=>rej(rq.error);
+    }),
+    delMany:(n,keys)=>new Promise((res,rej)=>{
+      if(!keys.length){res();return;}
+      const t=db.transaction(n,'readwrite'),s=t.objectStore(n);
+      keys.forEach(k=>s.delete(k));t.oncomplete=()=>res();t.onerror=()=>rej(t.error);
+    })
   };
 })();
 
 /* ---------- Ajustes ---------- */
-const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast'};
+const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true};
 let S=Object.assign({},DEF);
 try{Object.assign(S,JSON.parse(localStorage.getItem('rumbo.set')||'{}'));}catch(e){}
 const saveS=()=>{try{localStorage.setItem('rumbo.set',JSON.stringify(S));}catch(e){}};
@@ -1062,6 +1083,7 @@ function setLayer(k){
   const l=LAYERS[k];
   baseLayer=new CachedTiles(l.url,{lid:k,offline:l.off,maxNativeZoom:l.maxNative,maxZoom:21,subdomains:l.subs||'abc',attribution:l.att});
   baseLayer.addTo(map);
+  drawCoverage();
 }
 
 /* Descarga de zona */
@@ -1115,12 +1137,13 @@ function dlPlan(){
   const z1=Math.min(zmax,z0+S.dlZoom);
   const ranges=tileRanges(b,z0,z1);
   const n=tileCount(ranges);
-  return {l,ranges,z0,z1,n,mb:n*(l.kb||20)/1024};
+  return {l,b,ranges,z0,z1,n,mb:n*(l.kb||20)/1024};
 }
 async function showMaps(){
   const l=LAYERS[S.layer];
-  const cnt=await DB.count('tiles');
+  const cnt=await tileTotal();
   let h=`<div class="seg">${Object.entries(LAYERS).map(([k,v])=>`<button data-act="layer" data-k="${k}" class="${k===S.layer?'on':''}">${esc(v.name)}</button>`).join('')}</div>
+  <button class="btn sm" data-act="mgr">🗂️ Ver qué tengo descargado</button>
   <h3>Para usar sin señal</h3>`;
   if(l.off){
     h+=`<p class="mut">Encuadrá en el mapa la zona que vas a recorrer. Se baja lo que se ve en pantalla, del zoom actual hacia más detalle.</p>
@@ -1136,18 +1159,20 @@ async function showMaps(){
   <button class="btn danger sm" data-act="dlclear">Borrar mapas descargados</button>`;
   openSheet('Mapas',h,async(a,d,el)=>{
     if(a==='layer'){setLayer(d.k);showMaps();}
+    else if(a==='mgr')showMapMgr();
     else if(a==='dl'){
       const p=dlPlan();
       if(p.n>12000){toast('Zona demasiado grande. Acercá el mapa o bajá niveles.');return;}
       $('#dlprog').hidden=false;$('#dlgo').disabled=true;
       const r=await runDownload(S.layer,p.ranges);
+      if(!r.cancel)await saveZone(S.layer,p,r);
       if(r.cancel)toast('Descarga cancelada');
       else if(r.fail>r.total*.5)toast('La mayoría falló. Revisá la conexión.',5000);
       else toast(r.fail?`Listo, con ${r.fail} teselas que fallaron`:'Zona descargada',4000);
       if(sheetTitle==='Mapas')showMaps();
     }
     else if(a==='dlcancel'){if(DL)DL.cancel=true;}
-    else if(a==='dlclear'){if(armed(el)){await DB.clear('tiles');toast('Mapas borrados');showMaps();}}
+    else if(a==='dlclear'){if(armed(el)){await clearTiles();toast('Mapas borrados');showMaps();}}
   },(t)=>{
     if(t.id==='zr'){S.dlZoom=+t.value;saveS();$('#zv').textContent=S.dlZoom;updDlInfo();}
   });
@@ -1918,6 +1943,7 @@ async function dlNet(replace){
     if(replace)for(const n of await DB.all('kv','net:'))await DB.del('kv','net:'+n.id);
     const id=uid();
     await DB.put('kv','net:'+id,{id,bb:{s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()},date:Date.now(),ways,hz});
+    await netIndex();
     dropGraph();toast(`Red descargada: ${ways.length} calles y senderos, ${hz.length} lomos de burro`+(dem?' y la altura del terreno':`. Sin altura (${demErr}): no va a funcionar "menos pendiente"`),6000);
     return true;
   }catch(e){
@@ -1932,7 +1958,12 @@ function showNetDownload(){
   openSheet('Rutas',`<p>Para calcular rutas, Rumbo necesita la red de calles y senderos de OpenStreetMap de tu zona. Se baja una sola vez, con internet, y queda guardada en el teléfono.</p>
     <p class="mut">Encuadrá la ciudad en el mapa: se baja lo que ves. Ahora son unos ${wk.toFixed(1)} × ${hk.toFixed(1)} km (máximo 25 km por lado).</p>
     <button class="btn primary" id="netgo" data-act="dl">Descargar red de esta zona</button><p id="netmsg" class="mut"></p>`,
-    async a=>{if(a==='dl'&&await dlNet())showRoutes();});
+    async a=>{
+      if(a==='dl'&&await dlNet()){
+        if(RT.to&&(RT.from||lastFix)){const g=await ensureGraph();if(g){await calcRoutes(g);return;}}
+        showRoutes();
+      }
+    });
 }
 
 /* Rutas */
@@ -1981,7 +2012,7 @@ function computeAlt(g){
 }
 async function calcRoutes(g,keep){
   const from=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon,label:'Mi posición'}:null);
-  if(!from){toast('Todavía sin GPS: elegí el origen en el mapa o buscá una calle',4500);return;}
+  if(!from){toast('Todavía sin GPS: elegí el origen en el mapa o buscá una calle',4500);showRoutes();return;}
   if(!RT.to){toast('Elegí el destino');return;}
   RT.res={};
   const hz=await collectHz(g);
@@ -2001,7 +2032,8 @@ async function showRoutes(){
   if(!g){showNetDownload();return;}
   drawRoute(false);
   const fromL=RT.from?RT.from.label:'Mi posición',toL=RT.to?RT.to.label:'Sin elegir';
-  const h=`<h3>Desde</h3><div class="card"><b>${esc(fromL)}</b></div>
+  const h=`<p class="mut">✅ Red de calles descargada${g.hasZ?', con altura del terreno':' (sin altura del terreno)'} · <a href="#" data-act="mgr" style="color:inherit">ver qué tengo</a></p>
+    <h3>Desde</h3><div class="card"><b>${esc(fromL)}</b></div>
     <div class="row"><button class="btn sm" data-act="fmine">Mi posición</button><button class="btn sm" data-act="fpick">En el mapa</button></div>
     <input class="in" id="qf" placeholder="Buscar calle o esquina (ej: San Martín y Roca)" enterkeyhint="search"><div id="rf" class="row"></div>
     <h3>Hasta</h3><div class="card"><b>${esc(toL)}</b></div>
@@ -2014,7 +2046,8 @@ async function showRoutes(){
     <button class="btn primary" data-act="calc" style="margin-top:10px">Calcular ruta</button>
     <div id="rres">${RT.res?resultsHtml():''}</div>`;
   openSheet('Rutas',h,async(a,d)=>{
-    if(a==='fmine'){RT.from=null;showRoutes();}
+    if(a==='mgr')showMapMgr();
+    else if(a==='fmine'){RT.from=null;showRoutes();}
     else if(a==='fpick'||a==='tpick'){PICK={type:'pt',target:a==='fpick'?'from':'to'};closeSheet();banner(`Tocá en el mapa el punto de ${a==='fpick'?'partida':'llegada'}`);}
     else if(a==='tpts')showPickWpt();
     else if(a==='setf'||a==='sett'){const r=RT.sr[a==='setf'?'f':'q'][+d.i];RT[a==='setf'?'from':'to']={lat:r.lat,lon:r.lon,label:r.label};RT.res=null;showRoutes();}
@@ -2191,7 +2224,7 @@ function undoPick(){
   PICK.pts.pop();const m=PICK.mk.pop();if(m)pickLayer.removeLayer(m);PICK.line.setLatLngs(PICK.pts);
   banner(`Sendero: ${PICK.pts.length} punto${PICK.pts.length===1?'':'s'}. Tocá el siguiente o "Listo".`,{undo:PICK.pts.length>0,ok:PICK.pts.length>=2});
 }
-map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);});
+map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);else onMapTap(e);});
 $('#bCancel').onclick=()=>{if(draw)cancelDraw();else if(PICK)cancelPick();};
 $('#bUndo').onclick=undoPick;
 $('#bOk').onclick=()=>{if(PICK&&PICK.type==='path')finishPath();};
@@ -2416,14 +2449,136 @@ function ovlPick(ll){
   }
 }
 
+/* ---------- Mis mapas, cobertura y "ir hasta acá" ---------- */
+const covLayer=L.layerGroup().addTo(map),pinLayer=L.layerGroup().addTo(map);
+const mbf=n=>n<10?n.toFixed(1):String(Math.round(n));
+async function tileTotal(){let n=0;for(const k of Object.keys(LAYERS))n+=await DB.countp('tiles',k+'/');return n;}
+async function clearTiles(layer){
+  const ks=[];
+  for(const k of layer?[layer]:Object.keys(LAYERS))ks.push(...await DB.keys('tiles',k+'/'));
+  await DB.delMany('tiles',ks);
+  for(const z of await DB.all('kv','dlz:'))if(!layer||z.layer===layer)await DB.del('kv','dlz:'+z.id);
+  drawCoverage();
+}
+async function saveZone(layer,p,r){
+  const id=uid();
+  await DB.put('kv','dlz:'+id,{id,layer,bb:p.b,z0:p.z0,z1:p.z1,ranges:p.ranges,n:r.total-r.fail,date:Date.now()});
+  drawCoverage();
+}
+/* Índice liviano de las redes de calles descargadas (para no cargar todas las calles cada vez) */
+async function netIndex(){
+  const keys=(await DB.keys('kv','net:')).map(k=>k.slice(4));
+  let idx=await DB.all('kv','netidx:');
+  for(const x of idx)if(!keys.includes(x.id))await DB.del('kv','netidx:'+x.id);
+  idx=idx.filter(x=>keys.includes(x.id));
+  for(const id of keys)if(!idx.some(x=>x.id===id)){
+    const n=await DB.get('kv','net:'+id);if(!n)continue;
+    const x={id,bb:n.bb,date:n.date,ways:n.ways.length,hz:(n.hz||[]).length,z:n.ways.some(w=>w.z&&w.z.some(v=>v!=null))};
+    await DB.put('kv','netidx:'+id,x);idx.push(x);
+  }
+  return idx;
+}
+async function drawCoverage(){
+  covLayer.clearLayers();
+  if(!S.cov)return;
+  for(const z of await DB.all('kv','dlz:'))if(z.layer===S.layer)
+    L.rectangle([[z.bb.s,z.bb.w],[z.bb.n,z.bb.e]],{color:'#1E6BFF',weight:2,fill:false,dashArray:'6 4',opacity:.75,interactive:false}).addTo(covLayer);
+  for(const n of await netIndex())
+    L.rectangle([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{color:'#2E7D5B',weight:2,fill:false,opacity:.75,interactive:false}).addTo(covLayer);
+}
+async function showMapMgr(){
+  const zs=(await DB.all('kv','dlz:')).sort((a,b)=>b.date-a.date),idx=(await netIndex()).sort((a,b)=>b.date-a.date);
+  const c=map.getCenter(),inside=bb=>c.lat>=bb.s&&c.lat<=bb.n&&c.lng>=bb.w&&c.lng<=bb.e;
+  let est='';
+  try{const e=await navigator.storage.estimate();est=`Rumbo ocupa ${mbf(e.usage/1048576)} MB de ${mbf(e.quota/1073741824)} GB disponibles.`;}catch(e){}
+  const here=[];
+  for(const [k,l] of Object.entries(LAYERS))if(l.off){
+    const zz=zs.filter(z=>z.layer===k&&inside(z.bb));
+    here.push(zz.length?`✅ ${l.name}: bajado hasta el zoom ${Math.max(...zz.map(z=>z.z1))}`:`➖ ${l.name}: sin descargar acá`);
+  }
+  const ni=idx.filter(n=>inside(n.bb));
+  here.push(ni.length?`✅ Calles y rutas${ni.some(n=>n.z)?' (con altura del terreno)':' (sin altura del terreno)'}`:'➖ Calles y rutas: sin descargar acá');
+  let h=`<div class="card"><b>Lo que hay en la zona que estás mirando</b><br>${here.join('<br>')}</div>
+    <p class="mut">${est}</p>
+    <label class="chk"><input type="checkbox" id="cv" ${S.cov?'checked':''}> Dibujar en el mapa lo descargado (azul: fondo de mapa · verde: calles)</label>`;
+  h+='<h3>Fondos de mapa</h3>';
+  for(const [k,l] of Object.entries(LAYERS))if(l.off){
+    const n=await DB.countp('tiles',k+'/'),zk=zs.filter(z=>z.layer===k);
+    h+=`<div class="card"><b>${esc(l.name)}</b>${k===S.layer?' <span class="tag">en uso</span>':''}<br><small class="mut">${n?`${n} teselas · unos ${mbf(n*(l.kb||20)/1024)} MB`:'Nada descargado'}</small>
+      ${zk.map(z=>`<div class="item"><div><b>${fmtDate(z.date)}</b><br><small class="mut">zoom ${z.z0} a ${z.z1} · ${z.n} teselas</small></div><div class="row"><button class="btn sm" data-act="zview" data-id="${z.id}">Ver</button><button class="btn sm danger" data-act="zdel" data-id="${z.id}">Borrar</button></div></div>`).join('')}
+      ${n?`<button class="btn sm danger" data-act="ldel" data-k="${k}">Borrar todo de este mapa</button>`:''}</div>`;
+  }
+  h+='<h3>Calles y rutas</h3>';
+  h+=idx.length?idx.map(n=>`<div class="card"><b>${fmtDate(n.date)}</b><br><small class="mut">${n.ways} calles y senderos · ${n.hz} lomos de burro · ${n.z?'con altura del terreno':'sin altura del terreno'}</small>
+      <div class="row" style="margin-top:6px"><button class="btn sm" data-act="nview" data-id="${n.id}">Ver zona</button><button class="btn sm danger" data-act="ndel" data-id="${n.id}">Borrar</button></div></div>`).join(''):'<p class="mut">No hay red de calles descargada.</p>';
+  h+=`<div class="row"><button class="btn" id="netgo" data-act="dl">${idx.length?'Agregar esta zona':'Descargar red de esta zona'}</button>${idx.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button>':''}</div><p id="netmsg" class="mut"></p>`;
+  const nOv=OVL.length;
+  h+=`<h3>Fotos de dron</h3><div class="item" data-act="ovl"><div><b>${nOv} foto${nOv===1?'':'s'}</b><br><small class="mut">Se guardan aparte: borrar mapas no las toca.</small></div><span>›</span></div>`;
+  openSheet('Mis mapas',h,async(a,d,el)=>{
+    if(a==='zview'){const z=zs.find(x=>x.id===d.id);closeSheet();map.fitBounds([[z.bb.s,z.bb.w],[z.bb.n,z.bb.e]],{padding:[20,20]});}
+    else if(a==='zdel'){
+      if(!armed(el))return;
+      const z=zs.find(x=>x.id===d.id),ks=[];
+      for(const r of z.ranges)for(let x=r.x0;x<=r.x1;x++)for(let y=r.y0;y<=r.y1;y++)ks.push(`${z.layer}/${r.z}/${x}/${y}`);
+      await DB.delMany('tiles',ks);await DB.del('kv','dlz:'+z.id);drawCoverage();toast('Zona borrada');showMapMgr();
+    }
+    else if(a==='ldel'){if(armed(el)){await clearTiles(d.k);toast('Borrado');showMapMgr();}}
+    else if(a==='nview'){const n=idx.find(x=>x.id===d.id);closeSheet();map.fitBounds([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{padding:[20,20]});}
+    else if(a==='ndel'){if(armed(el)){await DB.del('kv','net:'+d.id);await DB.del('kv','netidx:'+d.id);dropGraph();drawCoverage();toast('Red borrada');showMapMgr();}}
+    else if(a==='dl'){if(await dlNet()){drawCoverage();showMapMgr();}}
+    else if(a==='dlr'){if(await dlNet(true)){drawCoverage();showMapMgr();}}
+    else if(a==='ovl')showOvl();
+  },t=>{if(t.id==='cv'){S.cov=t.checked;saveS();drawCoverage();}});
+}
+
+/* Tocar el mapa: poner un pin y ofrecer "Ir hasta acá" */
+let PIN=null;
+function hidePin(){PIN=null;pinLayer.clearLayers();$('#pin').hidden=true;}
+async function onMapTap(e){
+  if(REC.state!=='idle'||NAV.on||sheet.classList.contains('open')||!$('#banner').hidden)return;
+  const ll={lat:e.latlng.lat,lon:e.latlng.lng};
+  PIN={lat:ll.lat,lon:ll.lon,label:'Punto en el mapa'};
+  pinLayer.clearLayers();
+  L.marker([ll.lat,ll.lon],{interactive:false,icon:L.divIcon({html:'<div class="gl s">B</div>',className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(pinLayer);
+  let label='Punto en el mapa';
+  try{
+    const g=G||await ensureGraph();
+    if(g){const h=g.nearestEdge(ll.lat,ll.lon,60,x=>g.W[x.w].name);if(h)label='Cerca de '+g.W[g.E[h.ei].w].name;}
+  }catch(er){}
+  if(!PIN||PIN.lat!==ll.lat)return;
+  PIN.label=label;
+  $('#pinTxt').textContent=label;
+  const d=lastFix?hav([lastFix.lat,lastFix.lon],[ll.lat,ll.lon]):null;
+  $('#pinSub').textContent=(d!=null?fmtD(d)+' en línea recta · ':'')+ll.lat.toFixed(5)+', '+ll.lon.toFixed(5);
+  $('#pin').hidden=false;
+}
+async function goToPin(){
+  if(!PIN)return;
+  const to={lat:PIN.lat,lon:PIN.lon,label:PIN.label};
+  hidePin();
+  RT.to=to;RT.res=null;
+  const g=await ensureGraph();
+  if(!g){showNetDownload();return;}
+  await calcRoutes(g);
+}
+$('#pinGo').onclick=goToPin;
+$('#pinX').onclick=hidePin;
+$('#pinSave').onclick=async()=>{
+  if(!PIN)return;
+  const n=(await DB.all('kv','wpt:')).filter(w=>w.type==='punto').length+1;
+  const w={id:uid(),lat:PIN.lat,lon:PIN.lon,type:'punto',name:PIN.label==='Punto en el mapa'?'Punto '+n:PIN.label,t:Date.now()};
+  await DB.put('kv','wpt:'+w.id,w);addWptMarker(w);vib();toast('📍 Punto guardado');hidePin();
+};
+
 /* ---------- Más, ajustes y backup ---------- */
 function showMoreMenu(){
   openSheet('Más',`<div class="grid3">
     <button class="btn big" data-act="tracks">📂<br>Tracks</button>
     <button class="btn big" data-act="fix">🛠️<br>Correcciones</button>
     <button class="btn big" data-act="ovl">🛩️<br>Fotos de dron</button>
+    <button class="btn big" data-act="maps">🗂️<br>Mis mapas</button>
     <button class="btn big" data-act="set">⚙️<br>Ajustes</button></div>`,
-    a=>{if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='set')showMore();});
+    a=>{if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
 }
 function showMore(){
   openSheet('Ajustes',`
@@ -2448,7 +2603,7 @@ function showMore(){
     <p class="mut" style="margin-top:16px">Rumbo v0.2 · Mapas: Esri, OpenStreetMap, OpenTopoMap · Calles: © colaboradores de OpenStreetMap (ODbL)</p>`,
     a=>{
       if(a==='bk')(async()=>{
-        const kv=(await DB.entries('kv')).filter(e=>e.k!=='rec:current'&&!e.k.startsWith('net:')&&!e.k.startsWith('ovl:'));
+        const kv=(await DB.entries('kv')).filter(e=>e.k!=='rec:current'&&!e.k.startsWith('net:')&&!e.k.startsWith('ovl:')&&!e.k.startsWith('dlz:')&&!e.k.startsWith('netidx:'));
         const d=new Date(),n=`rumbo-backup-${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}.json`;
         shareFile(n,JSON.stringify({v:2,kv}),'application/json');
       })();
