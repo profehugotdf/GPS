@@ -47,8 +47,8 @@ input,select{-webkit-user-select:text;user-select:text}
 #banner[hidden]{display:none}
 
 /* Botones flotantes */
-#fabs{position:fixed;right:10px;bottom:calc(var(--bot) + 104px);z-index:900;display:flex;flex-direction:column;gap:8px}
-#fabs button{width:50px;height:50px;border-radius:14px;border:0;background:var(--paper);color:var(--ink);font-size:24px;
+#fabs{position:fixed;right:10px;bottom:calc(var(--bot) + 104px);z-index:900;display:flex;flex-direction:column;gap:7px}
+#fabs button{width:48px;height:48px;border-radius:14px;border:0;background:var(--paper);color:var(--ink);font-size:24px;
   box-shadow:0 1px 6px rgba(0,0,0,.3)}
 #fabs button.on{background:var(--ink);color:#fff}
 
@@ -118,6 +118,22 @@ input[type=range]{width:100%;height:36px}
 #toast{position:fixed;left:50%;bottom:calc(var(--bot) + 120px);transform:translateX(-50%);z-index:1300;background:var(--ink);
   color:#fff;padding:10px 16px;border-radius:12px;font-weight:600;max-width:88vw;text-align:center;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.on{opacity:1}
+
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{min-height:46px;padding:6px 12px;border-radius:23px;border:2px solid var(--line);background:var(--foam);font:600 14px system-ui;color:var(--ink)}
+.chips button.on{border-color:var(--ink);background:var(--ink);color:#fff}
+.card{background:var(--foam);border-radius:14px;padding:10px 12px;margin:8px 0;border:2px solid transparent}
+.card.on{border-color:var(--ink)}
+.card .big{font:700 28px/1.1 var(--num)}
+.badges{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.badge{background:var(--foam);border-radius:14px;padding:10px;opacity:.5}
+.badge.have{opacity:1;border:2px solid var(--kelp)}
+.badge .ic{font-size:28px}
+.arrow{font-size:30px;color:#F04A1C;text-shadow:0 0 3px #fff,0 0 3px #fff;line-height:1;width:30px;text-align:center}
+.ghost{font-size:26px;line-height:1;filter:drop-shadow(0 0 3px #fff)}
+#banner .row{flex-wrap:nowrap}
+#banner .btn{margin:0}
+#fabs button{font-size:22px}
 </style>
 </head>
 <body>
@@ -133,10 +149,11 @@ input[type=range]{width:100%;height:36px}
   <div class="hud-foot"><span id="hGps">Buscando GPS…</span><button class="btn sm" id="hStop">Terminar</button></div>
 </header>
 <div id="pill"><i></i><span>Buscando GPS…</span></div>
-<div id="banner" hidden><span id="bTxt"></span><button class="btn sm" id="bCancel">Cancelar</button></div>
+<div id="banner" hidden><span id="bTxt"></span><span class="row"><button class="btn sm" id="bUndo" hidden>Deshacer</button><button class="btn sm primary" id="bOk" hidden>Listo</button><button class="btn sm" id="bCancel">Cancelar</button></span></div>
 
 <div id="fabs">
-  <button id="fSet" aria-label="Ajustes">⚙</button>
+  <button id="fAct" aria-label="Actividad">🚴</button>
+  <button id="fPts" aria-label="Puntos">📍</button>
   <button id="fLoc" aria-label="Seguir mi posición">◎</button>
   <button id="fIn" aria-label="Acercar">+</button>
   <button id="fOut" aria-label="Alejar">−</button>
@@ -144,10 +161,10 @@ input[type=range]{width:100%;height:36px}
 
 <nav id="dock">
   <button id="nMaps"><span class="ico">🗺️</span>Mapas</button>
-  <button id="nGates"><span class="ico">🏁</span>Puertas</button>
+  <button id="nRoutes"><span class="ico">🧭</span>Rutas</button>
   <div><button id="recbtn"><span class="ico">●</span></button></div>
-  <button id="nPts"><span class="ico">📍</span>Puntos</button>
-  <button id="nTracks"><span class="ico">📂</span>Tracks</button>
+  <button id="nGates"><span class="ico">🏁</span>Recorridos</button>
+  <button id="nMore"><span class="ico">☰</span>Más</button>
 </nav>
 
 <section id="sheet" aria-live="polite">
@@ -317,6 +334,468 @@ function toGPX(tracks,wpts,esc){
   }
   return x+'</gpx>';
 }
+
+/* ====================== RED DE CALLES Y RUTAS ====================== */
+const MODES=['foot','bike','car'];
+const KIND_TAGS={sendero:{highway:'path'},escalera:{highway:'steps'},peatonal:{highway:'footway'},ciclovia:{highway:'cycleway'},calle:{highway:'residential'}};
+const NOACC=new Set(['no','private']);
+const YESACC=new Set(['yes','designated','permissive']);
+
+/* Perfil de cada tramo: por modo, si se puede pasar, sentido único (0 doble, 1 a favor, −1 en contra) y velocidad (m/s) */
+function wayProfile(t,c){
+  const hw=t.highway||'',b=hw.replace('_link','');
+  const out={foot:{ok:false,ow:0,v:1},bike:{ok:false,ow:0,v:1},car:{ok:false,ow:0,v:1}};
+  let ow=0;
+  if(t.oneway==='yes'||t.oneway==='true'||t.oneway==='1'||t.junction==='roundabout'||t.junction==='circular')ow=1;
+  else if(t.oneway==='-1'||t.oneway==='reverse')ow=-1;
+  if(b==='motorway'&&t.oneway!=='no')ow=ow||1;
+  const acc=t.access;
+  /* a pie */
+  const vf=c.vFoot/3.6;
+  const FOOT=['footway','path','pedestrian','steps','track','living_street','residential','service','unclassified','tertiary','secondary','primary','cycleway','corridor','bridleway','road','pier'];
+  if(FOOT.includes(b)&&!NOACC.has(t.foot)&&!(NOACC.has(acc)&&!YESACC.has(t.foot)))
+    out.foot={ok:true,ow:0,v:b==='steps'?vf*.55:(b==='path'||b==='track')?vf*.9:vf};
+  else if(b==='trunk'&&YESACC.has(t.foot))out.foot={ok:true,ow:0,v:vf};
+  /* bici */
+  const vb=c.vBike/3.6;
+  let bok=false,bv=vb;
+  if(!NOACC.has(t.bicycle)&&!(NOACC.has(acc)&&!YESACC.has(t.bicycle))){
+    if(b==='cycleway'){bok=true;bv=vb*1.1;}
+    else if(['residential','living_street','unclassified','tertiary','secondary','primary','road','service'].includes(b)){bok=true;bv=b==='primary'?vb*.95:vb;}
+    else if(b==='path'){bok=true;bv=vb*.7;}
+    else if(b==='track'){bok=true;bv=vb*.75;}
+    else if(b==='steps'){bok=true;bv=2/3.6;}
+    else if((b==='footway'||b==='pedestrian'||b==='bridleway')&&YESACC.has(t.bicycle)){bok=true;bv=vb*.55;}
+    else if(b==='trunk'&&YESACC.has(t.bicycle)){bok=true;bv=vb;}
+  }
+  if(bok){
+    let bow=ow;
+    if(t['oneway:bicycle']==='no'||/opposite/.test((t.cycleway||'')+(t['cycleway:left']||'')+(t['cycleway:right']||'')))bow=0;
+    if(['cycleway','path','footway','pedestrian','steps','track','bridleway'].includes(b))bow=t.oneway?bow:0;
+    out.bike={ok:true,ow:bow,v:bv};
+  }
+  /* auto */
+  const CAR={motorway:100,trunk:80,primary:60,secondary:50,tertiary:45,unclassified:40,residential:30,living_street:15,service:15,track:20,road:30};
+  if(CAR[b]&&!NOACC.has(t.motor_vehicle)&&!NOACC.has(t.vehicle)&&!NOACC.has(t.motorcar)&&!(NOACC.has(acc)&&!YESACC.has(t.motor_vehicle))
+     &&!(b==='service'&&(t.service==='driveway'||t.service==='parking_aisle'))){
+    let kmh=CAR[b];const ms=parseFloat(t.maxspeed);
+    if(ms>0&&ms<=130&&!/mph/.test(t.maxspeed||''))kmh=ms;
+    if(hw.endsWith('_link'))kmh=Math.min(kmh,40);
+    out.car={ok:true,ow,v:Math.max(5,kmh*c.carF)/3.6};
+  }
+  return out;
+}
+
+class Heap{
+  constructor(){this.a=[];}
+  get size(){return this.a.length;}
+  push(k,v){const a=this.a;a.push([k,v]);let i=a.length-1;while(i>0){const p=(i-1)>>1;if(a[p][0]<=a[i][0])break;[a[p],a[i]]=[a[i],a[p]];i=p;}}
+  pop(){const a=this.a,top=a[0],last=a.pop();if(a.length){a[0]=last;let i=0;for(;;){const l=2*i+1,r=l+1;let m=i;if(l<a.length&&a[l][0]<a[m][0])m=l;if(r<a.length&&a[r][0]<a[m][0])m=r;if(m===i)break;[a[m],a[i]]=[a[i],a[m]];i=m;}}return top;}
+}
+
+class Graph{
+  constructor(cfg){this.cfg=cfg;this.lat=[];this.lon=[];this.ids=[];this.adj=[];this.cnt=[];this.E=[];this.W=[];this.idx=new Map();this.grid=new Map();this.seen=new Set();this.cs=0.0006;this.names=null;}
+  node(id,lat,lon){
+    let i=this.idx.get(id);
+    if(i===undefined){i=this.lat.length;this.idx.set(id,i);this.lat.push(lat);this.lon.push(lon);this.ids.push(id);this.adj.push([]);this.cnt.push(0);}
+    return i;
+  }
+  dist(a,b){const k=Math.cos(this.lat[a]*rad);return Math.hypot((this.lat[a]-this.lat[b])*110540,(this.lon[a]-this.lon[b])*111320*k);}
+  cell(lat,lon){return [Math.floor(lat/this.cs)+200000,Math.floor(lon/this.cs)+300000];}
+  ix(ei){
+    const e=this.E[ei],a=e.a,b=e.b;
+    const [i0,j0]=this.cell(Math.min(this.lat[a],this.lat[b]),Math.min(this.lon[a],this.lon[b]));
+    const [i1,j1]=this.cell(Math.max(this.lat[a],this.lat[b]),Math.max(this.lon[a],this.lon[b]));
+    for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const k=i*1000000+j;let l=this.grid.get(k);if(!l){l=[];this.grid.set(k,l);}l.push(ei);}
+  }
+  addWay(id,tags,osm,pts){
+    if(this.seen.has(id))return -1;
+    this.seen.add(id);
+    const prof=wayProfile(tags,this.cfg);
+    if(!MODES.some(m=>prof[m].ok))return -1;
+    const nodes=osm.map((o,i)=>this.node(o,pts[i][0],pts[i][1]));
+    this.W.push({id,tags,name:tags.name||'',hw:tags.highway||'',prof,nodes,edges:[],user:false});
+    return this.W.length-1;
+  }
+  _edge(a,b,wi,len){
+    const ei=this.E.length;
+    this.E.push({a,b,len:len==null?this.dist(a,b):len,w:wi,blk:null,ov:null,alive:true});
+    this.adj[a].push(ei);this.adj[b].push(ei);this.ix(ei);return ei;
+  }
+  link(wi){
+    const w=this.W[wi],n=w.nodes;
+    for(let k=1;k<n.length;k++){ if(n[k]===n[k-1]){w.edges.push(-1);continue;} w.edges.push(this._edge(n[k-1],n[k],wi)); }
+  }
+  blocks(wi,ov){
+    const w=this.W[wi],n=w.nodes;let s=0;
+    for(let k=1;k<n.length;k++){
+      if(k===n.length-1||this.cnt[n[k]]>1){
+        const key=`${w.id}:${this.ids[n[s]]}:${this.ids[n[k]]}`,o=ov&&ov.get(key)||null;
+        for(let q=s;q<k;q++){const ei=w.edges[q];if(ei>=0){this.E[ei].blk=key;this.E[ei].ov=o;}}
+        s=k;
+      }
+    }
+  }
+  finish(ov){
+    const nb=this.W.length;
+    for(let wi=0;wi<nb;wi++)for(const n of new Set(this.W[wi].nodes))this.cnt[n]++;
+    for(let wi=0;wi<nb;wi++)this.link(wi);
+    for(let wi=0;wi<nb;wi++)this.blocks(wi,ov);
+  }
+  _connWay(wi){
+    const w=this.W[wi];if(w.cw!=null)return w.cw;
+    const prof={};for(const m of MODES)prof[m]=Object.assign({},w.prof[m],{ow:0});
+    this.W.push({id:'c'+w.id,tags:{},name:'',hw:'connector',prof,nodes:[],edges:[],user:true});
+    w.cw=this.W.length-1;return w.cw;
+  }
+  addUser(p){
+    const tags=Object.assign({},KIND_TAGS[p.kind]||KIND_TAGS.sendero);
+    if(p.oneway)tags.oneway=p.oneway>0?'yes':'-1';
+    if(p.name)tags.name=p.name;
+    const id='u:'+p.id,wi=this.addWay(id,tags,p.pts.map((_,i)=>id+':'+i),p.pts);
+    if(wi<0)return;
+    this.W[wi].user=true;this.link(wi);
+    const w=this.W[wi],last=p.pts.length-1;
+    for(let k=0;k<=last;k++)this.connect(w.nodes[k],(k===0||k===last)?25:6,wi);
+  }
+  connect(nd,maxD,wi){
+    const h=this.nearestEdge(this.lat[nd],this.lon[nd],maxD,e=>e.w!==wi&&this.W[e.w].hw!=='connector');
+    if(!h)return;
+    const e=this.E[h.ei];let tgt;
+    if(h.t<=0.03)tgt=e.a;else if(h.t>=0.97)tgt=e.b;else tgt=this.split(h.ei,h.t,h.lat,h.lon);
+    if(tgt!==nd)this._edge(nd,tgt,this._connWay(wi),Math.max(this.dist(nd,tgt),0.5));
+  }
+  proj(lat,lon,e){
+    const k=Math.cos(lat*rad),ax=this.lon[e.a]*111320*k,ay=this.lat[e.a]*110540,bx=this.lon[e.b]*111320*k,by=this.lat[e.b]*110540,px=lon*111320*k,py=lat*110540;
+    const dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy;let t=L2?((px-ax)*dx+(py-ay)*dy)/L2:0;t=Math.max(0,Math.min(1,t));
+    const qx=ax+t*dx,qy=ay+t*dy;
+    return {t,d:Math.hypot(px-qx,py-qy),lat:qy/110540,lon:qx/(111320*k)};
+  }
+  nearestEdge(lat,lon,maxD,filter){
+    const k=Math.cos(lat*rad),dl=maxD/110540,dn=maxD/(111320*k);
+    const [i0,j0]=this.cell(lat-dl,lon-dn),[i1,j1]=this.cell(lat+dl,lon+dn);
+    let best=null;const seen=new Set();
+    for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){
+      const l=this.grid.get(i*1000000+j);if(!l)continue;
+      for(const ei of l){
+        if(seen.has(ei))continue;seen.add(ei);
+        const e=this.E[ei];if(!e.alive||(filter&&!filter(e)))continue;
+        const r=this.proj(lat,lon,e);
+        if(r.d<=maxD&&(!best||r.d<best.d))best={ei,t:r.t,d:r.d,lat:r.lat,lon:r.lon};
+      }
+    }
+    return best;
+  }
+  split(ei,t,lat,lon){
+    const e=this.E[ei];e.alive=false;
+    const w=this.node('v'+this.lat.length,lat,lon);
+    for(const n of [e.a,e.b]){const l=this.adj[n],i=l.indexOf(ei);if(i>=0)l.splice(i,1);}
+    const mk=(a,b,len)=>{const n=this._edge(a,b,e.w,len);this.E[n].blk=e.blk;this.E[n].ov=e.ov;};
+    mk(e.a,w,e.len*t);mk(w,e.b,e.len*(1-t));
+    return w;
+  }
+  /* velocidad (m/s) si el tramo se puede recorrer en ese sentido (d=+1 de a hacia b), si no 0 */
+  pass(e,mode,d){
+    const p=this.W[e.w].prof[mode];if(!p.ok)return 0;
+    let ow=p.ow;const o=e.ov;
+    if(o){
+      if(o.dir==='closed'){ if(o.all||mode!=='foot')return 0; }
+      else if(mode!=='foot'){ ow=o.dir==='fwd'?1:o.dir==='rev'?-1:0; }
+    }
+    if(ow!==0&&ow!==d)return 0;
+    return p.v;
+  }
+  blockEdges(key){const out=[];for(let i=0;i<this.E.length;i++){const e=this.E[i];if(e.alive&&e.blk===key)out.push(i);}return out;}
+}
+function buildGraph(nets,paths,ov,cfg){
+  const g=new Graph(cfg);
+  for(const n of nets)for(const w of n.ways){
+    const pts=[];for(let i=0;i<w.p.length;i+=2)pts.push([w.p[i],w.p[i+1]]);
+    g.addWay(w.id,w.t,w.n,pts);
+  }
+  g.finish(ov);
+  for(const p of paths)g.addUser(p);
+  return g;
+}
+
+function astar(G,mode,src,dst){
+  if(src===dst)return {edges:[],cost:0};
+  const n=G.lat.length,g=new Float64Array(n).fill(Infinity),pe=new Int32Array(n).fill(-1),done=new Uint8Array(n);
+  const c=G.cfg,vmax=mode==='foot'?c.vFoot/3.6:mode==='bike'?c.vBike/3.6*1.1:130*c.carF/3.6;
+  const k=Math.cos(G.lat[dst]*rad),tl=G.lat[dst],tn=G.lon[dst];
+  const h=i=>Math.hypot((G.lat[i]-tl)*110540,(G.lon[i]-tn)*111320*k)/vmax;
+  const H=new Heap();g[src]=0;H.push(h(src),src);
+  while(H.size){
+    const [,u]=H.pop();
+    if(done[u])continue;done[u]=1;
+    if(u===dst)break;
+    for(const ei of G.adj[u]){
+      const e=G.E[ei];if(!e.alive)continue;
+      const d=e.a===u?1:-1,v=G.pass(e,mode,d);if(!v)continue;
+      const w=e.a===u?e.b:e.a,ng=g[u]+e.len/v;
+      if(ng<g[w]){g[w]=ng;pe[w]=ei;H.push(ng+h(w),w);}
+    }
+  }
+  if(g[dst]===Infinity)return null;
+  const edges=[];let cur=dst;
+  while(cur!==src){const ei=pe[cur],e=G.E[ei],d=e.b===cur?1:-1;edges.push({ei,d});cur=d>0?e.a:e.b;}
+  edges.reverse();
+  return {edges,cost:g[dst]};
+}
+
+const HWN={path:'el sendero',footway:'el camino peatonal',steps:'la escalera',cycleway:'la ciclovía',track:'el camino',service:'la calle de servicio',pedestrian:'la peatonal',connector:'el sendero',residential:'la calle'};
+function bearEnd(pts){const L=pts.length-1;let a=0;for(let j=L-1;j>=0;j--){a+=hav(pts[j],pts[j+1]);if(a>=10||j===0)return bearingTo(pts[j],pts[L]);}return 0;}
+function bearStart(pts){let a=0;for(let j=1;j<pts.length;j++){a+=hav(pts[j-1],pts[j]);if(a>=10||j===pts.length-1)return bearingTo(pts[0],pts[j]);}return 0;}
+function makeSteps(G,edges){
+  const segs=[];let cur=null;
+  for(const {ei,d} of edges){
+    const e=G.E[ei],w=G.W[e.w],f=d>0?e.a:e.b,t=d>0?e.b:e.a;
+    const hw=w.hw==='connector'?'path':w.hw,key=w.name?w.name:'#'+hw;
+    if(!cur||cur.key!==key){cur={key,name:w.name,hw,dist:0,pts:[[G.lat[f],G.lon[f]]],stairs:hw==='steps'};segs.push(cur);}
+    cur.dist+=e.len;cur.pts.push([G.lat[t],G.lon[t]]);
+  }
+  const m=[];
+  for(const s of segs){ if(m.length&&s.dist<12&&!s.stairs){const p=m[m.length-1];p.dist+=s.dist;p.pts.push(...s.pts.slice(1));} else m.push(s); }
+  const out=[];
+  m.forEach((s,i)=>{
+    const via=s.name||HWN[s.hw]||'la calle';
+    let text;
+    if(i===0)text=s.stairs?'Tomá la escalera':`Salí por ${via}`;
+    else if(s.stairs)text='Tomá la escalera';
+    else{
+      const dl=((bearStart(s.pts)-bearEnd(m[i-1].pts)+540)%360)-180,ad=Math.abs(dl),side=dl>0?'derecha':'izquierda';
+      text=ad<25?`Seguí por ${via}`:ad<60?`Girá levemente a la ${side} por ${via}`:ad<120?`Girá a la ${side} por ${via}`:`Giro cerrado a la ${side} por ${via}`;
+    }
+    out.push({text,dist:s.dist});
+  });
+  out.push({text:'Llegaste al destino',dist:0});
+  return out;
+}
+function findRoute(G,mode,from,to){
+  const okE=e=>G.pass(e,mode,1)>0||G.pass(e,mode,-1)>0;
+  const snap=p=>{
+    const h=G.nearestEdge(p.lat,p.lon,500,okE);if(!h)return null;
+    const e=G.E[h.ei];let nd;
+    if(h.t<=0.02)nd=e.a;else if(h.t>=0.98)nd=e.b;else nd=G.split(h.ei,h.t,h.lat,h.lon);
+    return {nd,off:h.d};
+  };
+  const A=snap(from);if(!A)return {err:'origen'};
+  const B=snap(to);if(!B)return {err:'destino'};
+  const r=astar(G,mode,A.nd,B.nd);if(!r)return {err:'camino'};
+  const vleg=mode==='car'?3:G.cfg.vFoot/3.6;
+  let dist=A.off+B.off,time=(A.off+B.off)/vleg,stairs=0;
+  const coords=[[from.lat,from.lon],[G.lat[A.nd],G.lon[A.nd]]];
+  for(const {ei,d} of r.edges){
+    const e=G.E[ei],v=G.pass(e,mode,d);
+    dist+=e.len;time+=e.len/v;if(G.W[e.w].hw==='steps')stairs+=e.len;
+    const nn=d>0?e.b:e.a;coords.push([G.lat[nn],G.lon[nn]]);
+  }
+  coords.push([to.lat,to.lon]);
+  return {mode,dist,time,coords,stairs,steps:makeSteps(G,r.edges)};
+}
+
+/* Búsqueda de calles y esquinas (sin conexión) */
+function norm(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/\b(calle|avenida|av|pasaje|pje|ruta|boulevard|bv|camino|sendero)\b\.?/g,' ').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+}
+function buildNames(G){
+  if(G.names)return G.names;
+  const m=new Map();
+  G.W.forEach((w,wi)=>{ if(!w.name||w.hw==='connector')return; const k=norm(w.name); if(!k)return; let e=m.get(k); if(!e){e={name:w.name,k,ws:[]};m.set(k,e);} e.ws.push(wi); });
+  return G.names=m;
+}
+function matchNames(G,q){
+  const ex=[],pa=[];
+  for(const e of buildNames(G).values()){ if(e.k===q)ex.push(e); else if(e.k.includes(q))pa.push(e); }
+  return ex.concat(pa).slice(0,10);
+}
+function searchPlaces(G,q,center){
+  const dc=(lat,lon)=>hav([lat,lon],center);
+  const uniq=res=>{
+    res.sort((x,y)=>x.d-y.d);
+    const out=[],seen=new Set();
+    for(const r of res){const k=r.label+Math.round(r.lat*2000)+Math.round(r.lon*2000);if(seen.has(k))continue;seen.add(k);out.push(r);if(out.length>=6)break;}
+    return out;
+  };
+  /* esquinas: probamos cada "y", "e", "&", "esquina"... como separador hasta encontrar cruces */
+  for(const m of q.matchAll(/\s+(?:y|e|&|esq\.?|esquina|con)(?=\s)/gi)){
+    const pa=norm(q.slice(0,m.index)),pb=norm(q.slice(m.index+m[0].length));
+    if(!pa||!pb)continue;
+    const A=matchNames(G,pa),B=matchNames(G,pb),res=[];
+    for(const a of A)for(const b of B){
+      if(a===b)continue;
+      const sa=new Set();for(const wi of a.ws)for(const n of G.W[wi].nodes)sa.add(n);
+      const seen=new Set();
+      for(const wi of b.ws)for(const n of G.W[wi].nodes)if(sa.has(n)&&!seen.has(n)){seen.add(n);res.push({label:`${a.name} y ${b.name}`,lat:G.lat[n],lon:G.lon[n],d:dc(G.lat[n],G.lon[n])});}
+    }
+    if(res.length)return uniq(res);
+  }
+  const pn=norm(q);
+  if(!pn)return [];
+  const res=[];
+  for(const e of matchNames(G,pn)){
+    let best=null;
+    for(const wi of e.ws)for(const n of G.W[wi].nodes){const d=dc(G.lat[n],G.lon[n]);if(!best||d<best.d)best={label:e.name,lat:G.lat[n],lon:G.lon[n],d};}
+    if(best)res.push(best);
+  }
+  return uniq(res);
+}
+
+/* Simplificación Douglas-Peucker: pts [[lat,lon,...]], tol en metros */
+function simplifyDP(pts,tol){
+  if(pts.length<3)return pts.map(p=>[p[0],p[1]]);
+  const k=Math.cos(pts[0][0]*rad),xy=pts.map(p=>[p[1]*111320*k,p[0]*110540]),keep=new Uint8Array(pts.length);
+  keep[0]=keep[pts.length-1]=1;
+  const st=[[0,pts.length-1]];
+  while(st.length){
+    const [s,e]=st.pop();let md=0,mi=-1;
+    const ax=xy[s][0],ay=xy[s][1],dx=xy[e][0]-ax,dy=xy[e][1]-ay,L2=dx*dx+dy*dy;
+    for(let i=s+1;i<e;i++){
+      let t=L2?((xy[i][0]-ax)*dx+(xy[i][1]-ay)*dy)/L2:0;t=Math.max(0,Math.min(1,t));
+      const d=Math.hypot(xy[i][0]-(ax+t*dx),xy[i][1]-(ay+t*dy));
+      if(d>md){md=d;mi=i;}
+    }
+    if(md>tol&&mi>0){keep[mi]=1;st.push([s,mi],[mi,e]);}
+  }
+  return pts.filter((_,i)=>keep[i]).map(p=>[p[0],p[1]]);
+}
+/* Punto a d metros del inicio de una polilínea, con su rumbo */
+function pointAlong(coords,d){
+  let acc=0;
+  for(let i=1;i<coords.length;i++){
+    const s=hav(coords[i-1],coords[i]);
+    if(acc+s>=d||i===coords.length-1){
+      const t=s?Math.max(0,Math.min(1,(d-acc)/s)):0;
+      return {lat:coords[i-1][0]+(coords[i][0]-coords[i-1][0])*t,lon:coords[i-1][1]+(coords[i][1]-coords[i-1][1])*t,brg:bearingTo(coords[i-1],coords[i])};
+    }
+    acc+=s;
+  }
+  return {lat:coords[0][0],lon:coords[0][1],brg:0};
+}
+function fmtDur(s){
+  s=Math.round(s);if(s<60)return s+' s';
+  const m=Math.round(s/60);if(m<60)return m+' min';
+  return Math.floor(m/60)+' h '+pad2(m%60)+' min';
+}
+const hhmm=ms=>{const d=new Date(ms);return pad2(d.getHours())+':'+pad2(d.getMinutes());};
+
+/* ====================== RÉCORDS ====================== */
+function bestBy(runs,cid,act,excludeTid){
+  let b=null;
+  for(const r of runs)if(r.cid===cid&&r.act===act&&r.tid!==excludeTid&&(!b||r.time<b.time))b=r;
+  return b;
+}
+function sectorBests(runs,cid,act,excludeTid){
+  const bs=[];
+  for(const r of runs){
+    if(r.cid!==cid||r.act!==act||r.tid===excludeTid)continue;
+    lapSectors(r).forEach((s,i)=>{if(bs[i]==null||s<bs[i])bs[i]=s;});
+  }
+  return bs;
+}
+function evalLap(runs,cid,act,lap){
+  const b=bestBy(runs,cid,act,null),sb=sectorBests(runs,cid,act,null),sec=lapSectors(lap);
+  return {pb:!!b&&lap.time<b.time,first:!b,delta:b?lap.time-b.time:null,golds:sec.map((s,i)=>sb[i]!=null&&s<sb[i])};
+}
+/* Posición interpolada en el tiempo t de una traza [[lat,lon,t],...] */
+function posAt(pts,t){
+  if(!pts||pts.length<2)return null;
+  if(t<=pts[0][2])return [pts[0][0],pts[0][1]];
+  const L=pts.length-1;
+  if(t>=pts[L][2])return [pts[L][0],pts[L][1]];
+  let lo=0,hi=L;
+  while(hi-lo>1){const m=(lo+hi)>>1;if(pts[m][2]<=t)lo=m;else hi=m;}
+  const a=pts[lo],b=pts[hi],f=(t-a[2])/((b[2]-a[2])||1);
+  return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f];
+}
+const dayKey=t=>{const d=new Date(t);return d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate();};
+function streaks(times){
+  const days=[...new Set(times.map(dayKey))].sort((a,b)=>a-b);
+  const toN=k=>Math.round(Date.UTC(Math.floor(k/10000),Math.floor(k/100)%100-1,k%100)/86400000);
+  let best=0,run=0,prev=null;
+  for(const k of days){const n=toN(k);run=(prev!=null&&n-prev===1)?run+1:1;best=Math.max(best,run);prev=n;}
+  let cur=0;
+  if(days.length){
+    const today=toN(dayKey(Date.now()));let n=toN(days[days.length-1]);
+    if(today-n<=1){cur=1;for(let i=days.length-2;i>=0;i--){const m=toN(days[i]);if(n-m===1){cur++;n=m;}else break;}}
+  }
+  return {best,cur};
+}
+function badgeList(st){
+  const B=[],add=(icon,name,desc,val,goal)=>B.push({icon,name,desc,val:Math.min(val,goal),goal,have:val>=goal});
+  add('🏁','Primera marca','1 recorrido cronometrado',st.runs,1);
+  add('🔁','Constancia','10 recorridos cronometrados',st.runs,10);
+  add('🚀','Imparable','50 recorridos cronometrados',st.runs,50);
+  add('💯','Centenario','100 recorridos cronometrados',st.runs,100);
+  add('🏆','Primer récord','Batí un récord propio',st.recs,1);
+  add('🥇','Cazador de récords','5 récords batidos',st.recs,5);
+  add('👑','Leyenda','20 récords batidos',st.recs,20);
+  add('🔥','Racha de 3','3 días seguidos saliendo',st.streak,3);
+  add('🔥','Racha de 7','7 días seguidos saliendo',st.streak,7);
+  add('🌋','Racha de 30','30 días seguidos saliendo',st.streak,30);
+  add('🧭','Explorador','Recorridos en 3 circuitos distintos',st.circs,3);
+  add('🗺️','Cartógrafo','Recorridos en 10 circuitos distintos',st.circs,10);
+  add('🌍','100 km','100 km acumulados',st.km,100);
+  add('🌎','500 km','500 km acumulados',st.km,500);
+  add('🚩','1000 km','1000 km acumulados',st.km,1000);
+  return B;
+}
+
+/* ====================== FOTOS DE DRON ====================== */
+const MAVIC_FOV=78.8;   /* ángulo de visión diagonal del Mavic Pro (según el fabricante) */
+function droneFootprint(alt,aw,ah,fov){
+  const diag=2*alt*Math.tan(fov/2*Math.PI/180),k=Math.hypot(aw,ah);
+  return {w:diag*aw/k,h:diag*ah/k};
+}
+function parseJpegMeta(buf){
+  const v=new DataView(buf);
+  if(v.byteLength<4||v.getUint16(0)!==0xFFD8)return null;
+  const out={};let off=2;
+  while(off+4<v.byteLength){
+    if(v.getUint8(off)!==0xFF)break;
+    const mk=v.getUint8(off+1);
+    if(mk===0xDA||mk===0xD9)break;
+    const len=v.getUint16(off+2);
+    if(mk===0xE1){
+      const n=Math.min(29,len-2);let head='';
+      for(let i=0;i<n;i++)head+=String.fromCharCode(v.getUint8(off+4+i));
+      if(head.startsWith('Exif\0\0')){try{parseExif(v,off+10,out);}catch(e){}}
+      else if(head.startsWith('http://ns.adobe.com/xap/1.0/')){
+        parseXmp(new TextDecoder().decode(new Uint8Array(buf,off+4+29,Math.max(0,len-2-29))),out);
+      }
+    }
+    off+=2+len;
+  }
+  return out;
+}
+function parseExif(v,t,out){
+  const le=v.getUint16(t)===0x4949,u16=p=>v.getUint16(p,le),u32=p=>v.getUint32(p,le);
+  const rat=p=>{const d=u32(p+4);return d?u32(p)/d:0;};
+  const ifd=p=>{const n=u16(p),r={};for(let i=0;i<n;i++){const e=p+2+i*12;r[u16(e)]={val:e+8};}return r;};
+  const g=ifd(t+u32(t+4))[0x8825];
+  if(!g)return;
+  const gi=ifd(t+u32(g.val)),ch=e=>String.fromCharCode(v.getUint8(e.val));
+  const dms=e=>{const p=t+u32(e.val);return rat(p)+rat(p+8)/60+rat(p+16)/3600;};
+  if(gi[2]&&gi[4]){
+    let la=dms(gi[2]),lo=dms(gi[4]);
+    if(gi[1]&&ch(gi[1])==='S')la=-la;
+    if(gi[3]&&ch(gi[3])==='W')lo=-lo;
+    if(la||lo){out.lat=la;out.lon=lo;}
+  }
+  if(gi[6]){let a=rat(t+u32(gi[6].val));if(gi[5]&&v.getUint8(gi[5].val)===1)a=-a;out.gpsAlt=a;}
+}
+function parseXmp(x,out){
+  const num=k=>{const m=x.match(new RegExp('drone-dji:'+k+'(?:="|>)\\s*([-+]?[0-9.]+)'));return m?parseFloat(m[1]):null;};
+  const rel=num('RelativeAltitude');if(rel!=null)out.rel=rel;
+  const gy=num('GimbalYawDegree');if(gy!=null)out.gyaw=gy;
+  const fy=num('FlightYawDegree');if(fy!=null)out.fyaw=fy;
+  const gp=num('GimbalPitchDegree');if(gp!=null)out.pitch=gp;
+  if(out.lat==null){
+    const la=num('GpsLatitude'),lo=num('GpsLongitude')!=null?num('GpsLongitude'):num('GpsLongtitude');
+    if(la!=null&&lo!=null){out.lat=la;out.lon=lo;}
+  }
+}
 /*</pure>*/
 
 /* ---------- Utilidades ---------- */
@@ -367,7 +846,7 @@ const DB=(()=>{
 })();
 
 /* ---------- Ajustes ---------- */
-const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',circ:null};
+const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot'};
 let S=Object.assign({},DEF);
 try{Object.assign(S,JSON.parse(localStorage.getItem('rumbo.set')||'{}'));}catch(e){}
 const saveS=()=>{try{localStorage.setItem('rumbo.set',JSON.stringify(S));}catch(e){}};
@@ -378,6 +857,8 @@ const LAYERS={
     att:'Imágenes © Esri, Maxar, Earthstar Geographics',maxNative:19,off:true,kb:28},
   etopo:{name:'Topográfico Esri',url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
     att:'© Esri, HERE, Garmin, OpenStreetMap',maxNative:19,off:true,kb:14},
+  s2:{name:'Sentinel-2 (reciente, 10 m)',url:'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg',
+    att:'Sentinel-2 cloudless (s2maps.eu) by EOX IT Services GmbH · Contains modified Copernicus Sentinel data 2024',maxNative:13,off:true,kb:18},
   osm:{name:'OpenStreetMap',url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',att:'© OpenStreetMap',maxNative:19,off:false},
   otm:{name:'OpenTopoMap (curvas)',url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',subs:'abc',
     att:'© OpenTopoMap, © OpenStreetMap',maxNative:17,off:false}
@@ -458,8 +939,9 @@ function dlPlan(){
   const l=LAYERS[S.layer];
   const bb=map.getBounds();
   const b={w:bb.getWest(),e:bb.getEast(),n:bb.getNorth(),s:bb.getSouth()};
-  const z0=Math.min(18,Math.max(8,Math.round(map.getZoom())));
-  const z1=Math.min(18,z0+S.dlZoom);
+  const zmax=Math.min(18,l.maxNative||18);
+  const z0=Math.min(zmax,Math.max(8,Math.round(map.getZoom())));
+  const z1=Math.min(zmax,z0+S.dlZoom);
   const ranges=tileRanges(b,z0,z1);
   const n=tileCount(ranges);
   return {l,ranges,z0,z1,n,mb:n*(l.kb||20)/1024};
@@ -602,45 +1084,109 @@ function cue(text,d,kind){
   say(s);
 }
 
+/* ---------- Actividades y récords ---------- */
+const ACT={walk:['🚶','Caminata'],run:['🏃','Correr'],bike:['🚴','Bici'],car:['🚗','Auto'],kayak:['🛶','Kayak']};
+let RUNS=[];
+const loadRuns=async()=>{RUNS=await DB.all('kv','run:');};
+const resOf=tr=>tr.res||(tr.laps&&tr.laps.length&&tr.circuitId?[{cid:tr.circuitId,name:'',type:'closed',laps:tr.laps}]:[]);
+async function removeRunsOfTrack(tid){
+  const del=RUNS.filter(r=>r.tid===tid);RUNS=RUNS.filter(r=>r.tid!==tid);
+  for(const r of del)await DB.del('kv','run:'+r.id);
+}
+/* Escribe las marcas de un track y marca cuáles son récord. Se puede llamar de nuevo si cambia la actividad. */
+async function commitRuns(tr){
+  await removeRunsOfTrack(tr.id);
+  for(const r of resOf(tr)){
+    for(const lap of r.laps){
+      const ev=evalLap(RUNS,r.cid,tr.act,lap);
+      lap.pb=ev.pb;lap.first=ev.first;lap.delta=ev.delta;lap.gold=ev.golds;
+      const run={id:`${tr.id}#${r.cid}#${lap.n}`,cid:r.cid,act:tr.act,tid:tr.id,n:lap.n,t0:lap.start,time:lap.time,splits:lap.splits,rec:ev.pb};
+      RUNS.push(run);await DB.put('kv','run:'+run.id,run);
+    }
+  }
+}
+/* Datos de la versión anterior: le da actividad a los tracks y crea las marcas */
+async function migrate(){
+  for(const tr of await DB.all('kv','track:')){
+    let ch=false;
+    if(!tr.act){tr.act='bike';ch=true;}
+    if(!tr.res&&tr.laps&&tr.laps.length&&tr.circuitId){
+      const c=await DB.get('kv','circuit:'+tr.circuitId);
+      tr.res=[{cid:tr.circuitId,name:c?c.name:'',type:c?c.type:'closed',laps:tr.laps}];ch=true;
+    }
+    if(ch){await commitRuns(tr);await DB.put('kv','track:'+tr.id,tr);}
+  }
+}
+function updActBtn(){$('#fAct').textContent=ACT[S.act][0];}
+
 /* ---------- Grabación ---------- */
-const REC={state:'idle',id:null,t0:0,pausedMs:0,pauseAt:0,seg:0,pts:[],dist:0,speed:0,poly:null,gt:null,circ:null,last:null,lastSave:0};
+const REC={state:'idle',id:null,t0:0,pausedMs:0,pauseAt:0,seg:0,pts:[],dist:0,speed:0,poly:null,timers:[],last:null,lastSave:0,act:'bike'};
 const elapsed=()=>REC.state==='idle'?0:(REC.state==='pause'?REC.pauseAt:Date.now())-REC.t0-REC.pausedMs;
 
+/* Fantasma: tu mejor marca corriendo a la par */
+let ghost=null;
+const ghostCache={};
+function clearGhost(){if(ghost){map.removeLayer(ghost.mk);ghost=null;}}
+async function setGhost(ent){
+  clearGhost();
+  const r=ent.ref(false);if(!r||!r.t0)return;
+  let all=r.tid===REC.id?REC.pts:ghostCache[r.tid];
+  if(!all){const tr=await DB.get('kv','track:'+r.tid);all=tr?tr.pts:null;if(all)ghostCache[r.tid]=all;}
+  if(!all||REC.state==='idle')return;
+  const pts=all.filter(p=>p[2]>=r.t0-1000&&p[2]<=r.t0+r.time+1000).map(p=>[p[0],p[1],p[2]-r.t0]);
+  if(pts.length<2)return;
+  clearGhost();
+  ghost={pts,time:r.time,ent,mk:L.marker([pts[0][0],pts[0][1]],{icon:L.divIcon({html:'<div class="ghost">👻</div>',className:'',iconSize:[30,30],iconAnchor:[15,15]}),interactive:false,zIndexOffset:500}).addTo(map)};
+}
+
 function makeTimer(circ){
-  const refBest=skipLast=>{
-    let b=circ.best||null;
-    const ls=skipLast?REC.gt.laps.slice(0,-1):REC.gt.laps;
-    for(const l of ls)if(!b||l.time<b.time)b=l;
+  const ent={circ,gt:null};
+  /* mejor marca de referencia: anteriores + esta salida, con el mismo formato */
+  ent.ref=skipLast=>{
+    let b=bestBy(RUNS,circ.id,REC.act,null);
+    const ls=skipLast?ent.gt.laps.slice(0,-1):ent.gt.laps;
+    for(const l of ls)if(!b||l.time<b.time)b={time:l.time,splits:l.splits,t0:l.start,tid:REC.id};
     return b;
   };
-  return new GateTimer(circ,{
-    onStart:()=>{cue('Largada',null,'gate');REC.last={txt:'Largada',d:null};},
+  ent.gt=new GateTimer(circ,{
+    onStart:()=>{cue(circ.name+', largada',null,'gate');REC.last={txt:circ.name+' · largada',d:null};setGhost(ent);},
     onGate:(gi,rel,idx)=>{
-      const r=refBest(false),d=r&&r.splits[idx-1]!=null?rel-r.splits[idx-1]:null;
-      REC.last={txt:`Puerta ${gi} ${fmtT(rel,true)}`,d};cue(`Puerta ${gi}`,d,'gate');
+      const r=ent.ref(false),d=r&&r.splits[idx-1]!=null?rel-r.splits[idx-1]:null;
+      const marks=ent.gt.cur.marks,sec=rel-(idx>1?marks[idx-2]-ent.gt.cur.start:0);
+      const sb=sectorBests(RUNS,circ.id,REC.act,null);
+      for(const l of ent.gt.laps)lapSectors(l).forEach((s,i)=>{if(sb[i]==null||s<sb[i])sb[i]=s;});
+      const gold=sb[idx-1]!=null&&sec<sb[idx-1];
+      REC.last={txt:`Puerta ${gi} ${fmtT(rel,true)}${gold?' ⚡':''}`,d};
+      cue(`Puerta ${gi}${gold?', sector récord':''}`,d,'gate');
     },
     onLap:lap=>{
-      const r=refBest(true),d=r?lap.time-r.time:null;
-      REC.last={txt:`Vuelta ${lap.n} ${fmtT(lap.time,true)}`,d};
-      cue(`${circ.type==='p2p'?'Tramo':'Vuelta '+lap.n}, ${spoken(lap.time)}`,d,'lap');
+      const r=ent.ref(true),d=r?lap.time-r.time:null,pb=!!r&&lap.time<r.time;
+      lap.pb=pb;
+      const nm=circ.type==='p2p'?'':`Vuelta ${lap.n}, `;
+      REC.last={txt:`${circ.type==='p2p'?'Tramo':'Vuelta '+lap.n} ${fmtT(lap.time,true)}${pb?' 🏆':''}`,d};
+      if(pb){toast(`🏆 ¡Nuevo récord en ${circ.name}!`,5000);cue(`¡Nuevo récord! ${nm}${spoken(lap.time)}`,d,'lap');}
+      else cue(`${nm}${spoken(lap.time)}`,d,'lap');
+      if(circ.type!=='p2p')setGhost(ent);else clearGhost();
     }
   });
+  return ent;
 }
+const activeTimer=()=>{let b=null;for(const t of REC.timers)if(t.gt.cur&&(!b||t.gt.cur.start>b.gt.cur.start))b=t;return b;};
+
 async function startRec(){
   unlockAudio();
-  const circ=S.circ?await DB.get('kv','circuit:'+S.circ):null;
-  Object.assign(REC,{state:'rec',id:uid(),t0:Date.now(),pausedMs:0,pauseAt:0,seg:0,pts:[],dist:0,speed:0,
-    circ:circ&&circ.gates.length?circ:null,gt:null,last:null,lastSave:Date.now()});
-  if(REC.circ)REC.gt=makeTimer(REC.circ);
+  const circs=(await DB.all('kv','circuit:')).filter(c=>c.gates.length&&c.watch!==false);
+  Object.assign(REC,{state:'rec',id:uid(),t0:Date.now(),pausedMs:0,pauseAt:0,seg:0,pts:[],dist:0,speed:0,last:null,lastSave:Date.now(),act:S.act});
+  REC.timers=circs.map(makeTimer);
   REC.poly=L.polyline([],{color:'#F04A1C',weight:5,opacity:.95}).addTo(map);
   try{await startWatch(true);}
-  catch(e){REC.state='idle';map.removeLayer(REC.poly);REC.poly=null;toast('No se pudo iniciar el GPS: '+(e.message||e),5000);return;}
+  catch(e){REC.state='idle';REC.timers=[];map.removeLayer(REC.poly);REC.poly=null;toast('No se pudo iniciar el GPS: '+(e.message||e),5000);return;}
   if(S.keepAwake)keepAwake(true);
   setFollow(true);
   if(lastFix)map.setView([lastFix.lat,lastFix.lon],Math.max(map.getZoom(),16));
   $('#hud').classList.add('on');
   refreshGates();updRecUi();tickHud();
-  toast('Grabando');
+  toast(`${ACT[REC.act][0]} Grabando`+(REC.timers.length?` · ${REC.timers.length} circuito${REC.timers.length>1?'s':''} vigilado${REC.timers.length>1?'s':''}`:''),3000);
 }
 function pauseRec(){
   if(REC.state==='rec'){REC.state='pause';REC.pauseAt=Date.now();toast('En pausa');}
@@ -658,7 +1204,7 @@ function ingest(f){
     if(d<S.minDist&&dt<10){REC.speed=f.speed!=null?f.speed:0;return;}
     REC.dist+=d;
     REC.speed=f.speed!=null?f.speed:d/dt;
-    if(REC.gt)REC.gt.feed(last,p);
+    for(const t of REC.timers)t.gt.feed(last,p);
   }
   REC.pts.push(p);
   REC.poly.addLatLng([p[0],p[1]]);
@@ -666,7 +1212,7 @@ function ingest(f){
 function autosave(){
   if(REC.state==='idle'||REC.pts.length<2)return;
   REC.lastSave=Date.now();
-  DB.put('kv','rec:current',{id:REC.id,t0:REC.t0,pts:REC.pts,circ:S.circ}).catch(()=>{});
+  DB.put('kv','rec:current',{id:REC.id,t0:REC.t0,pts:REC.pts,act:REC.act}).catch(()=>{});
 }
 function updRecUi(){
   const b=$('#recbtn');
@@ -679,18 +1225,23 @@ function tickHud(){
   $('#hD').textContent=fmtD(REC.dist);
   $('#hS').textContent=fmtSp(REC.speed,S.speedMode);
   $('#hSU').textContent=SP_UNIT[S.speedMode];
-  const c=$('#hCirc');
-  if(REC.gt){
+  const c=$('#hCirc'),at=activeTimer();
+  if(at){
     c.hidden=false;
-    const gt=REC.gt,now=lastFix?lastFix.t+(Date.now()-lastFixWall):Date.now();
-    const b=(()=>{let r=REC.circ.best||null;const s=gt.best();if(s&&(!r||s.time<r.time))r=s;return r;})();
-    const closed=REC.circ.type!=='p2p';
-    let h='';
-    if(gt.cur)h+=`<span>${closed?'Vuelta '+(gt.laps.length+1):'Tramo'}</span><b>${fmtT(now-gt.cur.start,true)}</b>`;
-    else h+=`<span>Esperando puerta 1 (largada)</span>`;
-    if(b)h+=`<span>Mejor ${fmtT(b.time,true)}</span>`;
+    const gt=at.gt,now=lastFix?lastFix.t+(Date.now()-lastFixWall):Date.now(),b=at.ref(false),closed=at.circ.type!=='p2p';
+    let h=`<span>${esc(at.circ.name)}</span><span>${closed?'Vuelta '+(gt.laps.length+1):'Tramo'}</span><b>${fmtT(now-gt.cur.start,true)}</b>`;
+    if(b)h+=`<span>🏆 ${fmtT(b.time,true)}</span>`;
     if(REC.last){const g=REC.last.d!=null&&REC.last.d<0;h+=`<span>${esc(REC.last.txt)}</span>`+(REC.last.d!=null?`<span class="d ${g?'good':''}">${REC.last.d<0?'−':'+'}${(Math.abs(REC.last.d)/1000).toFixed(1)}</span>`:'');}
     c.innerHTML=h;
+    if(ghost&&ghost.ent===at){
+      const el=now-gt.cur.start,p=posAt(ghost.pts,el);
+      if(p)ghost.mk.setLatLng(p);
+      if(el>ghost.time+8000)clearGhost();
+    }
+  }else if(REC.timers.length){
+    c.hidden=false;
+    c.innerHTML=`<span>${REC.last?esc(REC.last.txt)+' · ':''}Vigilando ${REC.timers.length} circuito${REC.timers.length>1?'s':''}: cruzá una largada</span>`;
+    clearGhost();
   }else c.hidden=true;
   if(Date.now()-REC.lastSave>30000)autosave();
 }
@@ -699,18 +1250,21 @@ $('#hSpWrap').onclick=()=>{const m=['kmh','minkm','min500'];S.speedMode=m[(m.ind
 
 async function stopFlow(){
   if(REC.state==='rec')pauseRec();
-  const n=REC.pts.length,st=calcStats(REC.pts);
-  const laps=REC.gt?REC.gt.laps.length:0;
+  const st=calcStats(REC.pts);
+  const nl=REC.timers.reduce((a,t)=>a+t.gt.laps.length,0),pbs=REC.timers.reduce((a,t)=>a+t.gt.laps.filter(l=>l.pb).length,0);
   openSheet('Terminar grabación',`
-    <p><b>${fmtD(st.dist)}</b> en <b>${fmtT(elapsed())}</b>${laps?` · ${laps} ${REC.circ.type==='p2p'?'tramos':'vueltas'}`:''}</p>
+    <p><b>${fmtD(st.dist)}</b> en <b>${fmtT(elapsed())}</b>${nl?` · ${nl} marca${nl>1?'s':''} cronometrada${nl>1?'s':''}`:''}${pbs?` · 🏆 ${pbs} récord${pbs>1?'s':''}`:''}</p>
     <label for="rn">Nombre</label><input class="in" id="rn" value="${esc('Salida '+fmtDate(REC.t0))}">
-    <div class="row" style="margin-top:10px">
+    <label>Actividad</label>
+    <div class="chips">${Object.entries(ACT).map(([k,[e,n]])=>`<button data-act="act" data-k="${k}" class="${k===REC.act?'on':''}">${e} ${n}</button>`).join('')}</div>
+    <div class="row" style="margin-top:12px">
       <button class="btn primary" data-act="save">Guardar</button>
       <button class="btn" data-act="resume">Seguir grabando</button>
       <button class="btn danger" data-act="discard">Descartar</button>
-    </div>${n<2?'<p class="mut">Todavía no hay puntos suficientes para guardar.</p>':''}`,
+    </div>${REC.pts.length<2?'<p class="mut">Todavía no hay puntos suficientes para guardar.</p>':''}`,
     async(a,d,el)=>{
-      if(a==='resume'){closeSheet();if(REC.state==='pause')pauseRec();}
+      if(a==='act'){REC.act=d.k;sBody.querySelectorAll('[data-act=act]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
+      else if(a==='resume'){closeSheet();if(REC.state==='pause')pauseRec();}
       else if(a==='discard'){if(armed(el)){await endRec();closeSheet();toast('Descartado');}}
       else if(a==='save'){
         if(REC.pts.length<2){toast('Muy corto para guardar');return;}
@@ -721,25 +1275,22 @@ async function stopFlow(){
 }
 async function saveRec(name){
   const pts=REC.pts.slice();
-  const tr={id:REC.id,name:name||'Salida '+fmtDate(REC.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),
-    circuitId:REC.circ?REC.circ.id:null,laps:REC.gt?REC.gt.laps:[],src:'rec'};
+  const res=REC.timers.filter(t=>t.gt.laps.length).map(t=>({cid:t.circ.id,name:t.circ.name,type:t.circ.type,laps:t.gt.laps.map(l=>({n:l.n,start:l.start,time:l.time,splits:l.splits}))}));
+  const tr={id:REC.id,name:name||'Salida '+fmtDate(REC.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),act:REC.act,res,src:'rec'};
+  await commitRuns(tr);
   await DB.put('kv','track:'+tr.id,tr);
-  if(REC.circ&&tr.laps.length)await updateCircuitBest(REC.circ.id,tr);
+  S.act=REC.act;saveS();updActBtn();
+  const pb=res.reduce((a,r)=>a+r.laps.filter(l=>l.pb).length,0);
   await endRec();
-  toast('Track guardado');
+  toast(pb?`Guardado · 🏆 ${pb} récord${pb>1?'s':''}`:'Track guardado',4000);
   return tr.id;
 }
-async function updateCircuitBest(cid,tr){
-  const c=await DB.get('kv','circuit:'+cid);if(!c||!tr.laps.length)return;
-  const b=bestOf(tr.laps);
-  if(!c.best||b.time<c.best.time){c.best={time:b.time,splits:b.splits,date:tr.t0,trackId:tr.id};await DB.put('kv','circuit:'+cid,c);}
-}
 async function endRec(){
-  stopWatch();keepAwake(false);
+  stopWatch();keepAwake(false);clearGhost();
   if(REC.poly){map.removeLayer(REC.poly);REC.poly=null;}
-  Object.assign(REC,{state:'idle',pts:[],gt:null,circ:null,last:null,dist:0,speed:0});
+  Object.assign(REC,{state:'idle',pts:[],timers:[],last:null,dist:0,speed:0});
   await DB.del('kv','rec:current').catch(()=>{});
-  $('#hud').classList.remove('on');updRecUi();
+  $('#hud').classList.remove('on');updRecUi();refreshGates();
   setFollow(false);startWatch(false);
 }
 $('#recbtn').onclick=()=>{if(REC.state==='idle')startRec();else pauseRec();};
@@ -749,9 +1300,9 @@ async function offerRecover(rc){
   const st=calcStats(rc.pts);
   openSheet('Grabación sin terminar',`<p>La app se cerró durante una grabación: <b>${fmtD(st.dist)}</b>, ${rc.pts.length} puntos, ${fmtDate(rc.t0)}.</p>
     <div class="row"><button class="btn primary" data-act="rsave">Guardar como track</button><button class="btn danger" data-act="rdel">Descartar</button></div>`,
-    async(a,d,el)=>{
+    async a=>{
       if(a==='rsave'){
-        const pts=rc.pts,tr={id:rc.id,name:'Recuperada '+fmtDate(rc.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),circuitId:null,laps:[],src:'rec'};
+        const pts=rc.pts,tr={id:rc.id,name:'Recuperada '+fmtDate(rc.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),act:rc.act||'bike',res:[],src:'rec'};
         await DB.put('kv','track:'+tr.id,tr);await DB.del('kv','rec:current');showTrackDetail(tr.id);
       }else if(a==='rdel'){await DB.del('kv','rec:current');closeSheet();}
     });
@@ -869,35 +1420,43 @@ function showOnMap(tr){
   shown=L.featureGroup(Object.values(segs).map(s=>L.polyline(s,{color:'#1E6BFF',weight:5,opacity:.9}))).addTo(map);
   setFollow(false);closeSheet();map.fitBounds(shown.getBounds(),{padding:[40,40]});
 }
+const trLaps=tr=>resOf(tr).reduce((a,r)=>a+r.laps.length,0);
+const trPbs=tr=>resOf(tr).reduce((a,r)=>a+r.laps.filter(l=>l.pb).length,0);
 async function showTracks(){
   const ts=(await DB.all('kv','track:')).sort((a,b)=>b.t0-a.t0);
   openSheet('Tracks',`<div class="row"><button class="btn" data-act="imp">Importar GPX o backup</button>${shown?'<button class="btn" data-act="hide">Ocultar del mapa</button>':''}</div>
-    ${ts.map(t=>`<div class="item" data-act="open" data-id="${t.id}"><div><b>${esc(t.name)}</b><br><small class="mut">${fmtDate(t.t0)} · ${fmtD(t.stats.dist)}${t.stats.time?' · '+fmtT(t.stats.time):''}${t.laps&&t.laps.length?' · '+t.laps.length+' vueltas':''}</small></div><span>›</span></div>`).join('')||'<p class="mut">Todavía no hay tracks. Tocá el botón rojo para grabar.</p>'}`,
+    ${ts.map(t=>{const pb=trPbs(t),nl=trLaps(t);return `<div class="item" data-act="open" data-id="${t.id}"><div><b>${(ACT[t.act]||ACT.bike)[0]} ${esc(t.name)}</b><br><small class="mut">${fmtDate(t.t0)} · ${fmtD(t.stats.dist)}${t.stats.time?' · '+fmtT(t.stats.time):''}${nl?' · '+nl+' marcas':''}${pb?' · 🏆'+pb:''}</small></div><span>›</span></div>`;}).join('')||'<p class="mut">Todavía no hay tracks. Tocá el botón rojo para grabar.</p>'}`,
     (a,d)=>{if(a==='open')showTrackDetail(d.id);else if(a==='imp')importFile();else if(a==='hide'){hideShown();showTracks();}});
 }
-function lapBlock(laps){
-  const secs=laps.map(lapSectors),nS=secs[0].length;
+function barChart(vals,labels,bestIdx){
+  const W=320,H=110,mx=Math.max(...vals),mn=Math.min(...vals),lo=mn*.9,bw=(W-8)/vals.length;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Tiempos">`+vals.map((v,i)=>{
+    const bh=Math.max(6,(v-lo)/((mx-lo)||1)*(H-26)),x=4+i*bw+bw*.12,w=bw*.76,y=H-18-bh;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${i===bestIdx?'#2E7D5B':'#0E2A36'}"/><text x="${(x+w/2).toFixed(1)}" y="${H-5}" font-size="10" text-anchor="middle" fill="#566B74">${esc(labels[i])}</text>`;
+  }).join('')+`</svg>`;
+}
+function lapBlock(r){
+  const laps=r.laps,secs=laps.map(lapSectors),nS=secs[0].length;
   const bl=bestOf(laps).time,bs=[];
   for(let i=0;i<nS;i++)bs.push(Math.min(...secs.map(s=>s[i])));
   const theo=bs.reduce((a,b)=>a+b,0);
-  let h=`<h3>Vueltas</h3><div class="tblw"><table class="tbl"><tr><th>#</th><th>Tiempo</th>${bs.map((_,i)=>`<th>S${i+1}</th>`).join('')}</tr>`;
-  laps.forEach((l,i)=>{h+=`<tr><td>${l.n}</td><td class="${l.time===bl?'bl':''}">${fmtT(l.time,true)}</td>${secs[i].map((s,j)=>`<td class="${s===bs[j]?'bs':''}">${fmtT(s,true)}</td>`).join('')}</tr>`;});
-  h+=`</table></div><p class="mut">Verde: mejor vuelta · Violeta: mejor sector · Vuelta teórica: <b>${fmtT(theo,true)}</b></p>`;
-  if(laps.length>1){
-    const W=320,H=110,ts=laps.map(l=>l.time),mx=Math.max(...ts),mn=Math.min(...ts),lo=mn*.9,bw=(W-8)/laps.length;
-    h+=`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Tiempos por vuelta">`+laps.map((l,i)=>{
-      const bh=Math.max(6,(l.time-lo)/((mx-lo)||1)*(H-26)),x=4+i*bw+bw*.12,w=bw*.76,y=H-18-bh;
-      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${l.time===bl?'#2E7D5B':'#0E2A36'}"/><text x="${(x+w/2).toFixed(1)}" y="${H-5}" font-size="10" text-anchor="middle" fill="#566B74">${l.n}</text>`;
-    }).join('')+`</svg>`;
-  }
+  let h=`<h3>${esc(r.name||'Circuito')}</h3><div class="tblw"><table class="tbl"><tr><th>#</th><th>Tiempo</th>${bs.map((_,i)=>`<th>S${i+1}</th>`).join('')}</tr>`;
+  laps.forEach((l,i)=>{
+    h+=`<tr><td>${l.pb?'🏆 ':''}${l.n}</td><td class="${l.time===bl?'bl':''}">${fmtT(l.time,true)}</td>${secs[i].map((s,j)=>`<td class="${s===bs[j]?'bs':''}">${fmtT(s,true)}${l.gold&&l.gold[j]?' ⚡':''}</td>`).join('')}</tr>`;
+  });
+  h+=`</table></div>`;
+  const pb=laps.find(l=>l.pb);
+  if(pb)h+=`<p><b>🏆 ¡Récord!</b> ${fmtT(pb.time,true)}${pb.delta!=null?' ('+fmtDelta(pb.delta)+' contra tu marca anterior)':''}</p>`;
+  if(laps.length>1)h+=`<p class="mut">Verde: mejor vuelta · Violeta: mejor sector de esta salida · ⚡ mejor sector de siempre · Vuelta teórica: <b>${fmtT(theo,true)}</b></p>`+barChart(laps.map(l=>l.time),laps.map(l=>l.n),laps.findIndex(l=>l.time===bl));
   return h;
 }
+const fmtDelta=ms=>(ms<0?'−':'+')+(Math.abs(ms)/1000).toFixed(1)+' s';
 async function showTrackDetail(id){
   const tr=await DB.get('kv','track:'+id);if(!tr){showTracks();return;}
-  const s=tr.stats,circ=tr.circuitId?await DB.get('kv','circuit:'+tr.circuitId):null;
-  const u=SP_UNIT[S.speedMode];
+  const s=tr.stats,res=resOf(tr).filter(r=>r.laps.length),u=SP_UNIT[S.speedMode];
   openSheet('Track',`<input class="in" id="tn" value="${esc(tr.name)}" aria-label="Nombre">
-    <p class="mut">${fmtDate(tr.t0)}${circ?' · circuito '+esc(circ.name):''}</p>
+    <p class="mut">${fmtDate(tr.t0)}</p>
+    <div class="chips">${Object.entries(ACT).map(([k,[e,n]])=>`<button data-act="act" data-k="${k}" class="${k===(tr.act||'bike')?'on':''}">${e} ${n}</button>`).join('')}</div>
     <div class="stats">
       <div><b>${fmtD(s.dist)}</b><small>distancia</small></div>
       <div><b>${fmtT(s.time)}</b><small>tiempo total</small></div>
@@ -906,18 +1465,21 @@ async function showTrackDetail(id){
       <div><b>${fmtSp(s.max,S.speedMode)}</b><small>máxima (${u})</small></div>
       <div><b>+${s.gain} / −${s.loss} m</b><small>desnivel</small></div>
     </div>
-    ${tr.laps&&tr.laps.length?lapBlock(tr.laps):(circ?'<p class="mut">Con este circuito no se detectaron vueltas.</p>':'')}
+    ${res.map(lapBlock).join('')}
     <div class="row" style="margin-top:8px">
       <button class="btn primary" data-act="map">Ver en el mapa</button>
       <button class="btn" data-act="gpx">Compartir GPX</button>
-      <button class="btn" data-act="anal">${circ?'Analizar con otro circuito':'Analizar con un circuito'}</button>
+      <button class="btn" data-act="anal">Medir con un circuito</button>
+      <button class="btn" data-act="topath">Usar como sendero en la red</button>
       <button class="btn danger" data-act="del">Borrar</button>
     </div>`,
     async(a,d,el)=>{
       if(a==='map')showOnMap(tr);
+      else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);showTrackDetail(id);}
       else if(a==='gpx')shareFile((tr.name.replace(/[^\w\-]+/g,'_')||'track')+'.gpx',toGPX([tr],[],esc),'application/gpx+xml');
       else if(a==='anal')showAnalPick(id);
-      else if(a==='del'&&armed(el)){await DB.del('kv','track:'+id);toast('Borrado');showTracks();}
+      else if(a==='topath')showTrackToPath(id);
+      else if(a==='del'&&armed(el)){await removeRunsOfTrack(id);await DB.del('kv','track:'+id);toast('Borrado');showTracks();}
     },
     async t=>{if(t.id==='tn'){tr.name=t.value.trim()||tr.name;await DB.put('kv','track:'+id,tr);}});
 }
@@ -925,26 +1487,31 @@ async function showAnalPick(id){
   const cs=(await DB.all('kv','circuit:')).filter(c=>c.gates.length);
   const tr=await DB.get('kv','track:'+id);
   const hasT=tr.pts[0][2]>0;
-  openSheet('Analizar con circuito',
+  openSheet('Medir con un circuito',
     !hasT?'<p>Este track no tiene horas registradas, no se pueden medir tiempos.</p>':
-    cs.length?`<p class="mut">Elegí el circuito para buscar las vueltas en este track.</p>${cs.map(c=>`<button class="btn" data-act="go" data-c="${c.id}">${esc(c.name)}</button>`).join('')}`:
-    '<p>Todavía no hay circuitos con puertas. Creá uno en la pestaña Puertas.</p>',
+    cs.length?`<p class="mut">Elegí el circuito para buscar tus pasadas en este track.</p>${cs.map(c=>`<button class="btn" data-act="go" data-c="${c.id}">${esc(c.name)}</button>`).join('')}`:
+    '<p>Todavía no hay circuitos con puertas. Creá uno en Recorridos.</p>',
     async(a,d)=>{
       if(a==='go'){
-        const c=await DB.get('kv','circuit:'+d.c);
-        tr.circuitId=c.id;tr.laps=analyze(tr.pts,c);
-        await DB.put('kv','track:'+id,tr);await updateCircuitBest(c.id,tr);
-        toast(tr.laps.length?`${tr.laps.length} vueltas detectadas`:'No se detectaron vueltas');showTrackDetail(id);
+        const c=await DB.get('kv','circuit:'+d.c),laps=analyze(tr.pts,c);
+        tr.res=resOf(tr).filter(r=>r.cid!==c.id);
+        if(laps.length)tr.res.push({cid:c.id,name:c.name,type:c.type,laps});
+        tr.act=tr.act||'bike';
+        await commitRuns(tr);await DB.put('kv','track:'+id,tr);
+        toast(laps.length?`${laps.length} pasada${laps.length>1?'s':''} detectada${laps.length>1?'s':''}`:'No se detectaron pasadas');showTrackDetail(id);
       }
     });
 }
 
-/* ---------- Puertas y circuitos ---------- */
+/* ---------- Puertas, circuitos y récords ---------- */
 const gateLayer=L.layerGroup().addTo(map);
+let editingCirc=null,draw=null;
 async function refreshGates(){
   gateLayer.clearLayers();
-  const ids=[];if(S.circ)ids.push(S.circ);if(draw&&draw.circId&&!ids.includes(draw.circId))ids.push(draw.circId);
-  if(editingCirc&&!ids.includes(editingCirc))ids.push(editingCirc);
+  const ids=new Set();
+  if(editingCirc)ids.add(editingCirc);
+  if(draw&&draw.circId)ids.add(draw.circId);
+  REC.timers.forEach(t=>ids.add(t.circ.id));
   for(const id of ids){
     const c=await DB.get('kv','circuit:'+id);if(!c)continue;
     c.gates.forEach((g,i)=>{
@@ -954,28 +1521,73 @@ async function refreshGates(){
     });
   }
 }
-let editingCirc=null,draw=null;
+const medal=i=>['🥇','🥈','🥉'][i]||(i+1)+'.';
 async function showCircuits(){
-  editingCirc=null;
+  editingCirc=null;refreshGates();
   const cs=(await DB.all('kv','circuit:')).sort((a,b)=>a.name.localeCompare(b.name));
-  openSheet('Puertas y circuitos',`<p class="mut">Un circuito es un conjunto de puertas. La primera es la largada (y la meta si es cerrado). Cada tramo entre puertas es un sector.</p>
-    <button class="btn primary" data-act="new">Nuevo circuito</button>
-    ${cs.map(c=>`<div class="item"><div><b>${esc(c.name)}</b><br><small class="mut">${c.type==='p2p'?'Punto a punto':'Cerrado'} · ${c.gates.length} puertas${c.best?' · mejor '+fmtT(c.best.time,true):''}</small></div>
-      <div class="row"><button class="btn sm ${S.circ===c.id?'primary':''}" data-act="use" data-id="${c.id}">${S.circ===c.id?'En uso ✓':'Usar'}</button><button class="btn sm" data-act="edit" data-id="${c.id}">Editar</button></div></div>`).join('')||'<p class="mut">Todavía no hay circuitos.</p>'}
-    ${S.circ?'<button class="btn sm" data-act="none">No usar ningún circuito</button>':''}`,
+  openSheet('Recorridos',`<p class="mut">Un recorrido es un circuito o trayecto con puertas. Mientras grabás, la app cronometra solo los que estén vigilados y guarda tus marcas y récords.</p>
+    <div class="row"><button class="btn primary" data-act="new">Nuevo circuito</button><button class="btn" data-act="badges">🏅 Logros</button></div>
+    ${cs.map(c=>{
+      const mine=RUNS.filter(r=>r.cid===c.id),acts=[...new Set(mine.map(r=>r.act))];
+      const bests=acts.map(a=>`${ACT[a][0]} ${fmtT(bestBy(RUNS,c.id,a,null).time,true)}`).join('  ');
+      return `<div class="item"><div data-act="detail" data-id="${c.id}" style="flex:1"><b>${esc(c.name)}</b><br><small class="mut">${c.type==='p2p'?'Punto a punto':'Cerrado'} · ${c.gates.length} puertas · ${mine.length} marcas${bests?'<br>🏆 '+bests:''}</small></div>
+      <button class="btn sm ${c.watch!==false?'primary':''}" data-act="watch" data-id="${c.id}">${c.watch!==false?'Vigilando ✓':'Sin vigilar'}</button></div>`;
+    }).join('')||'<p class="mut">Todavía no hay circuitos. Podés crearlos acá o guardar una ruta calculada como recorrido.</p>'}`,
     async(a,d)=>{
       if(a==='new'){
-        const c={id:uid(),name:'Circuito '+(cs.length+1),type:'closed',gates:[],best:null};
+        const c={id:uid(),name:'Circuito '+(cs.length+1),type:'closed',gates:[],watch:true};
         await DB.put('kv','circuit:'+c.id,c);showCircuitEdit(c.id);
-      }else if(a==='use'){S.circ=S.circ===d.id?null:d.id;saveS();await refreshGates();toast(S.circ?'Se usará en la próxima grabación':'Sin circuito');showCircuits();}
-      else if(a==='none'){S.circ=null;saveS();refreshGates();showCircuits();}
-      else if(a==='edit')showCircuitEdit(d.id);
+      }else if(a==='watch'){const c=await DB.get('kv','circuit:'+d.id);c.watch=c.watch===false;await DB.put('kv','circuit:'+d.id,c);showCircuits();}
+      else if(a==='detail')showCircuitDetail(d.id);
+      else if(a==='badges')showBadges();
     });
+}
+async function showCircuitDetail(id,act){
+  const c=await DB.get('kv','circuit:'+id);if(!c){showCircuits();return;}
+  editingCirc=id;refreshGates();
+  const mine=RUNS.filter(r=>r.cid===id),acts=[...new Set(mine.map(r=>r.act))];
+  act=act&&acts.includes(act)?act:(acts.includes(S.act)?S.act:acts[0]);
+  let h=`<p class="mut">${c.type==='p2p'?'Punto a punto':'Cerrado'} · ${c.gates.length} puertas</p>`;
+  if(!acts.length)h+='<p>Todavía no hay marcas. Grabá una salida pasando por las puertas y van a aparecer acá.</p>';
+  else{
+    const rs=mine.filter(r=>r.act===act).sort((a,b)=>a.time-b.time),best=rs[0];
+    const recent=mine.filter(r=>r.act===act).sort((a,b)=>b.t0-a.t0),last5=recent.slice(0,5);
+    const avg=last5.reduce((a,r)=>a+r.time,0)/last5.length,sb=sectorBests(RUNS,id,act,null);
+    if(acts.length>1)h+=`<div class="chips">${acts.map(a=>`<button data-act="actf" data-k="${a}" class="${a===act?'on':''}">${ACT[a][0]} ${ACT[a][1]}</button>`).join('')}</div>`;
+    h+=`<div class="stats"><div><b>${fmtT(best.time,true)}</b><small>🏆 récord</small></div><div><b>${rs.length}</b><small>marcas</small></div><div><b>${fmtT(avg)}</b><small>promedio últimas ${last5.length}</small></div></div>
+    <p>Última marca: <b>${fmtT(recent[0].time,true)}</b> (${recent[0].time===best.time?'es tu récord':fmtDelta(recent[0].time-best.time)+' del récord'})</p>
+    <h3>Tus mejores tiempos</h3>${rs.slice(0,5).map((r,i)=>`<div class="item" data-act="tr" data-id="${r.tid}"><div><b>${medal(i)} ${fmtT(r.time,true)}</b><br><small class="mut">${fmtDate(r.t0)}${i?' · '+fmtDelta(r.time-best.time):''}</small></div><span>›</span></div>`).join('')}
+    ${sb.length>1?`<h3>Mejores sectores</h3><p>${sb.map((s,i)=>`S${i+1} <b>${fmtT(s,true)}</b>`).join(' · ')}<br><span class="mut">Vuelta teórica: <b>${fmtT(sb.reduce((a,b)=>a+b,0),true)}</b></span></p>`:''}`;
+    const ev=recent.slice(0,15).reverse();
+    if(ev.length>1)h+=`<h3>Evolución</h3>`+barChart(ev.map(r=>r.time),ev.map((_,i)=>i+1),ev.findIndex(r=>r.time===best.time));
+  }
+  h+=`<div class="row" style="margin-top:10px"><button class="btn" data-act="edit">Editar puertas</button><button class="btn sm ${c.watch!==false?'primary':''}" data-act="watch">${c.watch!==false?'Vigilando ✓':'Sin vigilar'}</button><button class="btn" data-act="back">Volver</button></div>
+    ${mine.length?'<button class="btn danger sm" data-act="reset">Reiniciar récords de este circuito</button>':''}`;
+  openSheet('Circuito',h,async(a,d,el)=>{
+    if(a==='actf')showCircuitDetail(id,d.k);
+    else if(a==='tr')showTrackDetail(d.id);
+    else if(a==='edit')showCircuitEdit(id);
+    else if(a==='watch'){c.watch=c.watch===false;await DB.put('kv','circuit:'+id,c);showCircuitDetail(id,act);}
+    else if(a==='back')showCircuits();
+    else if(a==='reset'&&armed(el)){
+      for(const r of mine)await DB.del('kv','run:'+r.id);
+      RUNS=RUNS.filter(r=>r.cid!==id);toast('Récords reiniciados');showCircuitDetail(id);
+    }
+  });
+}
+async function showBadges(){
+  const tracks=await DB.all('kv','track:');
+  const st=streaks(tracks.map(t=>t.t0));
+  const info={runs:RUNS.length,recs:RUNS.filter(r=>r.rec).length,streak:st.best,circs:new Set(RUNS.map(r=>r.cid)).size,km:tracks.reduce((a,t)=>a+t.stats.dist,0)/1000};
+  const B=badgeList(info);
+  openSheet('Logros',`<div class="stats"><div><b>${info.runs}</b><small>marcas</small></div><div><b>${info.recs}</b><small>récords</small></div><div><b>${st.cur}</b><small>días de racha</small></div></div>
+    <div class="badges">${B.map(b=>`<div class="badge ${b.have?'have':''}"><span class="ic">${b.icon}</span><br><b>${esc(b.name)}</b><br><small class="mut">${esc(b.desc)}</small>${b.have?'':`<br><small>${Math.floor(b.val)} / ${b.goal}</small>`}</div>`).join('')}</div>
+    <div class="row" style="margin-top:12px"><button class="btn" data-act="back">Volver</button></div>`,
+    a=>{if(a==='back')showCircuits();});
 }
 async function showCircuitEdit(id){
   const c=await DB.get('kv','circuit:'+id);if(!c){showCircuits();return;}
   editingCirc=id;refreshGates();
-  const hist=(await DB.all('kv','track:')).filter(t=>t.circuitId===id&&t.laps&&t.laps.length).sort((a,b)=>b.t0-a.t0).slice(0,8);
   openSheet('Circuito',`<label for="cn">Nombre</label><input class="in" id="cn" value="${esc(c.name)}">
     <label>Tipo</label><div class="seg"><button data-act="type" data-k="closed" class="${c.type!=='p2p'?'on':''}">Cerrado (vueltas)</button><button data-act="type" data-k="p2p" class="${c.type==='p2p'?'on':''}">Punto a punto</button></div>
     <h3>Puertas (${c.gates.length})</h3>
@@ -983,46 +1595,511 @@ async function showCircuitEdit(id){
     <div class="row" style="margin-top:8px"><button class="btn primary" data-act="draw">Dibujar en el mapa</button><button class="btn" data-act="here">Puerta acá</button></div>
     <label for="gw">Ancho de "Puerta acá" (m)</label><input class="in" id="gw" type="number" min="5" max="200" value="${S.gateW}">
     <p class="mut">"Puerta acá" se coloca donde estás, cruzada al sentido en que venís avanzando. En kayak o trail conviene 30 m o más por la imprecisión del GPS.</p>
-    ${hist.length?`<h3>Historial</h3>${hist.map(t=>`<div class="item" data-act="tr" data-id="${t.id}"><div><b>${fmtDate(t.t0)}</b><br><small class="mut">${t.laps.length} vueltas · mejor ${fmtT(bestOf(t.laps).time,true)}</small></div><span>›</span></div>`).join('')}`:''}
-    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="use">${S.circ===id?'En uso ✓':'Usar en la próxima grabación'}</button><button class="btn" data-act="back">Volver</button><button class="btn danger" data-act="del">Borrar circuito</button></div>`,
+    <label class="chk"><input type="checkbox" id="cw" ${c.watch!==false?'checked':''}> Vigilar en cada grabación</label>
+    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Listo</button><button class="btn danger" data-act="del">Borrar circuito</button></div>`,
     async(a,d,el)=>{
-      if(a==='type'){c.type=d.k;await DB.put('kv','circuit:'+id,c);showCircuitEdit(id);}
-      else if(a==='gdel'){c.gates.splice(+d.i,1);c.best=null;await DB.put('kv','circuit:'+id,c);showCircuitEdit(id);}
-      else if(a==='draw'){startDraw(id);}
+      const save=()=>DB.put('kv','circuit:'+id,c);
+      if(a==='type'){c.type=d.k;await save();await resetRunsOf(id);showCircuitEdit(id);}
+      else if(a==='gdel'){c.gates.splice(+d.i,1);await save();await resetRunsOf(id);showCircuitEdit(id);}
+      else if(a==='draw')startDraw(id);
       else if(a==='here'){
         if(!lastFix){toast('Todavía no hay GPS');return;}
         let brg=null;
         if(lastFix.speed>0.7&&lastFix.brg!=null&&!isNaN(lastFix.brg))brg=lastFix.brg;
         else if(fixHist.length>1){const a0=fixHist[0];if(hav([a0.lat,a0.lon],[lastFix.lat,lastFix.lon])>6)brg=bearingTo([a0.lat,a0.lon],[lastFix.lat,lastFix.lon]);}
         if(brg==null){toast('Caminá o remá unos metros para tomar el rumbo, o dibujá la puerta en el mapa',5000);return;}
-        c.gates.push(gateAt([lastFix.lat,lastFix.lon],brg,S.gateW));c.best=null;
-        await DB.put('kv','circuit:'+id,c);showCircuitEdit(id);
+        c.gates.push(gateAt([lastFix.lat,lastFix.lon],brg,S.gateW));await save();await resetRunsOf(id);showCircuitEdit(id);
       }
-      else if(a==='use'){S.circ=S.circ===id?null:id;saveS();await refreshGates();showCircuitEdit(id);}
-      else if(a==='tr')showTrackDetail(d.id);
-      else if(a==='back')showCircuits();
-      else if(a==='del'&&armed(el)){await DB.del('kv','circuit:'+id);if(S.circ===id){S.circ=null;saveS();}editingCirc=null;await refreshGates();showCircuits();}
+      else if(a==='ok')showCircuitDetail(id);
+      else if(a==='del'&&armed(el)){await DB.del('kv','circuit:'+id);await resetRunsOf(id);editingCirc=null;refreshGates();showCircuits();}
     },
     async t=>{
       if(t.id==='cn'){c.name=t.value.trim()||c.name;await DB.put('kv','circuit:'+id,c);}
       else if(t.id==='gw'){S.gateW=Math.max(5,Math.min(200,+t.value||30));saveS();}
+      else if(t.id==='cw'){c.watch=t.checked;await DB.put('kv','circuit:'+id,c);}
     });
 }
-function banner(txt){const b=$('#banner');if(!txt){b.hidden=true;return;}$('#bTxt').textContent=txt;b.hidden=false;}
+/* Si cambian las puertas, las marcas viejas dejan de ser comparables */
+async function resetRunsOf(cid){
+  const del=RUNS.filter(r=>r.cid===cid);
+  if(!del.length)return;
+  for(const r of del)await DB.del('kv','run:'+r.id);
+  RUNS=RUNS.filter(r=>r.cid!==cid);
+  toast('Cambiaron las puertas: se reiniciaron las marcas de este circuito',4500);
+}
+function banner(txt,opts){
+  const b=$('#banner');
+  if(!txt){b.hidden=true;return;}
+  $('#bTxt').textContent=txt;b.hidden=false;
+  $('#bUndo').hidden=!(opts&&opts.undo);$('#bOk').hidden=!(opts&&opts.ok);
+}
 function startDraw(id){draw={circId:id,pts:[],mk:[]};closeSheet();banner('Tocá el primer extremo de la puerta');}
-$('#bCancel').onclick=()=>{if(draw){draw.mk.forEach(m=>m.remove());const id=draw.circId;draw=null;banner(null);showCircuitEdit(id);}};
-map.on('click',async e=>{
-  if(!draw)return;
+function cancelDraw(){if(draw){draw.mk.forEach(m=>m.remove());const id=draw.circId;draw=null;banner(null);showCircuitEdit(id);}}
+async function onDrawClick(e){
   const ll=[e.latlng.lat,e.latlng.lng];
   draw.pts.push(ll);
   draw.mk.push(L.circleMarker(ll,{radius:8,color:'#F04A1C',weight:3,fillColor:'#fff',fillOpacity:1,interactive:false}).addTo(map));
   if(draw.pts.length===1){banner('Ahora tocá el otro extremo');return;}
   const id=draw.circId,pts=draw.pts;draw.mk.forEach(m=>m.remove());draw=null;banner(null);
-  const c=await DB.get('kv','circuit:'+id);c.gates.push({a:pts[0],b:pts[1]});c.best=null;
-  await DB.put('kv','circuit:'+id,c);showCircuitEdit(id);
-});
+  const c=await DB.get('kv','circuit:'+id);c.gates.push({a:pts[0],b:pts[1]});
+  await DB.put('kv','circuit:'+id,c);await resetRunsOf(id);showCircuitEdit(id);
+}
 
-/* ---------- Ajustes y backup ---------- */
+/* ---------- Red de calles y rutas ---------- */
+const MI={foot:'🚶',bike:'🚴',car:'🚗'},MC={foot:'#1E6BFF',bike:'#2E7D5B',car:'#F04A1C'},MN={foot:'A pie',bike:'En bici',car:'En auto'};
+const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],peatonal:['🚶','Paso peatonal'],ciclovia:['🚲','Ciclovía'],calle:['🛣️','Calle']};
+const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36'};
+const routeLayer=L.layerGroup().addTo(map),editLayer=L.layerGroup().addTo(map),pickLayer=L.layerGroup().addTo(map);
+const RT={from:null,to:null,res:null,sel:null,dep:'',sr:{}};
+let G=null,GP=null,PICK=null;
+
+function ensureGraph(){
+  if(G)return Promise.resolve(G);
+  if(!GP)GP=(async()=>{
+    const nets=await DB.all('kv','net:');
+    if(!nets.length){GP=null;return null;}
+    const edits=await DB.all('kv','edit:');
+    const ov=new Map();
+    edits.filter(e=>e.type==='ov').forEach(e=>ov.set(`${e.way}:${e.n1}:${e.n2}`,{dir:e.dir,all:!!e.all}));
+    await new Promise(r=>setTimeout(r,0));
+    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{vFoot:S.vFoot,vBike:S.vBike,carF:S.carF});
+    GP=null;return G;
+  })();
+  return GP;
+}
+function dropGraph(){G=null;GP=null;}
+
+/* Descarga de la red desde OpenStreetMap (Overpass) */
+const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+const KEEP=['highway','name','oneway','junction','access','foot','bicycle','motor_vehicle','motorcar','vehicle','maxspeed','service','oneway:bicycle','cycleway','cycleway:left','cycleway:right'];
+async function fetchNet(bb){
+  const q=`[out:json][timeout:120];way["highway"]["highway"!~"^(proposed|construction|abandoned|razed|platform|bus_stop|raceway|elevator|rest_area|services|no)$"](${bb.s},${bb.w},${bb.n},${bb.e});out geom qt;`;
+  let last;
+  for(const url of OVERPASS){
+    try{
+      const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),130000);
+      const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});
+      clearTimeout(to);
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      const j=await r.json(),ways=[];
+      for(const el of j.elements||[]){
+        if(el.type!=='way'||!el.geometry||!el.nodes||el.geometry.length!==el.nodes.length||el.geometry.some(g=>!g))continue;
+        const t={};for(const k of KEEP)if(el.tags&&el.tags[k]!=null)t[k]=el.tags[k];
+        const p=[];for(const g of el.geometry)p.push(+g.lat.toFixed(6),+g.lon.toFixed(6));
+        ways.push({id:el.id,t,n:el.nodes,p});
+      }
+      if(!ways.length)throw new Error('no hay calles en esa zona');
+      return ways;
+    }catch(e){last=e;}
+  }
+  throw last||new Error('sin conexión');
+}
+const viewKm=()=>{const b=map.getBounds();return [(b.getEast()-b.getWest())*111.32*Math.cos((b.getNorth()+b.getSouth())/2*rad),(b.getNorth()-b.getSouth())*110.54];};
+async function dlNet(){
+  const btn=$('#netgo'),msg=$('#netmsg'),b=map.getBounds(),[wk,hk]=viewKm();
+  if(wk>25||hk>25){msg.textContent='La zona es muy grande (máximo 25 km por lado). Acercá el mapa.';return false;}
+  btn.disabled=true;msg.textContent='Descargando… puede tardar hasta un minuto.';
+  try{
+    const ways=await fetchNet({s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()});
+    const id=uid();
+    await DB.put('kv','net:'+id,{id,bb:{s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()},date:Date.now(),ways});
+    dropGraph();toast(`Red descargada: ${ways.length} calles y senderos`,4000);
+    return true;
+  }catch(e){
+    const m=$('#netmsg'),bt=$('#netgo');
+    if(m)m.textContent='No se pudo descargar: '+(e.message||e)+'. Revisá la conexión y probá de nuevo.';
+    if(bt)bt.disabled=false;
+    return false;
+  }
+}
+function showNetDownload(){
+  const [wk,hk]=viewKm();
+  openSheet('Rutas',`<p>Para calcular rutas, Rumbo necesita la red de calles y senderos de OpenStreetMap de tu zona. Se baja una sola vez, con internet, y queda guardada en el teléfono.</p>
+    <p class="mut">Encuadrá la ciudad en el mapa: se baja lo que ves. Ahora son unos ${wk.toFixed(1)} × ${hk.toFixed(1)} km (máximo 25 km por lado).</p>
+    <button class="btn primary" id="netgo" data-act="dl">Descargar red de esta zona</button><p id="netmsg" class="mut"></p>`,
+    async a=>{if(a==='dl'&&await dlNet())showRoutes();});
+}
+
+/* Rutas */
+const depMs=()=>{if(!RT.dep)return Date.now();const [h,m]=RT.dep.split(':').map(Number),d=new Date();d.setHours(h,m,0,0);return d.getTime();};
+const errText=r=>!r?'':r.err==='origen'?'No hay calles cerca del origen (a menos de 500 m).':r.err==='destino'?'No hay calles cerca del destino.':'No hay un camino conectado. Si sabés que existe, agregalo en Correcciones.';
+function drawRoute(fit){
+  routeLayer.clearLayers();
+  const r=RT.res&&RT.res[RT.sel];
+  const ends=[];
+  if(r&&!r.err){
+    L.polyline(r.coords,{color:'#fff',weight:10,opacity:.9,interactive:false}).addTo(routeLayer);
+    L.polyline(r.coords,{color:MC[RT.sel],weight:6,interactive:false}).addTo(routeLayer);
+    ends.push(['A',r.coords[0]],['B',r.coords[r.coords.length-1]]);
+  }else{
+    if(RT.from)ends.push(['A',[RT.from.lat,RT.from.lon]]);
+    if(RT.to)ends.push(['B',[RT.to.lat,RT.to.lon]]);
+  }
+  ends.forEach(([t,c])=>L.marker(c,{interactive:false,icon:L.divIcon({html:`<div class="gl s">${t}</div>`,className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(routeLayer));
+  if(fit&&r&&!r.err)map.fitBounds(L.latLngBounds(r.coords),{paddingTopLeft:[24,24],paddingBottomRight:[24,360]});
+}
+function resultsHtml(){
+  const start=depMs();
+  let h='<h3>Resultado</h3>';
+  for(const m of MODES){
+    const r=RT.res[m];
+    if(!r||r.err){h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${errText(r)}</span></div>`;continue;}
+    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás a las <b>${hhmm(start+r.time*1000)}</b></div>`;
+  }
+  const r=RT.res[RT.sel];
+  if(r&&!r.err)h+=`<div class="row"><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button><button class="btn sm" data-act="rclear">Quitar del mapa</button></div>
+    <h3>Indicaciones</h3>${r.steps.map(s=>`<div class="item"><div>${esc(s.text)}</div><small class="mut">${s.dist?fmtD(s.dist):''}</small></div>`).join('')}`;
+  return h;
+}
+async function calcRoutes(g){
+  const from=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon,label:'Mi posición'}:null);
+  if(!from){toast('Todavía sin GPS: elegí el origen en el mapa o buscá una calle',4500);return;}
+  if(!RT.to){toast('Elegí el destino');return;}
+  RT.res={};
+  for(const m of MODES)RT.res[m]=findRoute(g,m,from,RT.to);
+  RT.calcFrom=from;
+  const ok=m=>RT.res[m]&&!RT.res[m].err;
+  RT.sel=ok(S.routeMode)?S.routeMode:MODES.find(ok)||S.routeMode;
+  drawRoute(true);showRoutes();
+}
+async function showRoutes(){
+  let g;
+  try{g=await ensureGraph();}catch(e){toast('No se pudo preparar la red: '+e.message,5000);return;}
+  if(!g){showNetDownload();return;}
+  drawRoute(false);
+  const fromL=RT.from?RT.from.label:'Mi posición',toL=RT.to?RT.to.label:'Sin elegir';
+  const h=`<h3>Desde</h3><div class="card"><b>${esc(fromL)}</b></div>
+    <div class="row"><button class="btn sm" data-act="fmine">Mi posición</button><button class="btn sm" data-act="fpick">En el mapa</button></div>
+    <input class="in" id="qf" placeholder="Buscar calle o esquina (ej: San Martín y Roca)" enterkeyhint="search"><div id="rf" class="row"></div>
+    <h3>Hasta</h3><div class="card"><b>${esc(toL)}</b></div>
+    <div class="row"><button class="btn sm" data-act="tpick">En el mapa</button><button class="btn sm" data-act="tpts">Un punto guardado</button></div>
+    <input class="in" id="qq" placeholder="Buscar calle o esquina" enterkeyhint="search"><div id="rq" class="row"></div>
+    <label for="dep">Salida (vacío = ahora)</label><input class="in" id="dep" type="time" value="${esc(RT.dep)}">
+    <button class="btn primary" data-act="calc" style="margin-top:10px">Calcular ruta</button>
+    <div id="rres">${RT.res?resultsHtml():''}</div>`;
+  openSheet('Rutas',h,async(a,d)=>{
+    if(a==='fmine'){RT.from=null;showRoutes();}
+    else if(a==='fpick'||a==='tpick'){PICK={type:'pt',target:a==='fpick'?'from':'to'};closeSheet();banner(`Tocá en el mapa el punto de ${a==='fpick'?'partida':'llegada'}`);}
+    else if(a==='tpts')showPickWpt();
+    else if(a==='setf'||a==='sett'){const r=RT.sr[a==='setf'?'f':'q'][+d.i];RT[a==='setf'?'from':'to']={lat:r.lat,lon:r.lon,label:r.label};RT.res=null;showRoutes();}
+    else if(a==='calc')calcRoutes(g);
+    else if(a==='selm'){RT.sel=d.m;drawRoute(true);showRoutes();}
+    else if(a==='rfit'){closeSheet();drawRoute(true);}
+    else if(a==='rclear'){routeLayer.clearLayers();RT.res=null;showRoutes();}
+    else if(a==='rgpx'){const r=RT.res[RT.sel];shareFile('ruta.gpx',toGPX([{name:'Ruta',pts:r.coords.map(c=>[c[0],c[1],0,0,null,0])}],[],esc),'application/gpx+xml');}
+    else if(a==='rsave')showSaveRoute();
+  },t=>{
+    if(t.id==='qf'||t.id==='qq'){
+      const c=lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng],res=searchPlaces(g,t.value,c),k=t.id==='qf'?'f':'q';
+      RT.sr[k]=res;
+      $(k==='f'?'#rf':'#rq').innerHTML=res.length?res.map((r,i)=>`<button class="btn sm" data-act="${k==='f'?'setf':'sett'}" data-i="${i}">${esc(r.label)} · ${fmtD(r.d)}</button>`).join(''):'<p class="mut">Sin resultados en la red descargada.</p>';
+    }else if(t.id==='dep')RT.dep=t.value;
+  });
+  if(RT.res){const r=$('#rres');if(r)sBody.scrollTop=Math.max(0,r.offsetTop-70);}
+}
+async function showPickWpt(){
+  const ws=(await DB.all('kv','wpt:')).sort((a,b)=>b.t-a.t);
+  openSheet('Elegir punto',ws.length?ws.map(w=>`<div class="item" data-act="pw" data-id="${w.id}"><b>${(WT[w.type]||WT.punto)[0]} ${esc(w.name)}</b><span>›</span></div>`).join(''):'<p class="mut">Todavía no marcaste puntos.</p>',
+    (a,d)=>{if(a==='pw'){const w=ws.find(x=>x.id===d.id);RT.to={lat:w.lat,lon:w.lon,label:w.name};RT.res=null;showRoutes();}});
+}
+function showSaveRoute(){
+  const r=RT.res[RT.sel],f=RT.calcFrom||RT.from||{label:'Mi posición'},def=r.dist>=3000?'1000':'0';
+  openSheet('Guardar recorrido',`<label for="sn">Nombre</label><input class="in" id="sn" value="${esc(f.label+' → '+RT.to.label)}">
+    <label for="ss">Sectores intermedios</label>
+    <select class="in" id="ss"><option value="0">Ninguno</option><option value="500">Cada 500 m</option><option value="1000">Cada 1 km</option><option value="2000">Cada 2 km</option><option value="5000">Cada 5 km</option></select>
+    <p class="mut">Se crea un recorrido punto a punto con puertas en la salida, la llegada y cada sector. Se vigila solo cuando grabás y va guardando tus tiempos y récords.</p>
+    <button class="btn primary" data-act="ok">Guardar recorrido</button> <button class="btn" data-act="back">Volver</button>`,
+    async a=>{
+      if(a==='back')showRoutes();
+      else if(a==='ok'){
+        const total=r.dist,step=+$('#ss').value,mk=d=>{const p=pointAlong(r.coords,d);return gateAt([p.lat,p.lon],p.brg,40);};
+        const gates=[mk(Math.min(15,total*.1))];
+        if(step)for(let d=step;d<total-Math.max(150,step*.4);d+=step)gates.push(mk(d));
+        gates.push(mk(Math.max(total-15,total*.9)));
+        const c={id:uid(),name:$('#sn').value.trim()||'Recorrido',type:'p2p',gates,watch:true};
+        await DB.put('kv','circuit:'+c.id,c);
+        toast('Recorrido guardado 🏁',3500);showCircuitDetail(c.id);
+      }
+    });
+  $('#ss').value=def;
+}
+
+/* Correcciones de la red */
+const dirLabel=(ov,prof)=>{
+  if(ov)return {closed:ov.all?'cerrada para todos':'cerrada a vehículos',two:'doble sentido',fwd:'un sentido, con la flecha',rev:'un sentido, contra la flecha'}[ov.dir];
+  const ow=prof.car.ok?prof.car.ow:prof.bike.ow;
+  return ow===0?'doble sentido (según OpenStreetMap)':ow===1?'un sentido, con la flecha (según OpenStreetMap)':'un sentido, contra la flecha (según OpenStreetMap)';
+};
+async function drawEdits(){
+  editLayer.clearLayers();
+  const edits=await DB.all('kv','edit:');
+  for(const e of edits)if(e.type==='path')L.polyline(e.pts,{color:KCOL[e.kind]||'#B0157A',weight:4,dashArray:'6 6',interactive:false}).addTo(editLayer);
+  if(edits.some(e=>e.type==='ov')){
+    let g=null;try{g=await ensureGraph();}catch(er){}
+    if(g)for(const e of edits)if(e.type==='ov'){
+      const col=e.dir==='closed'?'#F04A1C':'#E0A100';
+      g.blockEdges(`${e.way}:${e.n1}:${e.n2}`).forEach(ei=>{const x=g.E[ei];L.polyline([[g.lat[x.a],g.lon[x.a]],[g.lat[x.b],g.lon[x.b]]],{color:col,weight:6,opacity:.8,interactive:false}).addTo(editLayer);});
+    }
+  }
+}
+async function showFix(){
+  const nets=await DB.all('kv','net:'),edits=(await DB.all('kv','edit:')).sort((a,b)=>b.created-a.created);
+  const nW=nets.reduce((a,n)=>a+n.ways.length,0);
+  let h=`<p class="mut">Red de calles: ${nets.length?`${nW} tramos en ${nets.length} zona${nets.length>1?'s':''}`:'todavía no descargaste ninguna'}.</p>
+    <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar esta zona':'Descargar red de esta zona'}</button>${nets.length?'<button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div><p id="netmsg" class="mut"></p>`;
+  if(nets.length)h+=`<h3>Corregir el mapa</h3>
+    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">🥾<br>Sendero o escalera nuevos</button><button class="btn big" data-act="pickway">↔️<br>Sentido o cierre de una calle</button></div>`;
+  if(edits.length)h+=`<h3>Tus correcciones (${edits.length})</h3>`+edits.map(e=>{
+    const t=e.type==='path'?`${KIND_UI[e.kind][0]} ${esc(e.name||KIND_UI[e.kind][1])}`:`↔️ ${esc(e.name||'Calle')} · ${dirLabel({dir:e.dir,all:e.all})}`;
+    return `<div class="item"><div><b>${t}</b><br><small class="mut">${fmtDate(e.created)}</small></div><div class="row"><button class="btn sm" data-act="eview" data-id="${e.id}">Ver</button><button class="btn sm danger" data-act="edel" data-id="${e.id}">Quitar</button></div></div>`;
+  }).join('');
+  openSheet('Correcciones',h,async(a,d,el)=>{
+    if(a==='dl'){if(await dlNet())showFix();}
+    else if(a==='netdel'){if(armed(el)){for(const n of nets)await DB.del('kv','net:'+n.id);dropGraph();toast('Red borrada');showFix();}}
+    else if(a==='newpath')showPathForm();
+    else if(a==='pickway'){PICK={type:'way'};closeSheet();banner('Tocá la calle que querés corregir');}
+    else if(a==='edel'){if(armed(el)){await DB.del('kv','edit:'+d.id);dropGraph();await drawEdits();showFix();}}
+    else if(a==='eview'){
+      const e=edits.find(x=>x.id===d.id);
+      if(e.type==='path'){closeSheet();map.fitBounds(L.latLngBounds(e.pts),{padding:[50,50]});}
+      else{const g=await ensureGraph();const es=g.blockEdges(`${e.way}:${e.n1}:${e.n2}`);if(es.length){const x=g.E[es[0]];closeSheet();map.setView([g.lat[x.a],g.lon[x.a]],18);}}
+    }
+  });
+}
+const PF={kind:'sendero',name:'',oneway:0};
+function showPathForm(){
+  openSheet('Sendero o escalera nuevos',`<label>Tipo</label>
+    <div class="chips">${Object.entries(KIND_UI).map(([k,[e,n]])=>`<button data-act="kind" data-k="${k}" class="${k===PF.kind?'on':''}">${e} ${n}</button>`).join('')}</div>
+    <label for="pn">Nombre (opcional)</label><input class="in" id="pn" value="${esc(PF.name)}">
+    <label>Sentido (solo importa para bici y auto)</label>
+    <div class="chips">${[[0,'Ambos'],[1,'Solo como lo dibujo'],[-1,'Solo al revés']].map(([v,n])=>`<button data-act="ow" data-v="${v}" class="${v===PF.oneway?'on':''}">${n}</button>`).join('')}</div>
+    <p class="mut">Después vas a dibujarlo tocando puntos en el mapa. Si empieza o termina cerca de una calle (a menos de 25 m), se conecta solo. Una escalera sirve a pie y en bici empujando, no en auto.</p>
+    <button class="btn primary" data-act="draw" style="margin-top:8px">Dibujar en el mapa</button> <button class="btn" data-act="back">Volver</button>`,
+    (a,d)=>{
+      if(a==='kind'){PF.kind=d.k;sBody.querySelectorAll('[data-act=kind]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
+      else if(a==='ow'){PF.oneway=+d.v;sBody.querySelectorAll('[data-act=ow]').forEach(b=>b.classList.toggle('on',+b.dataset.v===PF.oneway));}
+      else if(a==='draw'){
+        PF.name=$('#pn').value.trim();
+        PICK={type:'path',pts:[],mk:[],line:L.polyline([],{color:KCOL[PF.kind],weight:5,dashArray:'6 6',interactive:false}).addTo(pickLayer)};
+        closeSheet();banner('Tocá los puntos del recorrido, uno tras otro',{});
+      }
+      else if(a==='back')showFix();
+    });
+}
+function cancelPick(){
+  const p=PICK;PICK=null;pickLayer.clearLayers();banner(null);
+  if(p)(p.type==='pt'?showRoutes:p.type==='ovl'?()=>showOvlAdjust(p.id):showFix)();
+}
+async function finishPath(){
+  const p=PICK;PICK=null;pickLayer.clearLayers();banner(null);
+  if(!p||p.pts.length<2){toast('Hacen falta al menos 2 puntos');showFix();return;}
+  const e={type:'path',id:uid(),kind:PF.kind,name:PF.name,oneway:PF.oneway,pts:p.pts,created:Date.now()};
+  await DB.put('kv','edit:'+e.id,e);dropGraph();
+  let msg='Guardado';
+  try{
+    const g=await ensureGraph(),w=g.W.find(x=>x.id==='u:'+e.id);
+    if(w){const a=g.adj[w.nodes[0]].length>1,b=g.adj[w.nodes[w.nodes.length-1]].length>1;
+      msg=a&&b?'Guardado y conectado en los dos extremos':(a||b)?'Guardado, pero un extremo quedó sin conectar a ninguna calle':'Guardado, pero no quedó conectado a ninguna calle';}
+  }catch(er){}
+  toast(msg,5000);await drawEdits();showFix();
+}
+async function pickWayAt(ll){
+  const g=await ensureGraph();
+  const h=g&&g.nearestEdge(ll.lat,ll.lon,40,e=>e.blk);
+  if(!h){toast('No hay una calle cerca. Acercá el mapa y tocá sobre la calle.',4500);return;}
+  const e=g.E[h.ei],w=g.W[e.w],[wid,n1,n2]=e.blk.split(':');
+  pickLayer.clearLayers();
+  let len=0;
+  g.blockEdges(e.blk).forEach(ei=>{const x=g.E[ei];len+=x.len;L.polyline([[g.lat[x.a],g.lon[x.a]],[g.lat[x.b],g.lon[x.b]]],{color:'#FFC400',weight:9,opacity:.9,interactive:false}).addTo(pickLayer);});
+  const a=[g.lat[e.a],g.lon[e.a]],b=[g.lat[e.b],g.lon[e.b]],brg=bearingTo(a,b);
+  L.marker([(a[0]+b[0])/2,(a[1]+b[1])/2],{interactive:false,icon:L.divIcon({html:`<div class="arrow" style="transform:rotate(${brg-90}deg)">➤</div>`,className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(pickLayer);
+  PICK=null;banner(null);
+  const info={key:e.blk,wid:Number(wid),n1:Number(n1),n2:Number(n2),name:w.name};
+  const save=async(dir,all)=>{
+    const id=`ov_${info.wid}_${info.n1}_${info.n2}`;
+    await DB.put('kv','edit:'+id,{type:'ov',id,way:info.wid,n1:info.n1,n2:info.n2,dir,all:!!all,name:info.name,created:Date.now()});
+    dropGraph();toast('Corrección guardada');pickLayer.clearLayers();await drawEdits();showFix();
+  };
+  openSheet('Sentido o cierre',`<p><b>${esc(w.name||'Calle sin nombre')}</b> · ${Math.round(len)} m entre esquinas</p>
+    <p>Hoy: <b>${dirLabel(e.ov,w.prof)}</b></p>
+    <p class="mut">La flecha amarilla marca el sentido de trazado del mapa. La corrección vale para bici y auto; a pie no cambia, salvo "cerrada para todos".</p>
+    <div class="row"><button class="btn" data-act="two">↔️ Doble sentido</button><button class="btn" data-act="fwd">➤ Solo con la flecha</button><button class="btn" data-act="rev">◀ Solo contra la flecha</button></div>
+    <div class="row"><button class="btn danger" data-act="cv">⛔ Cerrada a vehículos</button><button class="btn danger" data-act="ca">⛔ Cerrada para todos</button></div>
+    <div class="row"><button class="btn sm" data-act="reset">Volver a lo que dice el mapa</button><button class="btn sm" data-act="back">Cancelar</button></div>`,
+    async(act)=>{
+      if(act==='two')save('two');else if(act==='fwd')save('fwd');else if(act==='rev')save('rev');
+      else if(act==='cv')save('closed',false);else if(act==='ca')save('closed',true);
+      else if(act==='reset'){await DB.del('kv',`edit:ov_${info.wid}_${info.n1}_${info.n2}`);dropGraph();pickLayer.clearLayers();await drawEdits();showFix();}
+      else if(act==='back'){pickLayer.clearLayers();showFix();}
+    });
+}
+function onPickClick(e){
+  const ll={lat:e.latlng.lat,lon:e.latlng.lng};
+  if(PICK.type==='pt'){
+    RT[PICK.target]={lat:ll.lat,lon:ll.lon,label:'Punto en el mapa'};RT.res=null;
+    PICK=null;banner(null);showRoutes();
+  }else if(PICK.type==='way')pickWayAt(ll);
+  else if(PICK.type==='ovl')ovlPick(ll);
+  else if(PICK.type==='path'){
+    PICK.pts.push([ll.lat,ll.lon]);
+    PICK.mk.push(L.circleMarker([ll.lat,ll.lon],{radius:6,color:KCOL[PF.kind],weight:3,fillColor:'#fff',fillOpacity:1,interactive:false}).addTo(pickLayer));
+    PICK.line.setLatLngs(PICK.pts);
+    banner(`Sendero: ${PICK.pts.length} punto${PICK.pts.length>1?'s':''}. Tocá el siguiente o "Listo".`,{undo:true,ok:PICK.pts.length>=2});
+  }
+}
+function undoPick(){
+  if(!PICK||PICK.type!=='path'||!PICK.pts.length)return;
+  PICK.pts.pop();const m=PICK.mk.pop();if(m)pickLayer.removeLayer(m);PICK.line.setLatLngs(PICK.pts);
+  banner(`Sendero: ${PICK.pts.length} punto${PICK.pts.length===1?'':'s'}. Tocá el siguiente o "Listo".`,{undo:PICK.pts.length>0,ok:PICK.pts.length>=2});
+}
+map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);});
+$('#bCancel').onclick=()=>{if(draw)cancelDraw();else if(PICK)cancelPick();};
+$('#bUndo').onclick=undoPick;
+$('#bOk').onclick=()=>{if(PICK&&PICK.type==='path')finishPath();};
+
+/* ---------- Fotos de dron ---------- */
+map.createPane('ovl').style.zIndex=250;
+const OvlLayer=L.Layer.extend({
+  initialize(o){this.o=o;},
+  onAdd(m){
+    const im=this._im=L.DomUtil.create('img','leaflet-image-layer');
+    im.alt='';im.src=this.o.url;
+    im.style.cssText='position:absolute;left:0;top:0;max-width:none;pointer-events:none;transform-origin:50% 50%;';
+    m.getPane('ovl').appendChild(im);
+    this._upd();
+  },
+  onRemove(){L.DomUtil.remove(this._im);},
+  getEvents(){return {zoomstart:this._hide,zoom:this._upd,zoomend:this._upd,viewreset:this._upd};},
+  _hide(){if(this._im)this._im.style.visibility='hidden';},
+  _upd(){
+    const m=this._map,o=this.o,im=this._im;if(!m||!im)return;
+    const p=m.latLngToLayerPoint([o.lat,o.lon]);
+    const mpp=40075016.686*Math.cos(o.lat*Math.PI/180)/(256*Math.pow(2,m.getZoom()));
+    const w=o.w/mpp,h=o.h/mpp;
+    im.style.width=w+'px';im.style.height=h+'px';im.style.opacity=o.op;
+    im.style.transform=`translate3d(${p.x-w/2}px,${p.y-h/2}px,0) rotate(${o.rot}deg)`;
+    im.style.visibility='visible';
+  }
+});
+let OVL=[];
+const ovlMeta=m=>{const {layer,url,...r}=m;return r;};
+const saveOvl=m=>DB.put('kv','ovl:'+m.id,ovlMeta(m));
+function ovlShow(m){m.url=m.url||null;if(!m.layer)m.layer=new OvlLayer(m);if(!map.hasLayer(m.layer))m.layer.addTo(map);}
+async function loadOvl(){
+  const ms=(await DB.all('kv','ovl:')).sort((a,b)=>a.t-b.t);
+  OVL=[];
+  for(const m of ms){
+    const b=await DB.get('tiles','ovl/'+m.id);if(!b)continue;
+    m.url=URL.createObjectURL(b);m.layer=new OvlLayer(m);
+    if(m.on)m.layer.addTo(map);
+    OVL.push(m);
+  }
+}
+function pickImages(){
+  return new Promise(res=>{
+    const i=document.createElement('input');i.type='file';i.accept='image/jpeg,image/*';i.multiple=true;
+    i.onchange=()=>res([...i.files]);i.click();
+  });
+}
+async function resizeImg(file,max){
+  const url=URL.createObjectURL(file);
+  try{
+    const im=await new Promise((ok,ko)=>{const x=new Image();x.onload=()=>ok(x);x.onerror=ko;x.src=url;});
+    const aw=im.naturalWidth,ah=im.naturalHeight,k=Math.min(1,max/Math.max(aw,ah));
+    const c=document.createElement('canvas');c.width=Math.round(aw*k);c.height=Math.round(ah*k);
+    c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+    const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.86));
+    return {blob,aw,ah};
+  }finally{URL.revokeObjectURL(url);}
+}
+async function addPhotos(){
+  const files=await pickImages();if(!files.length)return;
+  toast('Cargando fotos…',2500);
+  const added=[];let bad=0,tilted=0;
+  for(const f of files){
+    try{
+      const meta=parseJpegMeta(await f.arrayBuffer())||{};
+      const {blob,aw,ah}=await resizeImg(f,2048);
+      const c=map.getCenter(),alt=meta.rel!=null&&meta.rel>5?meta.rel:100,fp=droneFootprint(alt,aw,ah,MAVIC_FOV);
+      const m={id:uid(),name:f.name,lat:meta.lat!=null?meta.lat:c.lat,lon:meta.lon!=null?meta.lon:c.lng,w:fp.w,h:fp.h,asp:aw/ah,alt,
+        rot:meta.gyaw!=null?meta.gyaw:(meta.fyaw!=null?meta.fyaw:0),op:.75,on:true,t:Date.now()+added.length,gps:meta.lat!=null};
+      if(meta.pitch!=null&&Math.abs(meta.pitch+90)>15)tilted++;
+      await DB.put('tiles','ovl/'+m.id,blob);await saveOvl(m);
+      m.url=URL.createObjectURL(blob);m.layer=new OvlLayer(m);m.layer.addTo(map);
+      OVL.push(m);added.push(m);
+    }catch(e){bad++;}
+  }
+  const g=added.filter(m=>m.gps);
+  if(g.length)map.fitBounds(L.latLngBounds(g.map(m=>[m.lat,m.lon])),{maxZoom:18,padding:[40,40]});
+  const noGps=added.length-g.length;
+  toast(`${added.length} foto${added.length===1?'':'s'} cargada${added.length===1?'':'s'}`+(noGps?` · ${noGps} sin ubicación: acomodalas a mano`:'')+(tilted?` · ${tilted} no miran hacia abajo, van a quedar aproximadas`:'')+(bad?` · ${bad} fallaron`:''),6000);
+}
+function showOvl(){
+  openSheet('Fotos de dron',`<p class="mut">Cargá fotos sacadas con el dron mirando hacia abajo. Rumbo lee la posición, la altura y el rumbo que guardó el dron y las acomoda sobre el mapa. Después podés corregirlas a mano.</p>
+    <div class="row"><button class="btn primary" data-act="add">Agregar fotos</button></div>
+    <p class="mut">Elegilas desde Archivos y no desde Fotos: la galería de Android suele borrarles la ubicación. Si igual no la encuentra, quedan en el centro del mapa para que las lleves a su lugar.</p>
+    ${OVL.map(m=>`<div class="item"><div style="flex:1" data-act="adj" data-id="${m.id}"><b>${esc(m.name)}</b><br><small class="mut">${m.gps?'ubicada':'sin ubicación, acomodala'} · ${Math.round(m.w)} × ${Math.round(m.h)} m</small></div><button class="btn sm ${m.on?'primary':''}" data-act="tog" data-id="${m.id}">${m.on?'Visible':'Oculta'}</button></div>`).join('')||'<p class="mut">Todavía no cargaste fotos.</p>'}`,
+    async(a,d)=>{
+      if(a==='add'){await addPhotos();showOvl();}
+      else if(a==='tog'){const m=OVL.find(x=>x.id===d.id);m.on=!m.on;if(m.on)ovlShow(m);else map.removeLayer(m.layer);await saveOvl(m);showOvl();}
+      else if(a==='adj')showOvlAdjust(d.id);
+    });
+}
+function showOvlAdjust(id){
+  const m=OVL.find(x=>x.id===id);if(!m){showOvl();return;}
+  const upd=()=>{m.layer._upd();saveOvl(m);};
+  openSheet('Ajustar foto',`<p><b>${esc(m.name)}</b><br><span class="mut">${Math.round(m.w)} × ${Math.round(m.h)} m en el terreno · rumbo ${Math.round(((m.rot%360)+360)%360)}°</span></p>
+    <label for="oo">Transparencia</label><input type="range" id="oo" min="15" max="100" value="${Math.round(m.op*100)}">
+    <div class="row" style="margin-top:8px"><button class="btn primary" data-act="align">Mover: alinear con dos toques</button></div>
+    <label>Girar</label><div class="row">${[-5,-1,1,5].map(d=>`<button class="btn sm" data-act="rot" data-d="${d}">${d>0?'+':''}${d}°</button>`).join('')}</div>
+    <label>Tamaño</label><div class="row">${[.95,.99,1.01,1.05].map(f=>`<button class="btn sm" data-act="sc" data-f="${f}">${f<1?'−':'+'}${Math.round(Math.abs(1-f)*100)} %</button>`).join('')}</div>
+    <label for="oa">Altura de vuelo (m)</label><input class="in" id="oa" type="number" min="5" max="600" value="${Math.round(m.alt)}">
+    <p class="mut">El dron mide la altura desde donde despegó, no desde el suelo que tiene abajo. Si la foto sale más chica o más grande que el terreno, corregí este número o usá los botones de tamaño.</p>
+    <div class="row"><button class="btn" data-act="go">Ir a la foto</button><button class="btn" data-act="hide">${m.on?'Ocultar':'Mostrar'}</button><button class="btn danger" data-act="del">Borrar</button></div>
+    <button class="btn" data-act="back">Volver</button>`,
+    async(a,d,el)=>{
+      if(a==='align'){PICK={type:'ovl',id,step:1};closeSheet();banner('1 de 2: tocá un punto que se reconozca en la foto');}
+      else if(a==='rot'){m.rot+=+d.d;upd();showOvlAdjust(id);}
+      else if(a==='sc'){m.w*=+d.f;m.h*=+d.f;m.alt*=+d.f;upd();showOvlAdjust(id);}
+      else if(a==='go'){closeSheet();map.setView([m.lat,m.lon],18);}
+      else if(a==='hide'){m.on=!m.on;if(m.on)ovlShow(m);else map.removeLayer(m.layer);await saveOvl(m);showOvlAdjust(id);}
+      else if(a==='del'&&armed(el)){
+        map.removeLayer(m.layer);OVL=OVL.filter(x=>x!==m);
+        await DB.del('kv','ovl:'+id);await DB.del('tiles','ovl/'+id);showOvl();
+      }
+      else if(a==='back')showOvl();
+    },
+    t=>{
+      if(t.id==='oo'){m.op=+t.value/100;m.layer._upd();saveOvl(m);}
+      else if(t.id==='oa'){
+        const alt=Math.max(5,Math.min(600,+t.value||m.alt)),fp=droneFootprint(alt,m.asp*1000,1000,MAVIC_FOV);
+        m.alt=alt;m.w=fp.w;m.h=fp.h;upd();showOvlAdjust(id);
+      }
+    });
+}
+function ovlPick(ll){
+  const P=PICK;
+  if(P.step===1){
+    P.a=ll;P.step=2;
+    L.circleMarker([ll.lat,ll.lon],{radius:7,color:'#F04A1C',weight:3,fillColor:'#fff',fillOpacity:1,interactive:false}).addTo(pickLayer);
+    banner('2 de 2: tocá dónde está ese mismo punto en el mapa de abajo');
+  }else{
+    const m=OVL.find(x=>x.id===P.id);
+    PICK=null;pickLayer.clearLayers();banner(null);
+    if(m){m.lat+=ll.lat-P.a.lat;m.lon+=ll.lon-P.a.lon;m.gps=true;m.layer._upd();saveOvl(m);}
+    showOvlAdjust(P.id);
+  }
+}
+
+/* ---------- Más, ajustes y backup ---------- */
+function showMoreMenu(){
+  openSheet('Más',`<div class="grid3">
+    <button class="btn big" data-act="tracks">📂<br>Tracks</button>
+    <button class="btn big" data-act="fix">🛠️<br>Correcciones</button>
+    <button class="btn big" data-act="ovl">🛩️<br>Fotos de dron</button>
+    <button class="btn big" data-act="set">⚙️<br>Ajustes</button></div>`,
+    a=>{if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='set')showMore();});
+}
 function showMore(){
   openSheet('Ajustes',`
     <label for="s1">Precisión máxima aceptada (m)</label><input class="in" id="s1" type="number" min="5" max="150" value="${S.maxAcc}">
@@ -1032,15 +2109,22 @@ function showMore(){
     <select class="in" id="s3"><option value="kmh">km/h</option><option value="minkm">min/km (carrera)</option><option value="min500">min/500 m (kayak)</option></select>
     <label class="chk"><input type="checkbox" id="s4" ${S.voice?'checked':''}> Avisos por voz y sonido en las puertas</label>
     <label class="chk"><input type="checkbox" id="s5" ${S.keepAwake?'checked':''}> Mantener la pantalla encendida al grabar</label>
+    <h3>Tiempos estimados de las rutas</h3>
+    <label for="s6">Tu velocidad a pie (km/h)</label><input class="in" id="s6" type="number" step="0.5" min="2" max="10" value="${S.vFoot}">
+    <label for="s7">Tu velocidad en bici (km/h)</label><input class="in" id="s7" type="number" step="1" min="5" max="40" value="${S.vBike}">
+    <label for="s8">Tráfico en auto</label>
+    <select class="in" id="s8"><option value="0.6">Pesado (60 % de la velocidad legal)</option><option value="0.8">Normal (80 %)</option><option value="1">Fluido (100 %)</option></select>
+    <label for="s9">Ruta que se muestra primero</label>
+    <select class="in" id="s9"><option value="foot">A pie</option><option value="bike">En bici</option><option value="car">En auto</option></select>
     <h3>Copia de seguridad</h3>
-    <p class="mut">Guarda tracks, puntos y circuitos. Hacela antes de reinstalar la app.</p>
+    <p class="mut">Guarda tracks, marcas, puntos, circuitos y correcciones (no los mapas, la red de calles ni las fotos de dron). Hacela antes de reinstalar la app.</p>
     <div class="row"><button class="btn" data-act="bk">Exportar copia</button><button class="btn" data-act="imp">Importar copia o GPX</button></div>
-    <p class="mut" style="margin-top:16px">Rumbo v0.1 · Mapas: Esri, OpenStreetMap, OpenTopoMap</p>`,
-    (a)=>{
+    <p class="mut" style="margin-top:16px">Rumbo v0.2 · Mapas: Esri, OpenStreetMap, OpenTopoMap · Calles: © colaboradores de OpenStreetMap (ODbL)</p>`,
+    a=>{
       if(a==='bk')(async()=>{
-        const kv=(await DB.entries('kv')).filter(e=>e.k!=='rec:current');
+        const kv=(await DB.entries('kv')).filter(e=>e.k!=='rec:current'&&!e.k.startsWith('net:')&&!e.k.startsWith('ovl:'));
         const d=new Date(),n=`rumbo-backup-${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}.json`;
-        shareFile(n,JSON.stringify({v:1,kv}),'application/json');
+        shareFile(n,JSON.stringify({v:2,kv}),'application/json');
       })();
       else if(a==='imp')importFile();
     },
@@ -1050,39 +2134,52 @@ function showMore(){
       else if(t.id==='s3')S.speedMode=t.value;
       else if(t.id==='s4')S.voice=t.checked;
       else if(t.id==='s5')S.keepAwake=t.checked;
+      else if(t.id==='s6'){S.vFoot=Math.max(2,Math.min(10,+t.value||5));dropGraph();}
+      else if(t.id==='s7'){S.vBike=Math.max(5,Math.min(40,+t.value||16));dropGraph();}
+      else if(t.id==='s8'){S.carF=+t.value;dropGraph();}
+      else if(t.id==='s9')S.routeMode=t.value;
       saveS();
     });
-  $('#s3').value=S.speedMode;
+  $('#s3').value=S.speedMode;$('#s8').value=String(S.carF);$('#s9').value=S.routeMode;
 }
 
 /* ---------- Botones ---------- */
 $('#nMaps').onclick=showMaps;
+$('#nRoutes').onclick=showRoutes;
 $('#nGates').onclick=showCircuits;
-$('#nPts').onclick=showPoints;
-$('#nTracks').onclick=showTracks;
-$('#fSet').onclick=showMore;
+$('#nMore').onclick=showMoreMenu;
+$('#fPts').onclick=showPoints;
 $('#fIn').onclick=()=>map.zoomIn();
 $('#fOut').onclick=()=>map.zoomOut();
 $('#fLoc').onclick=()=>{
   if(!lastFix){toast('Todavía sin GPS');return;}
   setFollow(true);map.setView([lastFix.lat,lastFix.lon],Math.max(map.getZoom(),16));
 };
+$('#fAct').onclick=()=>{
+  if(REC.state!=='idle'){toast('La actividad se cambia al terminar la grabación');return;}
+  const k=Object.keys(ACT);S.act=k[(k.indexOf(S.act)+1)%k.length];saveS();updActBtn();
+  toast(ACT[S.act][0]+' '+ACT[S.act][1]);
+};
 
 /* ---------- Inicio ---------- */
 (async()=>{
   await DB.open();
   setLayer(S.layer);
+  await loadRuns();
+  await migrate();
   await loadWpts();
-  await refreshGates();
-  updRecUi();
+  await loadOvl();
+  updActBtn();updRecUi();
   startWatch(false);
+  drawEdits();
   const rc=await DB.get('kv','rec:current');
   if(rc&&rc.pts&&rc.pts.length>1)offerRecover(rc);
   if(isNative()){
     try{
       const App=plugin('App');
       App.addListener('backButton',()=>{
-        if(draw)$('#bCancel').click();
+        if(draw)cancelDraw();
+        else if(PICK)cancelPick();
         else if(sheet.classList.contains('open'))closeSheet();
         else App.minimizeApp();
       });
