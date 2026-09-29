@@ -134,6 +134,17 @@ input[type=range]{width:100%;height:36px}
 #banner .row{flex-wrap:nowrap}
 #banner .btn{margin:0}
 #fabs button{font-size:22px}
+
+#nav{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:950;background:var(--ink);color:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 2px 10px rgba(0,0,0,.4)}
+#nav[hidden]{display:none}
+.nvm{display:flex;gap:10px;align-items:center}
+#nvIco{font-size:40px;line-height:1}
+.nvt b{display:block;font-size:17px;line-height:1.2}
+.nvt span{font:700 22px var(--num)}
+.nvr{display:flex;justify-content:space-between;font-size:13px;opacity:.85;margin:6px 0}
+.nvb{display:flex;gap:6px}
+.nvb button{flex:1;min-height:44px;border-radius:12px;border:0;font:600 13px system-ui;background:#264b5c;color:#fff}
+.nvb #nvEnd{background:var(--buoy)}
 </style>
 </head>
 <body>
@@ -149,6 +160,11 @@ input[type=range]{width:100%;height:36px}
   <div class="hud-foot"><span id="hGps">Buscando GPS…</span><button class="btn sm" id="hStop">Terminar</button></div>
 </header>
 <div id="pill"><i></i><span>Buscando GPS…</span></div>
+<div id="nav" hidden>
+  <div class="nvm"><span id="nvIco">⬆️</span><div class="nvt"><b id="nvTxt"></b><span id="nvDist"></span></div></div>
+  <div class="nvr"><span id="nvEta"></span><span id="nvRem"></span></div>
+  <div class="nvb"><button id="nvMute">🔊</button><button id="nvPozo">🕳️ Pozo</button><button id="nvLomo">🚧 Lomo</button><button id="nvEnd">Terminar</button></div>
+</div>
 <div id="banner" hidden><span id="bTxt"></span><span class="row"><button class="btn sm" id="bUndo" hidden>Deshacer</button><button class="btn sm primary" id="bOk" hidden>Listo</button><button class="btn sm" id="bCancel">Cancelar</button></span></div>
 
 <div id="fabs">
@@ -341,6 +357,31 @@ const KIND_TAGS={sendero:{highway:'path'},escalera:{highway:'steps'},peatonal:{h
 const NOACC=new Set(['no','private']);
 const YESACC=new Set(['yes','designated','permissive']);
 
+/* Cuánto cambia la velocidad según la pendiente g (subida positiva) */
+function slopeFactor(mode,g){
+  if(mode==='bike')return g>=0?1/(1+14*g):Math.min(1.8,1+8*(-g));
+  if(mode==='foot')return Math.exp(-3.5*(Math.abs(g+0.05)-0.05));
+  return 1;
+}
+/* Altura del terreno: teselas Terrarium (R*256+G+B/256-32768) */
+function tileXY(lat,lon,z){
+  const n=Math.pow(2,z),r=lat*rad;
+  return {x:(lon+180)/360*n,y:(1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n};
+}
+function demTiles(bb,z){
+  const a=tileXY(bb.n,bb.w,z),b=tileXY(bb.s,bb.e,z),out=[];
+  for(let x=Math.floor(a.x);x<=Math.floor(b.x);x++)for(let y=Math.floor(a.y);y<=Math.floor(b.y);y++)out.push({x,y});
+  return out;
+}
+function sampleDem(tiles,z,lat,lon){
+  const p=tileXY(lat,lon,z),tx=Math.floor(p.x),ty=Math.floor(p.y),t=tiles.get(tx+'/'+ty);
+  if(!t)return NaN;
+  const fx=Math.max(0,Math.min(255,(p.x-tx)*256-0.5)),fy=Math.max(0,Math.min(255,(p.y-ty)*256-0.5));
+  const x0=Math.floor(fx),y0=Math.floor(fy),x1=Math.min(255,x0+1),y1=Math.min(255,y0+1),ax=fx-x0,ay=fy-y0;
+  const v=(x,y)=>t[y*256+x];
+  return (v(x0,y0)*(1-ax)+v(x1,y0)*ax)*(1-ay)+(v(x0,y1)*(1-ax)+v(x1,y1)*ax)*ay;
+}
+
 /* Perfil de cada tramo: por modo, si se puede pasar, sentido único (0 doble, 1 a favor, −1 en contra) y velocidad (m/s) */
 function wayProfile(t,c){
   const hw=t.highway||'',b=hw.replace('_link','');
@@ -394,10 +435,10 @@ class Heap{
 }
 
 class Graph{
-  constructor(cfg){this.cfg=cfg;this.lat=[];this.lon=[];this.ids=[];this.adj=[];this.cnt=[];this.E=[];this.W=[];this.idx=new Map();this.grid=new Map();this.seen=new Set();this.cs=0.0006;this.names=null;}
+  constructor(cfg){this.cfg=cfg;this.lat=[];this.lon=[];this.ids=[];this.adj=[];this.cnt=[];this.E=[];this.W=[];this.idx=new Map();this.grid=new Map();this.seen=new Set();this.cs=0.0006;this.names=null;this.z=[];this.hasZ=false;}
   node(id,lat,lon){
     let i=this.idx.get(id);
-    if(i===undefined){i=this.lat.length;this.idx.set(id,i);this.lat.push(lat);this.lon.push(lon);this.ids.push(id);this.adj.push([]);this.cnt.push(0);}
+    if(i===undefined){i=this.lat.length;this.idx.set(id,i);this.lat.push(lat);this.lon.push(lon);this.ids.push(id);this.adj.push([]);this.cnt.push(0);this.z.push(NaN);}
     return i;
   }
   dist(a,b){const k=Math.cos(this.lat[a]*rad);return Math.hypot((this.lat[a]-this.lat[b])*110540,(this.lon[a]-this.lon[b])*111320*k);}
@@ -408,12 +449,13 @@ class Graph{
     const [i1,j1]=this.cell(Math.max(this.lat[a],this.lat[b]),Math.max(this.lon[a],this.lon[b]));
     for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const k=i*1000000+j;let l=this.grid.get(k);if(!l){l=[];this.grid.set(k,l);}l.push(ei);}
   }
-  addWay(id,tags,osm,pts){
+  addWay(id,tags,osm,pts,zs){
     if(this.seen.has(id))return -1;
     this.seen.add(id);
     const prof=wayProfile(tags,this.cfg);
     if(!MODES.some(m=>prof[m].ok))return -1;
     const nodes=osm.map((o,i)=>this.node(o,pts[i][0],pts[i][1]));
+    if(zs)nodes.forEach((n,i)=>{if(zs[i]!=null&&!isNaN(zs[i])){this.z[n]=zs[i];this.hasZ=true;}});
     this.W.push({id,tags,name:tags.name||'',hw:tags.highway||'',prof,nodes,edges:[],user:false});
     return this.W.length-1;
   }
@@ -457,13 +499,43 @@ class Graph{
     this.W[wi].user=true;this.link(wi);
     const w=this.W[wi],last=p.pts.length-1;
     for(let k=0;k<=last;k++)this.connect(w.nodes[k],(k===0||k===last)?25:6,wi);
+    this.fillZ(w.nodes);
+  }
+  fillZ(ns){
+    const kn=[];ns.forEach((n,i)=>{if(!isNaN(this.z[n]))kn.push(i);});
+    if(!kn.length)return;
+    const cum=[0];for(let i=1;i<ns.length;i++)cum.push(cum[i-1]+this.dist(ns[i-1],ns[i]));
+    for(let i=0;i<ns.length;i++){
+      if(!isNaN(this.z[ns[i]]))continue;
+      let a=-1,b=-1;
+      for(const k of kn){if(k<i)a=k;else if(k>i){b=k;break;}}
+      if(a<0)this.z[ns[i]]=this.z[ns[b]];
+      else if(b<0)this.z[ns[i]]=this.z[ns[a]];
+      else{const f=(cum[i]-cum[a])/((cum[b]-cum[a])||1);this.z[ns[i]]=this.z[ns[a]]+(this.z[ns[b]]-this.z[ns[a]])*f;}
+      this.hasZ=true;
+    }
+  }
+  /* pendiente (subida/tramo) en el sentido de marcha d */
+  slope(e,d){
+    const a=d>0?e.a:e.b,b=d>0?e.b:e.a,za=this.z[a],zb=this.z[b];
+    if(isNaN(za)||isNaN(zb)||e.len<1)return 0;
+    return Math.max(-.4,Math.min(.4,(zb-za)/e.len));
+  }
+  /* costo del tramo según la preferencia: 'fast' tiempo, 'short' distancia, 'flat' tiempo + castigo por subir */
+  cost(e,d,mode,pref,v){
+    if(pref==='short')return e.len;
+    const g=this.slope(e,d),t=e.len/(v*slopeFactor(mode,g));
+    if(pref==='flat'&&mode!=='car'){
+      return t+40*(g>0?g*e.len:0)+(g>0.06?(g-0.06)*e.len*8:0)+(g<-0.10?(-g-0.10)*e.len*4:0);
+    }
+    return t;
   }
   connect(nd,maxD,wi){
     const h=this.nearestEdge(this.lat[nd],this.lon[nd],maxD,e=>e.w!==wi&&this.W[e.w].hw!=='connector');
     if(!h)return;
     const e=this.E[h.ei];let tgt;
     if(h.t<=0.03)tgt=e.a;else if(h.t>=0.97)tgt=e.b;else tgt=this.split(h.ei,h.t,h.lat,h.lon);
-    if(tgt!==nd)this._edge(nd,tgt,this._connWay(wi),Math.max(this.dist(nd,tgt),0.5));
+    if(tgt!==nd){this._edge(nd,tgt,this._connWay(wi),Math.max(this.dist(nd,tgt),0.5));if(isNaN(this.z[nd])&&!isNaN(this.z[tgt]))this.z[nd]=this.z[tgt];}
   }
   proj(lat,lon,e){
     const k=Math.cos(lat*rad),ax=this.lon[e.a]*111320*k,ay=this.lat[e.a]*110540,bx=this.lon[e.b]*111320*k,by=this.lat[e.b]*110540,px=lon*111320*k,py=lat*110540;
@@ -489,6 +561,7 @@ class Graph{
   split(ei,t,lat,lon){
     const e=this.E[ei];e.alive=false;
     const w=this.node('v'+this.lat.length,lat,lon);
+    { const za=this.z[e.a],zb=this.z[e.b]; this.z[w]=(isNaN(za)||isNaN(zb))?NaN:za+(zb-za)*t; }
     for(const n of [e.a,e.b]){const l=this.adj[n],i=l.indexOf(ei);if(i>=0)l.splice(i,1);}
     const mk=(a,b,len)=>{const n=this._edge(a,b,e.w,len);this.E[n].blk=e.blk;this.E[n].ov=e.ov;};
     mk(e.a,w,e.len*t);mk(w,e.b,e.len*(1-t));
@@ -511,17 +584,18 @@ function buildGraph(nets,paths,ov,cfg){
   const g=new Graph(cfg);
   for(const n of nets)for(const w of n.ways){
     const pts=[];for(let i=0;i<w.p.length;i+=2)pts.push([w.p[i],w.p[i+1]]);
-    g.addWay(w.id,w.t,w.n,pts);
+    g.addWay(w.id,w.t,w.n,pts,w.z);
   }
   g.finish(ov);
   for(const p of paths)g.addUser(p);
+  g.hz=[];for(const n of nets)for(const h of (n.hz||[]))g.hz.push(h);
   return g;
 }
 
-function astar(G,mode,src,dst){
+function astar(G,mode,src,dst,pref){
   if(src===dst)return {edges:[],cost:0};
   const n=G.lat.length,g=new Float64Array(n).fill(Infinity),pe=new Int32Array(n).fill(-1),done=new Uint8Array(n);
-  const c=G.cfg,vmax=mode==='foot'?c.vFoot/3.6:mode==='bike'?c.vBike/3.6*1.1:130*c.carF/3.6;
+  const c=G.cfg,vmax=pref==='short'?1:mode==='foot'?c.vFoot/3.6*1.2:mode==='bike'?c.vBike/3.6*1.1*1.8:130*c.carF/3.6;
   const k=Math.cos(G.lat[dst]*rad),tl=G.lat[dst],tn=G.lon[dst];
   const h=i=>Math.hypot((G.lat[i]-tl)*110540,(G.lon[i]-tn)*111320*k)/vmax;
   const H=new Heap();g[src]=0;H.push(h(src),src);
@@ -532,7 +606,7 @@ function astar(G,mode,src,dst){
     for(const ei of G.adj[u]){
       const e=G.E[ei];if(!e.alive)continue;
       const d=e.a===u?1:-1,v=G.pass(e,mode,d);if(!v)continue;
-      const w=e.a===u?e.b:e.a,ng=g[u]+e.len/v;
+      const w=e.a===u?e.b:e.a,ng=g[u]+G.cost(e,d,mode,pref,v);
       if(ng<g[w]){g[w]=ng;pe[w]=ei;H.push(ng+h(w),w);}
     }
   }
@@ -546,32 +620,50 @@ function astar(G,mode,src,dst){
 const HWN={path:'el sendero',footway:'el camino peatonal',steps:'la escalera',cycleway:'la ciclovía',track:'el camino',service:'la calle de servicio',pedestrian:'la peatonal',connector:'el sendero',residential:'la calle'};
 function bearEnd(pts){const L=pts.length-1;let a=0;for(let j=L-1;j>=0;j--){a+=hav(pts[j],pts[j+1]);if(a>=10||j===0)return bearingTo(pts[j],pts[L]);}return 0;}
 function bearStart(pts){let a=0;for(let j=1;j<pts.length;j++){a+=hav(pts[j-1],pts[j]);if(a>=10||j===pts.length-1)return bearingTo(pts[0],pts[j]);}return 0;}
-function makeSteps(G,edges){
+const ORD=['primera','segunda','tercera','cuarta','quinta','sexta','séptima','octava'];
+const isRbWay=w=>!!(w.tags&&(w.tags.junction==='roundabout'||w.tags.junction==='circular'));
+function makeSteps(G,edges,mode){
   const segs=[];let cur=null;
-  for(const {ei,d} of edges){
-    const e=G.E[ei],w=G.W[e.w],f=d>0?e.a:e.b,t=d>0?e.b:e.a;
-    const hw=w.hw==='connector'?'path':w.hw,key=w.name?w.name:'#'+hw;
-    if(!cur||cur.key!==key){cur={key,name:w.name,hw,dist:0,pts:[[G.lat[f],G.lon[f]]],stairs:hw==='steps'};segs.push(cur);}
-    cur.dist+=e.len;cur.pts.push([G.lat[t],G.lon[t]]);
+  for(let k=0;k<edges.length;k++){
+    const {ei,d}=edges[k],e=G.E[ei],w=G.W[e.w],f=d>0?e.a:e.b,t=d>0?e.b:e.a;
+    const rb=isRbWay(w),hw=w.hw==='connector'?'path':w.hw,key=rb?'#rb':(w.name?w.name:'#'+hw);
+    if(!cur||cur.key!==key){cur={key,name:rb?'':w.name,hw,rb,dist:0,pts:[[G.lat[f],G.lon[f]]],nodes:[f],stairs:hw==='steps',k0:k};segs.push(cur);}
+    cur.dist+=e.len;cur.pts.push([G.lat[t],G.lon[t]]);cur.nodes.push(t);
   }
   const m=[];
-  for(const s of segs){ if(m.length&&s.dist<12&&!s.stairs){const p=m[m.length-1];p.dist+=s.dist;p.pts.push(...s.pts.slice(1));} else m.push(s); }
+  for(const s of segs){
+    const p=m[m.length-1];
+    if(p&&s.dist<12&&!s.stairs&&!s.rb&&!p.rb){p.dist+=s.dist;p.pts.push(...s.pts.slice(1));p.nodes.push(...s.nodes.slice(1));}
+    else m.push(s);
+  }
   const out=[];
   m.forEach((s,i)=>{
-    const via=s.name||HWN[s.hw]||'la calle';
-    let text;
-    if(i===0)text=s.stairs?'Tomá la escalera':`Salí por ${via}`;
-    else if(s.stairs)text='Tomá la escalera';
+    const via=s.name||HWN[s.hw]||'la calle',prev=m[i-1];
+    let text,ico;
+    if(s.rb){
+      let n=0;
+      for(let q=1;q<s.nodes.length;q++){
+        const nd=s.nodes[q];
+        if(q===s.nodes.length-1||G.adj[nd].some(ei=>{const e2=G.E[ei];if(!e2.alive||isRbWay(G.W[e2.w]))return false;return G.pass(e2,mode,e2.a===nd?1:-1)>0;}))n++;
+      }
+      text=`En la rotonda, tomá la ${ORD[n-1]||n+'.ª'} salida`;ico='🔄';
+    }else if(i===0){text=s.stairs?'Tomá la escalera':`Salí por ${via}`;ico=s.stairs?'🪜':'⬆️';}
+    else if(s.stairs){text='Tomá la escalera';ico='🪜';}
+    else if(prev.rb){text=`Seguí por ${via}`;ico='⬆️';}
     else{
-      const dl=((bearStart(s.pts)-bearEnd(m[i-1].pts)+540)%360)-180,ad=Math.abs(dl),side=dl>0?'derecha':'izquierda';
-      text=ad<25?`Seguí por ${via}`:ad<60?`Girá levemente a la ${side} por ${via}`:ad<120?`Girá a la ${side} por ${via}`:`Giro cerrado a la ${side} por ${via}`;
+      const dl=((bearStart(s.pts)-bearEnd(prev.pts)+540)%360)-180,ad=Math.abs(dl),side=dl>0?'derecha':'izquierda';
+      if(ad<25){text=`Seguí por ${via}`;ico='⬆️';}
+      else if(ad<60){text=`Girá levemente a la ${side} por ${via}`;ico=dl>0?'↗️':'↖️';}
+      else if(ad<120){text=`Girá a la ${side} por ${via}`;ico=dl>0?'➡️':'⬅️';}
+      else{text=`Giro cerrado a la ${side} por ${via}`;ico=dl>0?'↪️':'↩️';}
     }
-    out.push({text,dist:s.dist});
+    out.push({text,dist:s.dist,k0:s.k0,ico,kind:s.rb?'rb':'turn'});
   });
-  out.push({text:'Llegaste al destino',dist:0});
+  out.push({text:'Llegaste a tu destino',dist:0,k0:edges.length,ico:'🏁',kind:'end'});
   return out;
 }
-function findRoute(G,mode,from,to){
+function findRoute(G,mode,from,to,pref){
+  pref=pref||'fast';
   const okE=e=>G.pass(e,mode,1)>0||G.pass(e,mode,-1)>0;
   const snap=p=>{
     const h=G.nearestEdge(p.lat,p.lon,500,okE);if(!h)return null;
@@ -581,17 +673,91 @@ function findRoute(G,mode,from,to){
   };
   const A=snap(from);if(!A)return {err:'origen'};
   const B=snap(to);if(!B)return {err:'destino'};
-  const r=astar(G,mode,A.nd,B.nd);if(!r)return {err:'camino'};
+  const r=astar(G,mode,A.nd,B.nd,pref);if(!r)return {err:'camino'};
   const vleg=mode==='car'?3:G.cfg.vFoot/3.6;
-  let dist=A.off+B.off,time=(A.off+B.off)/vleg,stairs=0;
+  let dist=A.off+B.off,time=(A.off+B.off)/vleg,stairs=0,up=0,down=0;
   const coords=[[from.lat,from.lon],[G.lat[A.nd],G.lon[A.nd]]];
   for(const {ei,d} of r.edges){
-    const e=G.E[ei],v=G.pass(e,mode,d);
-    dist+=e.len;time+=e.len/v;if(G.W[e.w].hw==='steps')stairs+=e.len;
+    const e=G.E[ei],v=G.pass(e,mode,d),g=G.slope(e,d);
+    dist+=e.len;time+=e.len/(v*slopeFactor(mode,g));if(G.W[e.w].hw==='steps')stairs+=e.len;
+    if(g>0)up+=g*e.len;else down-=g*e.len;
     const nn=d>0?e.b:e.a;coords.push([G.lat[nn],G.lon[nn]]);
   }
   coords.push([to.lat,to.lon]);
-  return {mode,dist,time,coords,stairs,steps:makeSteps(G,r.edges)};
+  const cd=[0];for(let i=1;i<coords.length;i++)cd.push(cd[i-1]+hav(coords[i-1],coords[i]));
+  const steps=makeSteps(G,r.edges,mode);
+  steps.forEach(s=>{
+    const ci=s.kind==='end'?coords.length-1:Math.min(1+s.k0,coords.length-1);
+    s.at=cd[ci];s.lat=coords[ci][0];s.lon=coords[ci][1];
+  });
+  steps[0].at=0;
+  return {mode,pref,dist,time,coords,stairs,steps,up,down,hasZ:G.hasZ};
+}
+
+/* ====================== GUÍA PASO A PASO ====================== */
+const NAVP={
+  foot:{off:30,farMin:40,farMax:90,near:12,hz:{lomo:0,pozo:20,peligro:25}},
+  bike:{off:35,farMin:70,farMax:220,near:20,hz:{lomo:50,pozo:50,peligro:60}},
+  car:{off:45,farMin:130,farMax:500,near:30,hz:{lomo:70,pozo:60,peligro:80}}
+};
+const HZN={lomo:'Lomo de burro',pozo:'Pozo',peligro:'Precaución, peligro'};
+function speakDist(m){
+  if(m<95)return Math.max(10,Math.round(m/10)*10)+' metros';
+  if(m<950)return Math.round(m/50)*50+' metros';
+  return (m/1000).toFixed(1).replace('.',',')+' kilómetros';
+}
+const lowerFirst=t=>t.charAt(0).toLowerCase()+t.slice(1);
+function projectRoute(c,cd,lat,lon,s0,s1){
+  const k=Math.cos(lat*rad),px=lon*111320*k,py=lat*110540;let best=null;
+  for(let i=s0;i<Math.min(s1,c.length-1);i++){
+    const ax=c[i][1]*111320*k,ay=c[i][0]*110540,dx=c[i+1][1]*111320*k-ax,dy=c[i+1][0]*110540-ay,L2=dx*dx+dy*dy;
+    let t=L2?((px-ax)*dx+(py-ay)*dy)/L2:0;t=Math.max(0,Math.min(1,t));
+    const d=Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
+    if(!best||d<best.d)best={i,t,d,s:cd[i]+t*(cd[i+1]-cd[i])};
+  }
+  return best;
+}
+function hazardsOnRoute(c,cd,hz,mode,maxD){
+  maxD=maxD||25;
+  let la0=1e9,la1=-1e9,lo0=1e9,lo1=-1e9;
+  for(const p of c){la0=Math.min(la0,p[0]);la1=Math.max(la1,p[0]);lo0=Math.min(lo0,p[1]);lo1=Math.max(lo1,p[1]);}
+  const mg=0.0005,out=[];
+  for(const h of hz){
+    if(mode==='foot'&&h.k==='lomo')continue;
+    if(h.lat<la0-mg||h.lat>la1+mg||h.lon<lo0-mg||h.lon>lo1+mg)continue;
+    const p=projectRoute(c,cd,h.lat,h.lon,0,c.length-1);
+    if(p&&p.d<=maxD)out.push({s:p.s,d:p.d,k:h.k,lat:h.lat,lon:h.lon});
+  }
+  out.sort((a,b)=>a.s-b.s);
+  return out.filter((h,i)=>!out.slice(0,i).some(o=>o.k===h.k&&Math.abs(o.s-h.s)<12));
+}
+function navInit(route,mode,hz){
+  const cd=[0];for(let i=1;i<route.coords.length;i++)cd.push(cd[i-1]+hav(route.coords[i-1],route.coords[i]));
+  return {route,mode,cd,total:cd[cd.length-1],hzs:hazardsOnRoute(route.coords,cd,hz,mode),seg:0,s:0,off:0,said:new Set(),arrived:false};
+}
+function navTick(N,f){
+  const P=NAVP[N.mode],c=N.route.coords,st=N.route.steps,spd=Math.max(0,f.speed||0),say=[];
+  let p=projectRoute(c,N.cd,f.lat,f.lon,Math.max(0,N.seg-3),Math.min(c.length-1,N.seg+150));
+  if(!p||p.d>P.off){const pa=projectRoute(c,N.cd,f.lat,f.lon,0,c.length-1);if(pa&&(!p||pa.d<p.d))p=pa;}
+  if(!p||p.d>P.off)N.off++;
+  else{N.off=0;N.seg=p.i;if(p.s>N.s)N.s=p.s;}
+  let j=1;while(j<st.length-1&&st[j].at<=N.s+2)j++;
+  const rem=Math.max(0,N.total-N.s),next={j,step:st[j],dist:Math.max(0,st[j].at-N.s)};
+  if(N.off>=3)return {off:true,say,s:N.s,rem,next,arrived:false};
+  if(N.off===0){
+    const step=st[j],dist=step.at-N.s,nearD=Math.max(P.near,spd*4),farD=Math.min(P.farMax,Math.max(P.farMin,spd*20));
+    if(step.kind==='end'){
+      if(rem<=Math.max(20,spd*3)&&!N.said.has('end')){N.said.add('end');N.arrived=true;say.push('Llegaste a tu destino');}
+      else if(dist<=farD&&dist>nearD+10&&!N.said.has('f'+j)){N.said.add('f'+j);say.push('Tu destino está en '+speakDist(dist));}
+    }else if(/^Seguí/.test(step.text)){/* seguir derecho no se avisa */}
+    else if(dist<=nearD&&!N.said.has('n'+j)){N.said.add('n'+j);N.said.add('f'+j);say.push(step.text);}
+    else if(dist<=farD&&dist>nearD+10&&!N.said.has('f'+j)){N.said.add('f'+j);say.push(`En ${speakDist(dist)}, ${lowerFirst(step.text)}`);}
+    N.hzs.forEach((h,i)=>{
+      const ahead=h.s-N.s,lead=Math.min(250,Math.max(P.hz[h.k]||0,(P.hz[h.k]?spd*7:0)));
+      if(lead&&ahead>3&&ahead<=lead&&!N.said.has('h'+i)){N.said.add('h'+i);say.push(`${HZN[h.k]||'Precaución'} en ${speakDist(ahead)}`);}
+    });
+  }
+  return {off:false,say,s:N.s,rem,next,arrived:N.arrived};
 }
 
 /* Búsqueda de calles y esquinas (sin conexión) */
@@ -851,7 +1017,7 @@ const DB=(()=>{
 })();
 
 /* ---------- Ajustes ---------- */
-const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot'};
+const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast'};
 let S=Object.assign({},DEF);
 try{Object.assign(S,JSON.parse(localStorage.getItem('rumbo.set')||'{}'));}catch(e){}
 const saveS=()=>{try{localStorage.setItem('rumbo.set',JSON.stringify(S));}catch(e){}};
@@ -1029,13 +1195,14 @@ function onFix(f){
   const pill=$('#pill');pill.className=cls;pill.lastElementChild.textContent=`GPS ±${a} m`;
   $('#hGps').textContent=`GPS ±${a} m`;
   if(REC.state==='rec')ingest(f);
+  if(NAV.on)navOnFix(f);
 }
-async function startWatch(bg){
+async function startWatch(bg,msg){
   stopWatch();
   const mk=(lat,lon,acc,alt,speed,brg,t)=>({lat,lon,acc,alt:alt==null||isNaN(alt)?null:alt,speed:speed==null||speed<0?null:speed,brg,t:t||Date.now()});
   if(bg&&isNative()){
     const BG=plugin('BackgroundGeolocation');
-    const id=await BG.addWatcher({backgroundTitle:'Rumbo',backgroundMessage:'Grabando el recorrido',requestPermissions:true,stale:false,distanceFilter:0},
+    const id=await BG.addWatcher({backgroundTitle:'Rumbo',backgroundMessage:msg||'Grabando el recorrido',requestPermissions:true,stale:false,distanceFilter:0},
       (loc,err)=>{
         if(err){
           if(err.code==='NOT_AUTHORIZED'){toast('Falta el permiso de ubicación. Abro los ajustes…',5000);setTimeout(()=>BG.openSettings(),1500);}
@@ -1296,7 +1463,7 @@ async function endRec(){
   Object.assign(REC,{state:'idle',pts:[],timers:[],last:null,dist:0,speed:0});
   await DB.del('kv','rec:current').catch(()=>{});
   $('#hud').classList.remove('on');updRecUi();refreshGates();
-  setFollow(false);startWatch(false);
+  setFollow(NAV.on);startWatch(NAV.on,'Guiando la ruta');
 }
 $('#recbtn').onclick=()=>{if(REC.state==='idle')startRec();else pauseRec();};
 $('#hStop').onclick=stopFlow;
@@ -1314,7 +1481,7 @@ async function offerRecover(rc){
 }
 
 /* ---------- Puntos ---------- */
-const WT={punto:['📍','Punto'],peligro:['⚠️','Peligro'],playa:['🏖️','Playa'],camp:['⛺','Camping'],agua:['💧','Agua'],acceso:['🚪','Acceso']};
+const WT={punto:['📍','Punto'],peligro:['⚠️','Peligro'],lomo:['🚧','Lomo de burro'],pozo:['🕳️','Pozo'],playa:['🏖️','Playa'],camp:['⛺','Camping'],agua:['💧','Agua'],acceso:['🚪','Acceso']};
 const wptLayer=L.layerGroup().addTo(map),wptMk={};
 function addWptMarker(w){
   if(wptMk[w.id])wptLayer.removeLayer(wptMk[w.id]);
@@ -1655,6 +1822,7 @@ const MI={foot:'🚶',bike:'🚴',car:'🚗'},MC={foot:'#1E6BFF',bike:'#2E7D5B',
 const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],peatonal:['🚶','Paso peatonal'],ciclovia:['🚲','Ciclovía'],calle:['🛣️','Calle']};
 const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36'};
 const routeLayer=L.layerGroup().addTo(map),editLayer=L.layerGroup().addTo(map),pickLayer=L.layerGroup().addTo(map);
+const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente']];
 const RT={from:null,to:null,res:null,sel:null,dep:'',sr:{}};
 let G=null,GP=null,PICK=null;
 
@@ -1678,7 +1846,8 @@ function dropGraph(){G=null;GP=null;}
 const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
 const KEEP=['highway','name','oneway','junction','access','foot','bicycle','motor_vehicle','motorcar','vehicle','maxspeed','service','oneway:bicycle','cycleway','cycleway:left','cycleway:right'];
 async function fetchNet(bb){
-  const q=`[out:json][timeout:120];way["highway"]["highway"!~"^(proposed|construction|abandoned|razed|platform|bus_stop|raceway|elevator|rest_area|services|no)$"](${bb.s},${bb.w},${bb.n},${bb.e});out geom qt;`;
+  const bx=`(${bb.s},${bb.w},${bb.n},${bb.e})`;
+  const q=`[out:json][timeout:120];(way["highway"]["highway"!~"^(proposed|construction|abandoned|razed|platform|bus_stop|raceway|elevator|rest_area|services|no)$"]${bx};node["traffic_calming"]${bx};);out geom qt;`;
   let last;
   for(const url of OVERPASS){
     try{
@@ -1686,29 +1855,70 @@ async function fetchNet(bb){
       const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});
       clearTimeout(to);
       if(!r.ok)throw new Error('HTTP '+r.status);
-      const j=await r.json(),ways=[];
+      const j=await r.json(),ways=[],hz=[];
       for(const el of j.elements||[]){
+        if(el.type==='node'){
+          const tc=el.tags&&el.tags.traffic_calming;
+          if(tc&&['bump','hump','table','cushion'].includes(tc)&&el.lat!=null)hz.push({lat:+el.lat.toFixed(6),lon:+el.lon.toFixed(6),k:'lomo'});
+          continue;
+        }
         if(el.type!=='way'||!el.geometry||!el.nodes||el.geometry.length!==el.nodes.length||el.geometry.some(g=>!g))continue;
         const t={};for(const k of KEEP)if(el.tags&&el.tags[k]!=null)t[k]=el.tags[k];
         const p=[];for(const g of el.geometry)p.push(+g.lat.toFixed(6),+g.lon.toFixed(6));
         ways.push({id:el.id,t,n:el.nodes,p});
       }
       if(!ways.length)throw new Error('no hay calles en esa zona');
-      return ways;
+      return {ways,hz};
     }catch(e){last=e;}
   }
   throw last||new Error('sin conexión');
 }
 const viewKm=()=>{const b=map.getBounds();return [(b.getEast()-b.getWest())*111.32*Math.cos((b.getNorth()+b.getSouth())/2*rad),(b.getNorth()-b.getSouth())*110.54];};
-async function dlNet(){
+const DEM_Z=13;
+async function fetchDem(bb){
+  const list=demTiles(bb,DEM_Z),tiles=new Map();
+  if(list.length>150)throw new Error('la zona es demasiado grande para bajar la altura');
+  let i=0;
+  const worker=async()=>{
+    while(i<list.length){
+      const t=list[i++];
+      try{
+        const blob=await getTileBlob(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${DEM_Z}/${t.x}/${t.y}.png`);
+        const bmp=await createImageBitmap(blob);
+        const c=document.createElement('canvas');c.width=c.height=256;
+        const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(bmp,0,0);
+        const d=ctx.getImageData(0,0,256,256).data,el=new Float32Array(65536);
+        for(let k=0;k<65536;k++)el[k]=d[k*4]*256+d[k*4+1]+d[k*4+2]/256-32768;
+        tiles.set(t.x+'/'+t.y,el);
+      }catch(e){}
+    }
+  };
+  await Promise.all(Array.from({length:4},worker));
+  if(!tiles.size)throw new Error('no se pudo bajar');
+  return tiles;
+}
+async function dlNet(replace){
   const btn=$('#netgo'),msg=$('#netmsg'),b=map.getBounds(),[wk,hk]=viewKm();
   if(wk>25||hk>25){msg.textContent='La zona es muy grande (máximo 25 km por lado). Acercá el mapa.';return false;}
   btn.disabled=true;msg.textContent='Descargando… puede tardar hasta un minuto.';
   try{
-    const ways=await fetchNet({s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()});
+    const {ways,hz}=await fetchNet({s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()});
+    let dem=null,demErr='';
+    try{
+      const m=$('#netmsg');if(m)m.textContent='Descargando la altura del terreno…';
+      let la0=90,la1=-90,lo0=180,lo1=-180;
+      for(const w of ways)for(let q=0;q<w.p.length;q+=2){la0=Math.min(la0,w.p[q]);la1=Math.max(la1,w.p[q]);lo0=Math.min(lo0,w.p[q+1]);lo1=Math.max(lo1,w.p[q+1]);}
+      dem=await fetchDem({n:la1,s:la0,w:lo0,e:lo1});
+      for(const w of ways){
+        const z=[];
+        for(let q=0;q<w.p.length;q+=2){const v=sampleDem(dem,DEM_Z,w.p[q],w.p[q+1]);z.push(isNaN(v)?null:Math.round(v*10)/10);}
+        w.z=z;
+      }
+    }catch(e){demErr=e.message||String(e);}
+    if(replace)for(const n of await DB.all('kv','net:'))await DB.del('kv','net:'+n.id);
     const id=uid();
-    await DB.put('kv','net:'+id,{id,bb:{s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()},date:Date.now(),ways});
-    dropGraph();toast(`Red descargada: ${ways.length} calles y senderos`,4000);
+    await DB.put('kv','net:'+id,{id,bb:{s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()},date:Date.now(),ways,hz});
+    dropGraph();toast(`Red descargada: ${ways.length} calles y senderos, ${hz.length} lomos de burro`+(dem?' y la altura del terreno':`. Sin altura (${demErr}): no va a funcionar "menos pendiente"`),6000);
     return true;
   }catch(e){
     const m=$('#netmsg'),bt=$('#netgo');
@@ -1749,22 +1959,40 @@ function resultsHtml(){
   for(const m of MODES){
     const r=RT.res[m];
     if(!r||r.err){h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${errText(r)}</span></div>`;continue;}
-    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás a las <b>${hhmm(start+r.time*1000)}</b></div>`;
+    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás a las <b>${hhmm(start+r.time*1000)}</b></div>`;
   }
+  const cmp=RT.alt?`<h3>Comparar para ${MI[RT.sel]}</h3><div class="row">`+PREFS.filter(([k])=>!(RT.sel==='car'&&k==='flat')).map(([k,e])=>{
+    const a=RT.alt[k];if(!a||a.err)return '';
+    return `<button class="btn sm ${k===S.pref?'primary':''}" data-act="pref" data-p="${k}">${e} ${fmtDur(a.time)} · ${fmtD(a.dist)}${a.hasZ&&RT.sel!=='car'?' · ↑'+Math.round(a.up)+' m':''}</button>`;
+  }).join('')+'</div>':'';
+  h+=cmp;
   const r=RT.res[RT.sel];
-  if(r&&!r.err)h+=`<div class="row"><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button><button class="btn sm" data-act="rclear">Quitar del mapa</button></div>
+  if(r&&!r.err)h+=`<button class="btn primary" data-act="nav" style="width:100%;margin-top:8px">▶ Guiarme por esta ruta</button>
+    ${r.hzs&&r.hzs.length?`<p>⚠️ En el camino: ${hzSummary(r.hzs)}</p>`:''}
+    <div class="row"><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button><button class="btn sm" data-act="rclear">Quitar del mapa</button></div>
     <h3>Indicaciones</h3>${r.steps.map(s=>`<div class="item"><div>${esc(s.text)}</div><small class="mut">${s.dist?fmtD(s.dist):''}</small></div>`).join('')}`;
   return h;
 }
-async function calcRoutes(g){
+function computeAlt(g){
+  const r=RT.res&&RT.res[RT.sel];
+  if(!r||r.err){RT.alt=null;return;}
+  RT.alt={};
+  for(const [p] of PREFS)RT.alt[p]=p===S.pref?r:findRoute(g,RT.sel,RT.calcFrom,RT.to,p);
+}
+async function calcRoutes(g,keep){
   const from=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon,label:'Mi posición'}:null);
   if(!from){toast('Todavía sin GPS: elegí el origen en el mapa o buscá una calle',4500);return;}
   if(!RT.to){toast('Elegí el destino');return;}
   RT.res={};
-  for(const m of MODES)RT.res[m]=findRoute(g,m,from,RT.to);
+  const hz=await collectHz(g);
+  for(const m of MODES){
+    const r=findRoute(g,m,from,RT.to,S.pref);RT.res[m]=r;
+    if(!r.err)r.hzs=navInit(r,m,hz).hzs;
+  }
   RT.calcFrom=from;
   const ok=m=>RT.res[m]&&!RT.res[m].err;
-  RT.sel=ok(S.routeMode)?S.routeMode:MODES.find(ok)||S.routeMode;
+  RT.sel=keep&&RT.sel&&ok(RT.sel)?RT.sel:(ok(S.routeMode)?S.routeMode:MODES.find(ok)||S.routeMode);
+  computeAlt(g);
   drawRoute(true);showRoutes();
 }
 async function showRoutes(){
@@ -1780,6 +2008,9 @@ async function showRoutes(){
     <div class="row"><button class="btn sm" data-act="tpick">En el mapa</button><button class="btn sm" data-act="tpts">Un punto guardado</button></div>
     <input class="in" id="qq" placeholder="Buscar calle o esquina" enterkeyhint="search"><div id="rq" class="row"></div>
     <label for="dep">Salida (vacío = ahora)</label><input class="in" id="dep" type="time" value="${esc(RT.dep)}">
+    <label>Preferencia</label>
+    <div class="chips">${PREFS.map(([k,e,n])=>`<button data-act="pref" data-p="${k}" class="${k===S.pref?'on':''}">${e} ${n}</button>`).join('')}</div>
+    ${g.hasZ?'':'<p class="mut">Para "menos pendiente" hace falta la altura del terreno: en Más → Correcciones tocá "Reemplazar por esta zona", con internet.</p>'}
     <button class="btn primary" data-act="calc" style="margin-top:10px">Calcular ruta</button>
     <div id="rres">${RT.res?resultsHtml():''}</div>`;
   openSheet('Rutas',h,async(a,d)=>{
@@ -1788,11 +2019,13 @@ async function showRoutes(){
     else if(a==='tpts')showPickWpt();
     else if(a==='setf'||a==='sett'){const r=RT.sr[a==='setf'?'f':'q'][+d.i];RT[a==='setf'?'from':'to']={lat:r.lat,lon:r.lon,label:r.label};RT.res=null;showRoutes();}
     else if(a==='calc')calcRoutes(g);
-    else if(a==='selm'){RT.sel=d.m;drawRoute(true);showRoutes();}
+    else if(a==='selm'){RT.sel=d.m;computeAlt(g);drawRoute(true);showRoutes();}
+    else if(a==='pref'){S.pref=d.p;saveS();if(RT.to&&RT.res)calcRoutes(g,true);else showRoutes();}
     else if(a==='rfit'){closeSheet();drawRoute(true);}
     else if(a==='rclear'){routeLayer.clearLayers();RT.res=null;showRoutes();}
     else if(a==='rgpx'){const r=RT.res[RT.sel];shareFile('ruta.gpx',toGPX([{name:'Ruta',pts:r.coords.map(c=>[c[0],c[1],0,0,null,0])}],[],esc),'application/gpx+xml');}
     else if(a==='rsave')showSaveRoute();
+    else if(a==='nav')startNav();
   },t=>{
     if(t.id==='qf'||t.id==='qq'){
       const c=lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng],res=searchPlaces(g,t.value,c),k=t.id==='qf'?'f':'q';
@@ -1851,7 +2084,7 @@ async function showFix(){
   const nets=await DB.all('kv','net:'),edits=(await DB.all('kv','edit:')).sort((a,b)=>b.created-a.created);
   const nW=nets.reduce((a,n)=>a+n.ways.length,0);
   let h=`<p class="mut">Red de calles: ${nets.length?`${nW} tramos en ${nets.length} zona${nets.length>1?'s':''}`:'todavía no descargaste ninguna'}.</p>
-    <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar esta zona':'Descargar red de esta zona'}</button>${nets.length?'<button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div><p id="netmsg" class="mut"></p>`;
+    <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar esta zona':'Descargar red de esta zona'}</button>${nets.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button><button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div><p id="netmsg" class="mut"></p>`;
   if(nets.length)h+=`<h3>Corregir el mapa</h3>
     <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">🥾<br>Sendero o escalera nuevos</button><button class="btn big" data-act="pickway">↔️<br>Sentido o cierre de una calle</button></div>`;
   if(edits.length)h+=`<h3>Tus correcciones (${edits.length})</h3>`+edits.map(e=>{
@@ -1860,6 +2093,7 @@ async function showFix(){
   }).join('');
   openSheet('Correcciones',h,async(a,d,el)=>{
     if(a==='dl'){if(await dlNet())showFix();}
+    else if(a==='dlr'){if(await dlNet(true))showFix();}
     else if(a==='netdel'){if(armed(el)){for(const n of nets)await DB.del('kv','net:'+n.id);dropGraph();toast('Red borrada');showFix();}}
     else if(a==='newpath')showPathForm();
     else if(a==='pickway'){PICK={type:'way'};closeSheet();banner('Tocá la calle que querés corregir');}
@@ -1961,6 +2195,92 @@ map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);});
 $('#bCancel').onclick=()=>{if(draw)cancelDraw();else if(PICK)cancelPick();};
 $('#bUndo').onclick=undoPick;
 $('#bOk').onclick=()=>{if(PICK&&PICK.type==='path')finishPath();};
+
+/* ---------- Guía paso a paso ---------- */
+const NAV={on:false,N:null,mode:'foot',dest:null,lastRecalc:0,busy:false,prev:null,endT:null};
+async function collectHz(g){
+  const hz=(g.hz||[]).slice();
+  for(const w of await DB.all('kv','wpt:'))if(w.type==='lomo'||w.type==='pozo'||w.type==='peligro')hz.push({lat:w.lat,lon:w.lon,k:w.type});
+  return hz;
+}
+function hzSummary(hzs){
+  const c={};hzs.forEach(h=>c[h.k]=(c[h.k]||0)+1);
+  const nm={lomo:['lomo de burro','lomos de burro'],pozo:['pozo','pozos'],peligro:['punto peligroso','puntos peligrosos']};
+  return Object.entries(c).map(([k,n])=>`${n} ${nm[k][n>1?1:0]}`).join(', ');
+}
+function navSay(t){if(!S.voice)return;beep(880,.12);say(t);}
+async function startNav(){
+  const r=RT.res&&RT.res[RT.sel];if(!r||r.err)return;
+  unlockAudio();
+  const g=await ensureGraph();
+  Object.assign(NAV,{mode:RT.sel,dest:RT.to,lastRecalc:0,busy:false,prev:null});
+  NAV.N=navInit(r,NAV.mode,await collectHz(g));
+  NAV.on=true;
+  closeSheet();drawRoute(false);setFollow(true);
+  if(lastFix)map.setView([lastFix.lat,lastFix.lon],Math.max(map.getZoom(),17));
+  if(!watch||watch.type!=='bg'){
+    try{await startWatch(true,'Guiando la ruta');}
+    catch(e){toast('No se pudo iniciar el GPS en segundo plano: '+(e.message||e),5000);}
+  }
+  keepAwake(true);
+  $('#nav').hidden=false;
+  const h=NAV.N.hzs.length;
+  navSay(r.steps[0].text+'.'+(h?` Hay ${h} aviso${h>1?'s':''} en el camino.`:''));
+  const s1=r.steps[1]||r.steps[0];
+  updNav({next:{step:s1,dist:s1.at},rem:NAV.N.total});
+}
+function updNav(res){
+  const st=res.next.step,N=NAV.N,left=N.route.time*(res.rem/Math.max(1,N.total));
+  $('#nvIco').textContent=st.ico;
+  $('#nvTxt').textContent=st.text;
+  $('#nvDist').textContent=st.kind==='end'?fmtD(res.rem):'en '+fmtD(res.next.dist);
+  $('#nvEta').textContent='Llegás a las '+hhmm(Date.now()+left*1000);
+  $('#nvRem').textContent=fmtD(res.rem)+' · '+fmtDur(left);
+  $('#nvMute').textContent=S.voice?'🔊':'🔇';
+}
+function navOnFix(f){
+  if(!NAV.on||!NAV.N||f.acc>60)return;
+  const sp=f.speed!=null?f.speed:(NAV.prev?hav([NAV.prev.lat,NAV.prev.lon],[f.lat,f.lon])/Math.max(1,(f.t-NAV.prev.t)/1000):0);
+  NAV.prev=f;
+  const res=navTick(NAV.N,{lat:f.lat,lon:f.lon,speed:sp});
+  if(res.off){navRecalc(f);return;}
+  if(res.say.length)navSay(res.say.join('. '));
+  updNav(res);
+  if(res.arrived&&!NAV.endT)NAV.endT=setTimeout(()=>{NAV.endT=null;endNav();},9000);
+}
+async function navRecalc(f){
+  if(NAV.busy||Date.now()-NAV.lastRecalc<12000)return;
+  NAV.busy=true;NAV.lastRecalc=Date.now();
+  navSay('Recalculando');
+  try{
+    const g=await ensureGraph(),r=findRoute(g,NAV.mode,{lat:f.lat,lon:f.lon},NAV.dest,(NAV.N&&NAV.N.route.pref)||'fast');
+    if(r.err)navSay('No encuentro un camino desde acá');
+    else{
+      r.hzs=[];RT.res=RT.res||{};RT.res[NAV.mode]=r;RT.sel=NAV.mode;
+      NAV.N=navInit(r,NAV.mode,await collectHz(g));r.hzs=NAV.N.hzs;
+      drawRoute(false);navSay(r.steps[0].text);
+    }
+  }catch(e){}
+  NAV.busy=false;
+}
+function endNav(){
+  if(!NAV.on)return;
+  NAV.on=false;NAV.N=null;clearTimeout(NAV.endT);NAV.endT=null;
+  $('#nav').hidden=true;
+  keepAwake(REC.state!=='idle'&&S.keepAwake);
+  if(REC.state==='idle'){setFollow(false);startWatch(false);}
+  toast('Guía terminada');
+}
+async function markHere(k){
+  if(!lastFix){toast('Todavía sin GPS');return;}
+  const n=(await DB.all('kv','wpt:')).filter(w=>w.type===k).length+1;
+  const w={id:uid(),lat:lastFix.lat,lon:lastFix.lon,type:k,name:WT[k][1]+' '+n,t:Date.now()};
+  await DB.put('kv','wpt:'+w.id,w);addWptMarker(w);vib();toast(WT[k][0]+' marcado');
+}
+$('#nvMute').onclick=()=>{S.voice=!S.voice;saveS();$('#nvMute').textContent=S.voice?'🔊':'🔇';};
+$('#nvPozo').onclick=()=>markHere('pozo');
+$('#nvLomo').onclick=()=>markHere('lomo');
+$('#nvEnd').onclick=endNav;
 
 /* ---------- Fotos de dron ---------- */
 map.createPane('ovl').style.zIndex=250;
@@ -2113,6 +2433,7 @@ function showMore(){
     <label for="s3">Unidad de velocidad</label>
     <select class="in" id="s3"><option value="kmh">km/h</option><option value="minkm">min/km (carrera)</option><option value="min500">min/500 m (kayak)</option></select>
     <label class="chk"><input type="checkbox" id="s4" ${S.voice?'checked':''}> Avisos por voz y sonido en las puertas</label>
+    <button class="btn sm" data-act="tv">🔊 Probar la voz</button>
     <label class="chk"><input type="checkbox" id="s5" ${S.keepAwake?'checked':''}> Mantener la pantalla encendida al grabar</label>
     <h3>Tiempos estimados de las rutas</h3>
     <label for="s6">Tu velocidad a pie (km/h)</label><input class="in" id="s6" type="number" step="0.5" min="2" max="10" value="${S.vFoot}">
@@ -2132,6 +2453,7 @@ function showMore(){
         shareFile(n,JSON.stringify({v:2,kv}),'application/json');
       })();
       else if(a==='imp')importFile();
+      else if(a==='tv'){unlockAudio();if(!window.speechSynthesis){toast('Este teléfono no tiene voz disponible',4000);return;}beep(880,.12);say('Prueba de voz. En cien metros, girá a la derecha. Lomo de burro en cincuenta metros.');}
     },
     t=>{
       if(t.id==='s1')S.maxAcc=Math.max(5,+t.value||30);
