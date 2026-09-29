@@ -1,0 +1,83 @@
+name: Compilar APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Instalar dependencias
+        run: npm install --legacy-peer-deps
+
+      - name: Preparar la web
+        run: |
+          mkdir -p www/lib
+          cp index.html www/index.html
+          cp node_modules/leaflet/dist/leaflet.js node_modules/leaflet/dist/leaflet.css www/lib/
+
+      - name: Configurar Capacitor
+        run: |
+          cat > capacitor.config.json <<'JSON'
+          {"appId":"com.profehugo.rumbo","appName":"Rumbo","webDir":"www","android":{"useLegacyBridge":true}}
+          JSON
+
+      - name: Crear proyecto Android
+        run: npx cap add android
+
+      - name: Permisos de Android
+        run: |
+          python3 - <<'PY'
+          p='android/app/src/main/AndroidManifest.xml'
+          s=open(p).read()
+          perms=['ACCESS_FINE_LOCATION','ACCESS_COARSE_LOCATION','FOREGROUND_SERVICE','FOREGROUND_SERVICE_LOCATION','POST_NOTIFICATIONS','WAKE_LOCK','VIBRATE']
+          add=''.join('\n    <uses-permission android:name="android.permission.%s" />'%x for x in perms if x not in s)
+          add+='\n    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\n'
+          s=s.replace('</manifest>',add+'</manifest>')
+          open(p,'w').write(s)
+          PY
+
+      - name: Firma fija (para poder actualizar sin desinstalar)
+        env:
+          KS: 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
+        run: |
+          mkdir -p ~/.android
+          echo "$KS" | base64 -d > ~/.android/debug.keystore
+
+      - name: Sincronizar
+        run: npx cap sync android
+
+      - name: Compilar
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Renombrar APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk Rumbo.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rumbo-apk
+          path: Rumbo.apk
+
+      - name: Publicar en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Rumbo build ${{ github.run_number }}
+          files: Rumbo.apk
