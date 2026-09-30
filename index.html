@@ -1931,9 +1931,8 @@ async function dlNet(replace){
     let dem=null,demErr='';
     try{
       const m=$('#netmsg');if(m)m.textContent='Descargando la altura del terreno…';
-      let la0=90,la1=-90,lo0=180,lo1=-180;
-      for(const w of ways)for(let q=0;q<w.p.length;q+=2){la0=Math.min(la0,w.p[q]);la1=Math.max(la1,w.p[q]);lo0=Math.min(lo0,w.p[q+1]);lo1=Math.max(lo1,w.p[q+1]);}
-      dem=await fetchDem({n:la1,s:la0,w:lo0,e:lo1});
+      /* solo la zona pedida (+ un margen): una ruta larga como la RN3 se sale mucho y agrandaba la zona sin necesidad */
+      dem=await fetchDem({n:b.getNorth()+.01,s:b.getSouth()-.01,w:b.getWest()-.01,e:b.getEast()+.01});
       for(const w of ways){
         const z=[];
         for(let q=0;q<w.p.length;q+=2){const v=sampleDem(dem,DEM_Z,w.p[q],w.p[q+1]);z.push(isNaN(v)?null:Math.round(v*10)/10);}
