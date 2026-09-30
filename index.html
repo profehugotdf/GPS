@@ -154,6 +154,27 @@ input[type=range]{width:100%;height:36px}
 #pin .nvb button{background:var(--foam);color:var(--ink)}
 #pin .nvb #pinGo{background:var(--ink);color:#fff;flex:2}
 .tag{display:inline-block;background:var(--kelp);color:#fff;border-radius:8px;padding:0 6px;font-size:12px;font-weight:700}
+
+body.night{color-scheme:dark;--ink:#E4EDEF;--paper:#0F1E27;--foam:#182C38;--line:#2B4552;--mut:#93A9B2;background:#0b151b}
+body.night .btn.primary,body.night .seg button.on,body.night .chips button.on,body.night #fabs button.on,body.night #pin .nvb #pinGo{background:#E4EDEF;color:#0E2A36}
+body.night #banner,body.night #nav,body.night #toast,body.night .gl{background:#21485B;color:#fff}
+body.night .gl.s{background:var(--buoy)}
+body.night #recbtn.live{background:#E4EDEF!important;color:#0E2A36!important;box-shadow:0 0 0 3px #E4EDEF,0 4px 10px rgba(0,0,0,.5)}
+body.night .btn{border-color:#6B8794}
+body.night .btn.primary{border-color:#E4EDEF}
+body.night .btn.danger{border-color:var(--buoy);color:#FF8A63}
+body.night .card.on{border-color:#E4EDEF}
+body.night #pin small{color:var(--mut)}
+body.night .tbl .bl{color:#5CD69B}
+body.night .tbl .bs{color:#B99CE8}
+body.night svg rect[fill="#0E2A36"]{fill:#7FA2B3}
+body.night svg text{fill:#93A9B2}
+body.night #map{background:#0b151b}
+body.night .leaflet-tile-pane{filter:brightness(.6) contrast(1.05) saturate(.85)}
+body.night.inv .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.85) contrast(.9)}
+body.night .leaflet-ovl-pane img{filter:brightness(.7)}
+body.night .leaflet-control-attribution{background:rgba(15,30,39,.75)!important;color:#93A9B2}
+body.night .leaflet-control-attribution a{color:#9fc4d6}
 </style>
 </head>
 <body>
@@ -202,6 +223,7 @@ input[type=range]{width:100%;height:36px}
 
 <script src="lib/leaflet.js"></script>
 <script>if(!window.L){document.write('<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>')}</script>
+<script src="lib/leaflet-rotate.js"></script>
 <script>
 'use strict';
 /* =====================================================================
@@ -972,6 +994,52 @@ function parseXmp(x,out){
     if(la!=null&&lo!=null){out.lat=la;out.lon=lo;}
   }
 }
+
+/* ====================== NOCHE Y ORIENTACIÓN ====================== */
+/* Salida y puesta del sol (ecuación del amanecer). lon: este positivo. alt: altura del sol en grados que define "oscuro". */
+function sunTimes(lat,lon,ms,alt){
+  const a=(alt==null?-0.833:alt)*rad,jd=ms/86400000+2440587.5;
+  const n=Math.ceil(jd-2451545+0.0008),Js=n-lon/360;
+  const M=((357.5291+0.98560028*Js)%360+360)%360*rad;
+  const C=1.9148*Math.sin(M)+0.02*Math.sin(2*M)+0.0003*Math.sin(3*M);
+  const lam=(((M/rad+C+180+102.9372)%360)+360)%360*rad;
+  const Jt=2451545+Js+0.0053*Math.sin(M)-0.0069*Math.sin(2*lam);
+  const sd=Math.sin(lam)*Math.sin(23.4397*rad),cd=Math.cos(Math.asin(sd));
+  const cw=(Math.sin(a)-Math.sin(lat*rad)*sd)/(Math.cos(lat*rad)*cd);
+  const toMs=j=>(j-2440587.5)*86400000;
+  if(cw>1)return {polar:'noche'};
+  if(cw<-1)return {polar:'dia'};
+  const w=Math.acos(cw)/rad/360;
+  return {rise:toMs(Jt-w),set:toMs(Jt+w)};
+}
+function isNight(ms,lat,lon,alt){
+  for(const k of [-1,0,1]){
+    const t=sunTimes(lat,lon,ms+k*86400000,alt);
+    if(t.polar==='dia')return false;
+    if(t.polar==='noche')return true;
+    if(ms>=t.rise&&ms<=t.set)return false;
+  }
+  return true;
+}
+function destPoint(lat,lon,brg,m){
+  const b=brg*rad;
+  return [lat+m*Math.cos(b)/110540,lon+m*Math.sin(b)/(111320*Math.cos(lat*rad))];
+}
+/* Hacia dónde mira el teléfono (grados desde el norte) a partir del sensor. Acostado: el borde superior; parado: la cámara trasera. */
+function headingFromOrientation(alpha,beta,gamma){
+  if(Math.abs(beta)<35)return (360-alpha+360)%360;
+  const x=beta*rad,y=gamma*rad,z=alpha*rad;
+  const cY=Math.cos(y),cZ=Math.cos(z),sX=Math.sin(x),sY=Math.sin(y),sZ=Math.sin(z);
+  const Vx=-cZ*sY-sZ*sX*cY,Vy=-sZ*sY+cZ*sX*cY;
+  let h=Math.atan(Vx/Vy);
+  if(Vy<0)h+=Math.PI;else if(Vx<0)h+=2*Math.PI;
+  return h/rad;
+}
+function smoothAngle(cur,target,k){
+  if(cur==null)return target;
+  const d=((target-cur+540)%360)-180;
+  return (cur+d*k+360)%360;
+}
 /*</pure>*/
 
 /* ---------- Utilidades ---------- */
@@ -1038,7 +1106,7 @@ const DB=(()=>{
 })();
 
 /* ---------- Ajustes ---------- */
-const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true};
+const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north'};
 let S=Object.assign({},DEF);
 try{Object.assign(S,JSON.parse(localStorage.getItem('rumbo.set')||'{}'));}catch(e){}
 const saveS=()=>{try{localStorage.setItem('rumbo.set',JSON.stringify(S));}catch(e){}};
@@ -1073,7 +1141,7 @@ const CachedTiles=L.TileLayer.extend({
   }
 });
 
-const map=L.map('map',{zoomControl:false,preferCanvas:true,maxZoom:21}).setView([-54.8019,-68.3030],13);
+const map=L.map('map',{zoomControl:false,preferCanvas:true,maxZoom:21,rotate:(S.orient!=='north'&&!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function')),bearing:0,touchRotate:false,shiftKeyRotate:false,rotateControl:false}).setView([-54.8019,-68.3030],13);
 map.attributionControl.setPrefix(false);
 let baseLayer=null;
 function setLayer(k){
@@ -1084,6 +1152,7 @@ function setLayer(k){
   baseLayer=new CachedTiles(l.url,{lid:k,offline:l.off,maxNativeZoom:l.maxNative,maxZoom:21,subdomains:l.subs||'abc',attribution:l.att});
   baseLayer.addTo(map);
   drawCoverage();
+  applyNight();
 }
 
 /* Descarga de zona */
@@ -1216,6 +1285,7 @@ function onFix(f){
     if(!centered){map.setView(ll,16);centered=true;}
   }else{posMk.setLatLng(ll);accC.setLatLng(ll);accC.setRadius(f.acc||0);}
   if(follow)map.panTo(ll,{animate:true,duration:.4});
+  oriFromFix(f);
   const a=Math.round(f.acc||0),cls=a<=10?'ok':a<=25?'mid':'bad';
   const pill=$('#pill');pill.className=cls;pill.lastElementChild.textContent=`GPS ±${a} m`;
   $('#hGps').textContent=`GPS ±${a} m`;
@@ -1267,10 +1337,6 @@ function unlockAudio(){try{actx=actx||new (window.AudioContext||window.webkitAud
 function beep(f,d){
   if(!S.voice||!actx)return;
   try{const o=actx.createOscillator(),g=actx.createGain();o.frequency.value=f;g.gain.value=.25;o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+d);}catch(e){}
-}
-function say(t){
-  if(!S.voice)return;
-  try{const u=new SpeechSynthesisUtterance(t);u.lang='es-AR';u.rate=1.05;speechSynthesis.cancel();speechSynthesis.speak(u);}catch(e){}
 }
 const vib=()=>{try{navigator.vibrate&&navigator.vibrate(150);}catch(e){}};
 const spoken=ms=>{const t=Math.round(ms/100)/10,m=Math.floor(t/60),s=(t-m*60).toFixed(1).replace('.',',');return (m?m+(m===1?' minuto ':' minutos '):'')+s+' segundos';};
@@ -1594,9 +1660,11 @@ async function importFile(){
   try{
     if(f.text.trimStart().startsWith('{')){
       const j=JSON.parse(f.text);if(!j.kv)throw new Error('Backup no reconocido');
-      for(const e of j.kv)await DB.put('kv',e.k,e.v);
+      await restoreBackup(j);
       (await DB.all('kv','wpt:')).forEach(addWptMarker);refreshGates();
-      toast(`Backup importado (${j.kv.length} elementos)`);showTracks();return;
+      const falta=(j.nets&&j.nets.length)||(await DB.all('kv','dlz:')).length;
+      toast(`Copia importada (${j.kv.length} elementos)`+(falta?'. Falta volver a bajar los mapas':''),6000);
+      if(falta)showMapMgr();else showTracks();return;
     }
     const g=parseGPX(f.text);
     for(const t of g.tracks){
@@ -1922,28 +1990,34 @@ async function fetchDem(bb){
   if(!tiles.size)throw new Error('no se pudo bajar');
   return tiles;
 }
+async function fetchNetFull(bb,say){
+  const {ways,hz}=await fetchNet(bb);
+  let dem=null,demErr='';
+  try{
+    if(say)say('Descargando la altura del terreno…');
+    /* solo la zona pedida (+ un margen): una ruta larga como la RN3 se sale mucho y agrandaba la zona sin necesidad */
+    dem=await fetchDem({n:bb.n+.01,s:bb.s-.01,w:bb.w-.01,e:bb.e+.01});
+    for(const w of ways){
+      const z=[];
+      for(let q=0;q<w.p.length;q+=2){const v=sampleDem(dem,DEM_Z,w.p[q],w.p[q+1]);z.push(isNaN(v)?null:Math.round(v*10)/10);}
+      w.z=z;
+    }
+  }catch(e){demErr=e.message||String(e);dem=null;}
+  return {ways,hz,dem:!!dem,demErr};
+}
 async function dlNet(replace){
   const btn=$('#netgo'),msg=$('#netmsg'),b=map.getBounds(),[wk,hk]=viewKm();
   if(wk>25||hk>25){msg.textContent='La zona es muy grande (máximo 25 km por lado). Acercá el mapa.';return false;}
   btn.disabled=true;msg.textContent='Descargando… puede tardar hasta un minuto.';
   try{
-    const {ways,hz}=await fetchNet({s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()});
-    let dem=null,demErr='';
-    try{
-      const m=$('#netmsg');if(m)m.textContent='Descargando la altura del terreno…';
-      /* solo la zona pedida (+ un margen): una ruta larga como la RN3 se sale mucho y agrandaba la zona sin necesidad */
-      dem=await fetchDem({n:b.getNorth()+.01,s:b.getSouth()-.01,w:b.getWest()-.01,e:b.getEast()+.01});
-      for(const w of ways){
-        const z=[];
-        for(let q=0;q<w.p.length;q+=2){const v=sampleDem(dem,DEM_Z,w.p[q],w.p[q+1]);z.push(isNaN(v)?null:Math.round(v*10)/10);}
-        w.z=z;
-      }
-    }catch(e){demErr=e.message||String(e);}
+    const bb={s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()};
+    const f=await fetchNetFull(bb,t=>{const m=$('#netmsg');if(m)m.textContent=t;});
     if(replace)for(const n of await DB.all('kv','net:'))await DB.del('kv','net:'+n.id);
     const id=uid();
-    await DB.put('kv','net:'+id,{id,bb:{s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()},date:Date.now(),ways,hz});
+    await DB.put('kv','net:'+id,{id,bb,date:Date.now(),ways:f.ways,hz:f.hz});
     await netIndex();
-    dropGraph();toast(`Red descargada: ${ways.length} calles y senderos, ${hz.length} lomos de burro`+(dem?' y la altura del terreno':`. Sin altura (${demErr}): no va a funcionar "menos pendiente"`),6000);
+    dropGraph();
+    toast(`Red descargada: ${f.ways.length} calles y senderos, ${f.hz.length} lomos de burro`+(f.dem?' y la altura del terreno':`. Sin altura (${f.demErr}): no va a funcionar "menos pendiente"`),6000);
     return true;
   }catch(e){
     const m=$('#netmsg'),bt=$('#netgo');
@@ -2468,9 +2542,10 @@ async function saveZone(layer,p,r){
 async function netIndex(){
   const keys=(await DB.keys('kv','net:')).map(k=>k.slice(4));
   let idx=await DB.all('kv','netidx:');
-  for(const x of idx)if(!keys.includes(x.id))await DB.del('kv','netidx:'+x.id);
-  idx=idx.filter(x=>keys.includes(x.id));
-  for(const id of keys)if(!idx.some(x=>x.id===id)){
+  for(const x of idx)if(!keys.includes(x.id)&&!x.pending)await DB.del('kv','netidx:'+x.id);
+  idx=idx.filter(x=>keys.includes(x.id)||x.pending);
+  for(const id of keys)if(!idx.some(x=>x.id===id&&!x.pending)){
+    idx=idx.filter(x=>x.id!==id);
     const n=await DB.get('kv','net:'+id);if(!n)continue;
     const x={id,bb:n.bb,date:n.date,ways:n.ways.length,hz:(n.hz||[]).length,z:n.ways.some(w=>w.z&&w.z.some(v=>v!=null))};
     await DB.put('kv','netidx:'+id,x);idx.push(x);
@@ -2482,11 +2557,13 @@ async function drawCoverage(){
   if(!S.cov)return;
   for(const z of await DB.all('kv','dlz:'))if(z.layer===S.layer)
     L.rectangle([[z.bb.s,z.bb.w],[z.bb.n,z.bb.e]],{color:'#1E6BFF',weight:2,fill:false,dashArray:'6 4',opacity:.75,interactive:false}).addTo(covLayer);
-  for(const n of await netIndex())
+  for(const n of (await netIndex()).filter(x=>!x.pending))
     L.rectangle([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{color:'#2E7D5B',weight:2,fill:false,opacity:.75,interactive:false}).addTo(covLayer);
 }
 async function showMapMgr(){
-  const zs=(await DB.all('kv','dlz:')).sort((a,b)=>b.date-a.date),idx=(await netIndex()).sort((a,b)=>b.date-a.date);
+  const zs=(await DB.all('kv','dlz:')).sort((a,b)=>b.date-a.date),idxAll=(await netIndex()).sort((a,b)=>b.date-a.date);
+  const idx=idxAll.filter(n=>!n.pending),pend=idxAll.filter(n=>n.pending),miss=[];
+  for(const z of zs)if(await zoneMissing(z))miss.push(z);
   const c=map.getCenter(),inside=bb=>c.lat>=bb.s&&c.lat<=bb.n&&c.lng>=bb.w&&c.lng<=bb.e;
   let est='';
   try{const e=await navigator.storage.estimate();est=`Rumbo ocupa ${mbf(e.usage/1048576)} MB de ${mbf(e.quota/1073741824)} GB disponibles.`;}catch(e){}
@@ -2497,7 +2574,8 @@ async function showMapMgr(){
   }
   const ni=idx.filter(n=>inside(n.bb));
   here.push(ni.length?`✅ Calles y rutas${ni.some(n=>n.z)?' (con altura del terreno)':' (sin altura del terreno)'}`:'➖ Calles y rutas: sin descargar acá');
-  let h=`<div class="card"><b>Lo que hay en la zona que estás mirando</b><br>${here.join('<br>')}</div>
+  let h=(miss.length||pend.length)?`<div class="card" style="border-color:var(--buoy)"><b>⚠️ Faltan mapas por recuperar</b><br><small class="mut">${miss.length} zona${miss.length===1?'':'s'} de mapa y ${pend.length} de calles. Vinieron de una copia de seguridad y hay que volver a bajarlas, con internet.</small><div class="row" style="margin-top:6px"><button class="btn primary" data-act="recover">Recuperar todo ahora</button></div><p id="rcmsg" class="mut"></p><div id="dlprog" hidden><div class="bar"><i id="dlbar"></i></div><p id="dlt" class="mut"></p><button class="btn" data-act="dlcancel">Cancelar</button></div></div>`:'';
+  h+=`<div class="card"><b>Lo que hay en la zona que estás mirando</b><br>${here.join('<br>')}</div>
     <p class="mut">${est}</p>
     <label class="chk"><input type="checkbox" id="cv" ${S.cov?'checked':''}> Dibujar en el mapa lo descargado (azul: fondo de mapa · verde: calles)</label>`;
   h+='<h3>Fondos de mapa</h3>';
@@ -2527,6 +2605,8 @@ async function showMapMgr(){
     else if(a==='dl'){if(await dlNet()){drawCoverage();showMapMgr();}}
     else if(a==='dlr'){if(await dlNet(true)){drawCoverage();showMapMgr();}}
     else if(a==='ovl')showOvl();
+    else if(a==='recover')recoverAll();
+    else if(a==='dlcancel'){if(DL)DL.cancel=true;}
   },t=>{if(t.id==='cv'){S.cov=t.checked;saveS();drawCoverage();}});
 }
 
@@ -2569,6 +2649,144 @@ $('#pinSave').onclick=async()=>{
   await DB.put('kv','wpt:'+w.id,w);addWptMarker(w);vib();toast('📍 Punto guardado');hidePin();
 };
 
+
+/* ---------- Copia de seguridad completa y recuperación ---------- */
+const blobB64=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(String(f.result).split(',')[1]);f.readAsDataURL(b);});
+async function exportFull(){
+  toast('Preparando la copia…',3000);
+  const kv=(await DB.entries('kv')).filter(e=>e.k!=='rec:current'&&!/^(net|netidx):/.test(e.k));
+  const photos=[];
+  for(const o of OVL){const b=await DB.get('tiles','ovl/'+o.id);if(b)photos.push({id:o.id,b64:await blobB64(b)});}
+  const nets=(await netIndex()).filter(n=>!n.pending).map(n=>({id:n.id,bb:n.bb,date:n.date,ways:n.ways,hz:n.hz,z:n.z}));
+  const d=new Date();
+  shareFile(`rumbo-copia-${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}.json`,JSON.stringify({v:3,kv,photos,nets}),'application/json');
+}
+async function restoreBackup(j){
+  for(const e of j.kv)await DB.put('kv',e.k,e.v);
+  for(const p of (j.photos||[])){
+    const bin=atob(p.b64),u=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+    await DB.put('tiles','ovl/'+p.id,new Blob([u],{type:'image/jpeg'}));
+  }
+  for(const n of (j.nets||[]))await DB.put('kv','netidx:'+n.id,Object.assign({},n,{pending:true}));
+  await loadRuns();await loadOvl();drawEdits();drawCoverage();
+}
+async function zoneMissing(z){
+  const r=z.ranges&&z.ranges[0];if(!r)return false;
+  return !(await DB.has('tiles',`${z.layer}/${r.z}/${Math.floor((r.x0+r.x1)/2)}/${Math.floor((r.y0+r.y1)/2)}`));
+}
+async function recoverAll(){
+  const zs=await DB.all('kv','dlz:'),idx=await netIndex(),miss=[];
+  for(const z of zs)if(await zoneMissing(z))miss.push(z);
+  const pend=idx.filter(n=>n.pending),total=miss.length+pend.length;
+  let i=0;
+  const msg=t=>{const e=$('#rcmsg');if(e)e.textContent=t;},pr=$('#dlprog');
+  if(pr)pr.hidden=false;
+  for(const z of miss){
+    i++;msg(`Mapa ${i} de ${total}: ${LAYERS[z.layer].name}`);
+    const r=await runDownload(z.layer,z.ranges);
+    if(r.cancel){toast('Cancelado');showMapMgr();return;}
+  }
+  for(const n of pend){
+    i++;msg(`Calles ${i} de ${total}: bajando…`);
+    try{
+      const f=await fetchNetFull(n.bb,msg);
+      await DB.put('kv','net:'+n.id,{id:n.id,bb:n.bb,date:Date.now(),ways:f.ways,hz:f.hz});
+      await DB.del('kv','netidx:'+n.id);
+    }catch(e){toast('No se pudo bajar una red de calles: '+(e.message||e),5000);}
+  }
+  dropGraph();await netIndex();drawCoverage();toast('Mapas recuperados ✅',4000);showMapMgr();
+}
+/* ---------- Modo noche y orientación del mapa ---------- */
+function isNightNow(){
+  if(S.night==='on')return true;
+  if(S.night==='off')return false;
+  return isNight(Date.now(),lastFix?lastFix.lat:-54.8,lastFix?lastFix.lon:-68.3,-3);
+}
+function applyNight(){
+  const on=isNightNow();
+  document.body.classList.toggle('night',on);
+  document.body.classList.toggle('inv',on&&['osm','etopo','otm'].includes(S.layer));
+}
+setInterval(applyNight,60000);
+
+const ORI={ok:null,sign:1,cur:0,comp:null,t:0,bound:false};
+const canRotatePlugin=()=>!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function');
+/* Averigua para qué lado hay que girar el mapa: probamos con un punto al este y vemos si queda arriba */
+function oriCalib(){
+  if(ORI.ok!==null)return ORI.ok;
+  try{
+    if(!map.options.rotate||typeof map.setBearing!=='function')throw new Error('sin rotación');
+    const c=map.getCenter(),s=map.getSize(),mpp=40075016.686*Math.cos(c.lat*rad)/(256*Math.pow(2,map.getZoom()));
+    for(const sg of [1,-1]){
+      map.setBearing(sg*90);
+      const p=destPoint(c.lat,c.lng,90,120*mpp),cp=map.latLngToContainerPoint(p),up=s.y/2-cp.y;
+      if(up>60&&Math.abs(cp.x-s.x/2)<up*.35){ORI.sign=sg;ORI.ok=true;map.setBearing(0);return true;}
+    }
+  }catch(e){}
+  ORI.ok=false;
+  try{map.setBearing(0);}catch(e){}
+  toast('No pude activar la rotación del mapa en este teléfono: queda con el norte arriba',6000);
+  return false;
+}
+function setHeading(h){
+  if(!oriCalib())return;
+  const d=((h-ORI.cur+540)%360)-180;
+  if(Math.abs(d)<2)return;
+  ORI.cur=(ORI.cur+d*.4+360)%360;
+  map.setBearing(ORI.sign*ORI.cur);
+}
+function oriFromFix(f){
+  if(S.orient==='course'&&f.speed!=null&&f.speed>0.8&&f.brg!=null&&!isNaN(f.brg))setHeading(f.brg);
+}
+function onCompass(e){
+  if(S.orient!=='compass')return;
+  let h=null;
+  if(e.webkitCompassHeading!=null)h=e.webkitCompassHeading;
+  else if((e.absolute||e.type==='deviceorientationabsolute')&&e.alpha!=null&&e.beta!=null)h=headingFromOrientation(e.alpha,e.beta,e.gamma||0);
+  if(h==null)return;
+  ORI.comp=smoothAngle(ORI.comp,h,.2);
+  const now=Date.now();if(now-ORI.t<200)return;
+  ORI.t=now;setHeading(ORI.comp);
+}
+function oriStart(){
+  if(ORI.bound)return;
+  window.addEventListener('deviceorientationabsolute',onCompass,true);
+  window.addEventListener('deviceorientation',onCompass,true);
+  ORI.bound=true;
+}
+/* devuelve true si el cambio se aplicó */
+function changeOrient(k){
+  if(k===S.orient)return true;
+  if(k!=='north'&&!canRotatePlugin()){toast('Esta versión no trae el módulo para rotar el mapa. Instalá el APK nuevo completo.',6000);return false;}
+  const needReload=k!=='north'&&!(map.options&&map.options.rotate);
+  if(needReload&&REC.state!=='idle'){toast('Terminá la grabación para cambiar la orientación',4000);return false;}
+  S.orient=k;saveS();
+  if(k==='north'){ORI.cur=0;try{if(map.setBearing)map.setBearing(0);}catch(e){}}
+  else if(needReload){toast('Reiniciando el mapa para rotarlo…',1500);setTimeout(()=>location.reload(),1200);}
+  else oriStart();
+  return true;
+}
+
+/* Voz: primero la del sistema (motor de texto a voz de Android), si no la del navegador */
+let ttsNative=null;
+function sayWeb(t){
+  try{const u=new SpeechSynthesisUtterance(t);u.lang='es-AR';u.rate=1.05;speechSynthesis.cancel();speechSynthesis.speak(u);return true;}catch(e){return false;}
+}
+async function say(t){
+  if(!S.voice)return;
+  if(isNative()&&ttsNative!==false){
+    try{
+      const T=plugin('TextToSpeech');
+      try{await T.stop();}catch(e){}
+      try{await T.speak({text:t,lang:'es-AR',rate:1,pitch:1,volume:1,category:'ambient'});}
+      catch(e1){ if(ttsNative!==null)throw e1; await T.speak({text:t,lang:'es-ES',rate:1,pitch:1,volume:1,category:'ambient'}); }
+      ttsNative=true;return;
+    }catch(e){ if(ttsNative===null)ttsNative=false; }
+  }
+  sayWeb(t);
+}
+
 /* ---------- Más, ajustes y backup ---------- */
 function showMoreMenu(){
   openSheet('Más',`<div class="grid3">
@@ -2580,13 +2798,23 @@ function showMoreMenu(){
     a=>{if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
 }
 function showMore(){
+  const chips=(id,cur,opts)=>`<div class="chips">${opts.map(([k,n])=>`<button data-act="${id}" data-k="${k}" class="${k===cur?'on':''}">${n}</button>`).join('')}</div>`;
   openSheet('Ajustes',`
+    <h3>Pantalla</h3>
+    <label>Modo noche</label>
+    ${chips('nt',S.night,[['auto','🌗 Automático'],['on','🌙 Siempre'],['off','☀️ Nunca']])}
+    <p class="mut">Automático: se oscurece cuando el sol baja, según dónde estás.</p>
+    <label>Orientación del mapa</label>
+    ${chips('ori',S.orient,[['north','🧭 Norte arriba'],['course','➡️ Rumbo arriba (GPS)'],['compass','📱 Brújula del teléfono']])}
+    <p class="mut">Rumbo arriba usa hacia dónde te movés (hace falta ir a más de 3 km/h). La brújula sirve también parado. Al cambiar desde "Norte arriba" el mapa se reinicia.</p>
+    <h3>GPS</h3>
     <label for="s1">Precisión máxima aceptada (m)</label><input class="in" id="s1" type="number" min="5" max="150" value="${S.maxAcc}">
     <p class="mut">Los puntos con peor precisión se descartan. Bajo el follaje conviene subirla a 40 o 50.</p>
     <label for="s2">Distancia mínima entre puntos (m)</label><input class="in" id="s2" type="number" min="1" max="30" value="${S.minDist}">
     <label for="s3">Unidad de velocidad</label>
     <select class="in" id="s3"><option value="kmh">km/h</option><option value="minkm">min/km (carrera)</option><option value="min500">min/500 m (kayak)</option></select>
-    <label class="chk"><input type="checkbox" id="s4" ${S.voice?'checked':''}> Avisos por voz y sonido en las puertas</label>
+    <h3>Avisos</h3>
+    <label class="chk"><input type="checkbox" id="s4" ${S.voice?'checked':''}> Avisos por voz y sonido (puertas y guía)</label>
     <button class="btn sm" data-act="tv">🔊 Probar la voz</button>
     <label class="chk"><input type="checkbox" id="s5" ${S.keepAwake?'checked':''}> Mantener la pantalla encendida al grabar</label>
     <h3>Tiempos estimados de las rutas</h3>
@@ -2597,17 +2825,24 @@ function showMore(){
     <label for="s9">Ruta que se muestra primero</label>
     <select class="in" id="s9"><option value="foot">A pie</option><option value="bike">En bici</option><option value="car">En auto</option></select>
     <h3>Copia de seguridad</h3>
-    <p class="mut">Guarda tracks, marcas, puntos, circuitos y correcciones (no los mapas, la red de calles ni las fotos de dron). Hacela antes de reinstalar la app.</p>
-    <div class="row"><button class="btn" data-act="bk">Exportar copia</button><button class="btn" data-act="imp">Importar copia o GPX</button></div>
-    <p class="mut" style="margin-top:16px">Rumbo v0.2 · Mapas: Esri, OpenStreetMap, OpenTopoMap · Calles: © colaboradores de OpenStreetMap (ODbL)</p>`,
-    a=>{
-      if(a==='bk')(async()=>{
-        const kv=(await DB.entries('kv')).filter(e=>e.k!=='rec:current'&&!e.k.startsWith('net:')&&!e.k.startsWith('ovl:')&&!e.k.startsWith('dlz:')&&!e.k.startsWith('netidx:'));
-        const d=new Date(),n=`rumbo-backup-${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}.json`;
-        shareFile(n,JSON.stringify({v:2,kv}),'application/json');
-      })();
+    <p class="mut">Guarda tracks, marcas, puntos, circuitos, correcciones, fotos de dron y la lista de mapas descargados. Los mapas en sí no entran (pesan mucho): al importar la copia, la app los vuelve a bajar con un toque. Hacela antes de reinstalar.</p>
+    <div class="row"><button class="btn" data-act="bk">Exportar copia completa</button><button class="btn" data-act="imp">Importar copia o GPX</button></div>
+    <p class="mut" style="margin-top:16px">Rumbo <span id="ver"></span> · Mapas: Esri, OpenStreetMap, OpenTopoMap, Sentinel-2 · Calles: © colaboradores de OpenStreetMap (ODbL)</p>`,
+    async(a,d)=>{
+      if(a==='bk')exportFull();
       else if(a==='imp')importFile();
-      else if(a==='tv'){unlockAudio();if(!window.speechSynthesis){toast('Este teléfono no tiene voz disponible',4000);return;}beep(880,.12);say('Prueba de voz. En cien metros, girá a la derecha. Lomo de burro en cincuenta metros.');}
+      else if(a==='tv'){
+        unlockAudio();beep(880,.12);
+        if(isNative()){
+          await say('Prueba de voz. En cien metros, girá a la derecha. Lomo de burro en cincuenta metros.');
+          toast(ttsNative?'Se oye con la voz del sistema. Si no oís nada, subí el volumen multimedia.':'La voz del sistema no responde: revisá Ajustes del teléfono → Administración general → Texto a voz.',6000);
+        }else{
+          if(!window.speechSynthesis){toast('Este navegador no tiene voz',4000);return;}
+          sayWeb('Prueba de voz. En cien metros, girá a la derecha.');
+        }
+      }
+      else if(a==='nt'){S.night=d.k;saveS();applyNight();sBody.querySelectorAll('[data-act=nt]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
+      else if(a==='ori'){if(changeOrient(d.k))sBody.querySelectorAll('[data-act=ori]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
     },
     t=>{
       if(t.id==='s1')S.maxAcc=Math.max(5,+t.value||30);
@@ -2622,6 +2857,7 @@ function showMore(){
       saveS();
     });
   $('#s3').value=S.speedMode;$('#s8').value=String(S.carF);$('#s9').value=S.routeMode;
+  if(isNative())try{plugin('App').getInfo().then(i=>{const e=$('#ver');if(e)e.textContent='v'+i.version+' (build '+i.build+')';}).catch(()=>{});}catch(e){}
 }
 
 /* ---------- Botones ---------- */
@@ -2651,6 +2887,7 @@ $('#fAct').onclick=()=>{
   await loadWpts();
   await loadOvl();
   updActBtn();updRecUi();
+  applyNight();if(S.orient==='compass')oriStart();
   startWatch(false);
   drawEdits();
   const rc=await DB.get('kv','rec:current');
