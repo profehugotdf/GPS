@@ -556,9 +556,13 @@ function wayProfile(t,c){
   /* a pie */
   const vf=c.vFoot/3.6;
   const FOOT=['footway','path','pedestrian','steps','track','living_street','residential','service','unclassified','tertiary','secondary','primary','cycleway','corridor','bridleway','road','pier'];
-  if(FOOT.includes(b)&&!NOACC.has(t.foot)&&!(NOACC.has(acc)&&!YESACC.has(t.foot)))
-    out.foot={ok:true,ow:0,v:b==='steps'?vf*.55:(b==='path'||b==='track')?vf*.9:vf};
-  else if(b==='trunk'&&YESACC.has(t.foot))out.foot={ok:true,ow:0,v:vf};
+  /* A pie se puede ir por todo lo que va un auto, salvo autopistas y vías exclusivas para vehículos (las rutas nacionales con banquina sí) */
+  const noFoot=NOACC.has(t.foot)||(NOACC.has(acc)&&!YESACC.has(t.foot))||(t.motorroad==='yes'&&!YESACC.has(t.foot));
+  if(!noFoot){
+    if(FOOT.includes(b))out.foot={ok:true,ow:0,v:b==='steps'?vf*.55:(b==='path'||b==='track')?vf*.9:vf};
+    else if(b==='trunk')out.foot={ok:true,ow:0,v:vf*.85};
+    else if(b==='motorway'&&YESACC.has(t.foot))out.foot={ok:true,ow:0,v:vf*.7};
+  }
   /* bici */
   const vb=c.vBike/3.6;
   let bok=false,bv=vb;
@@ -569,7 +573,8 @@ function wayProfile(t,c){
     else if(b==='track'){bok=true;bv=vb*.75;}
     else if(b==='steps'){bok=true;bv=2/3.6;}
     else if((b==='footway'||b==='pedestrian'||b==='bridleway')&&YESACC.has(t.bicycle)){bok=true;bv=vb*.55;}
-    else if(b==='trunk'&&YESACC.has(t.bicycle)){bok=true;bv=vb;}
+    else if(b==='trunk'&&(t.motorroad!=='yes'||YESACC.has(t.bicycle))){bok=true;bv=vb*.9;}
+    else if(b==='motorway'&&YESACC.has(t.bicycle)){bok=true;bv=vb*.8;}
   }
   if(bok){
     let bow=ow;
@@ -2175,7 +2180,7 @@ function dropGraph(){G=null;GP=null;}
 
 /* Descarga de la red desde OpenStreetMap (Overpass) */
 const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
-const KEEP=['highway','name','oneway','junction','access','foot','bicycle','motor_vehicle','motorcar','vehicle','maxspeed','service','oneway:bicycle','cycleway','cycleway:left','cycleway:right','route','duration','ref','surface'];
+const KEEP=['highway','name','oneway','junction','access','foot','bicycle','motor_vehicle','motorcar','vehicle','maxspeed','service','oneway:bicycle','cycleway','cycleway:left','cycleway:right','route','duration','ref','surface','motorroad'];
 async function fetchNet(bb,regional){
   const bx=`(${bb.s},${bb.w},${bb.n},${bb.e})`;
   /* zona chica: todas las calles, lomos y ferris. Región grande: solo rutas principales y ferris */
