@@ -769,7 +769,13 @@ function findRoute(G,mode,from,to,pref){
     s.at=cd[ci];s.lat=coords[ci][0];s.lon=coords[ci][1];
   });
   steps[0].at=0;
-  return {mode,pref,dist,time,coords,stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
+  /* Tiempo por velocidad promedio propia: la distancia por tierra a tu ritmo + paradas; el ferry se suma aparte */
+  let avgKmh=null;
+  if(G.cfg.avg&&G.cfg.avg[mode]>0){
+    avgKmh=G.cfg.avg[mode]*3.6;
+    time=(dist-fDist)/G.cfg.avg[mode]*(1+(G.cfg.avgStops||0)/100)+fTime;
+  }
+  return {mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,coords,stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
 }
 
 /* ====================== GUÍA PASO A PASO ====================== */
@@ -1141,6 +1147,29 @@ function smoothAngle(cur,target,k){
   const d=((target-cur+540)%360)-180;
   return (cur+d*k+360)%360;
 }
+
+
+/* ====================== VELOCIDAD PROMEDIO PROPIA ====================== */
+/* A partir de los tracks grabados: velocidad promedio en movimiento por modo y porcentaje típico de paradas */
+function avgSpeeds(tracks){
+  const M={walk:'foot',bike:'bike',car:'car'},acc={foot:null,bike:null,car:null};
+  for(const tr of tracks){
+    const m=M[tr.act],st=tr.stats;
+    if(!m||!st||st.dist<500||st.mov<120000)continue;
+    const a=acc[m]||(acc[m]={d:0,t:0,n:0,stops:[]});
+    a.d+=st.dist;a.t+=st.mov/1000;a.n++;
+    a.stops.push(Math.min(50,100*Math.max(0,st.time-st.mov)/st.mov));
+  }
+  const out={};let all=[];
+  for(const m of MODES){
+    const a=acc[m];if(!a)continue;
+    out[m]={kmh:a.d/a.t*3.6,n:a.n,km:a.d/1000};
+    all=all.concat(a.stops);
+  }
+  all.sort((x,y)=>x-y);
+  out.stops=all.length?Math.round(all[Math.floor(all.length/2)]):null;
+  return out;
+}
 /*</pure>*/
 
 /* ---------- Utilidades ---------- */
@@ -1207,7 +1236,7 @@ const DB=(()=>{
 })();
 
 /* ---------- Ajustes ---------- */
-const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north',ferryWait:20,frameKm:25,capZ:16};
+const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north',ferryWait:20,frameKm:25,capZ:16,timeMode:'model',avgFoot:5,avgBike:16,avgCar:45,avgStops:10};
 let S=Object.assign({},DEF);
 try{Object.assign(S,JSON.parse(localStorage.getItem('rumbo.set')||'{}'));}catch(e){}
 const saveS=()=>{try{localStorage.setItem('rumbo.set',JSON.stringify(S));}catch(e){}};
@@ -2031,7 +2060,7 @@ function ensureGraph(){
     const ov=new Map();
     edits.filter(e=>e.type==='ov').forEach(e=>ov.set(`${e.way}:${e.n1}:${e.n2}`,{dir:e.dir,all:!!e.all}));
     await new Promise(r=>setTimeout(r,0));
-    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait});
+    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait,avg:S.timeMode==='avg'?{foot:S.avgFoot/3.6,bike:S.avgBike/3.6,car:S.avgCar/3.6}:null,avgStops:S.avgStops});
     GP=null;return G;
   })();
   return GP;
@@ -2190,7 +2219,7 @@ function resultsHtml(){
   for(const m of MODES){
     const r=RT.res[m];
     if(!r||r.err){h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${errText(r)}</span></div>`;continue;}
-    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+r.time*1000)}</b></div>`;
+    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',',')} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+r.time*1000)}</b></div>`;
   }
   const cmp=RT.alt?`<h3>Comparar para ${MI[RT.sel]}</h3><div class="row">`+PREFS.filter(([k])=>!(RT.sel==='car'&&k==='flat')).map(([k,e])=>{
     const a=RT.alt[k];if(!a||a.err)return '';
@@ -3027,7 +3056,15 @@ function showMore(){
     <label class="chk"><input type="checkbox" id="s4" ${S.voice?'checked':''}> Avisos por voz y sonido (puertas y guía)</label>
     <button class="btn sm" data-act="tv">🔊 Probar la voz</button>
     <label class="chk"><input type="checkbox" id="s5" ${S.keepAwake?'checked':''}> Mantener la pantalla encendida al grabar</label>
-    <h3>Tiempos estimados de las rutas</h3>
+    <h3>Cómo se estima el tiempo de las rutas</h3>
+    ${chips('tm',S.timeMode,[['model','🛣️ Por tipo de calle'],['avg','📈 Por mi velocidad promedio']])}
+    <p class="mut">Por tipo de calle: en auto usa la velocidad máxima de cada calle (o la típica de su tipo) por el factor de tráfico; a pie y en bici, tu velocidad según el tipo de camino y la pendiente. Por velocidad promedio: distancia dividida tu promedio real, más un porcentaje de paradas; sirve si tus salidas grabadas se parecen a lo que vas a hacer (misma ciudad, mismo tipo de camino). El ferry se suma aparte.</p>
+    <label for="s11">Promedio a pie (km/h)</label><input class="in" id="s11" type="number" step="0.1" min="1" max="12" value="${S.avgFoot}">
+    <label for="s12">Promedio en bici (km/h)</label><input class="in" id="s12" type="number" step="0.1" min="3" max="45" value="${S.avgBike}">
+    <label for="s13">Promedio en auto (km/h)</label><input class="in" id="s13" type="number" step="1" min="10" max="120" value="${S.avgCar}">
+    <label for="s14">Paradas y demoras (% extra)</label><input class="in" id="s14" type="number" step="1" min="0" max="60" value="${S.avgStops}">
+    <button class="btn sm" data-act="cal">📈 Calcular desde mis salidas grabadas</button><p id="calmsg" class="mut"></p>
+    <h3>Velocidades del modo "por tipo de calle"</h3>
     <label for="s6">Tu velocidad a pie (km/h)</label><input class="in" id="s6" type="number" step="0.5" min="2" max="10" value="${S.vFoot}">
     <label for="s7">Tu velocidad en bici (km/h)</label><input class="in" id="s7" type="number" step="1" min="5" max="40" value="${S.vBike}">
     <label for="s8">Tráfico en auto</label>
@@ -3053,6 +3090,14 @@ function showMore(){
           sayWeb('Prueba de voz. En cien metros, girá a la derecha.');
         }
       }
+      else if(a==='tm'){S.timeMode=d.k;saveS();dropGraph();sBody.querySelectorAll('[data-act=tm]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
+      else if(a==='cal'){
+        const r=avgSpeeds(await DB.all('kv','track:')),names={foot:'A pie',bike:'En bici',car:'En auto'},f={foot:'avgFoot',bike:'avgBike',car:'avgCar'},ids={foot:'#s11',bike:'#s12',car:'#s13'},got=[];
+        for(const k of MODES)if(r[k]&&r[k].km>=3){S[f[k]]=Math.round(r[k].kmh*10)/10;$(ids[k]).value=S[f[k]];got.push(`${names[k]}: ${S[f[k]]} km/h (${r[k].n} salida${r[k].n>1?'s':''}, ${Math.round(r[k].km)} km)`);}
+        if(r.stops!=null&&got.length){S.avgStops=r.stops;$('#s14').value=r.stops;}
+        saveS();dropGraph();
+        $('#calmsg').textContent=got.length?'Listo. '+got.join(' · ')+(r.stops!=null?` · Paradas: ${r.stops} %`:'')+'. Ahora elegí "Por mi velocidad promedio" arriba.':'Todavía no hay suficientes salidas grabadas (hacen falta al menos 3 km por tipo de actividad: caminata, bici o auto).';
+      }
       else if(a==='nt'){S.night=d.k;saveS();applyNight();sBody.querySelectorAll('[data-act=nt]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
       else if(a==='ori'){if(changeOrient(d.k))sBody.querySelectorAll('[data-act=ori]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
     },
@@ -3066,6 +3111,10 @@ function showMore(){
       else if(t.id==='s7'){S.vBike=Math.max(5,Math.min(40,+t.value||16));dropGraph();}
       else if(t.id==='s8'){S.carF=+t.value;dropGraph();}
       else if(t.id==='s9')S.routeMode=t.value;
+      else if(t.id==='s11'){S.avgFoot=Math.max(1,Math.min(12,+t.value||5));dropGraph();}
+      else if(t.id==='s12'){S.avgBike=Math.max(3,Math.min(45,+t.value||16));dropGraph();}
+      else if(t.id==='s13'){S.avgCar=Math.max(10,Math.min(120,+t.value||45));dropGraph();}
+      else if(t.id==='s14'){S.avgStops=Math.max(0,Math.min(60,+t.value||0));dropGraph();}
       else if(t.id==='s10'){S.ferryWait=Math.max(0,Math.min(240,+t.value||0));dropGraph();}
       saveS();
     });
