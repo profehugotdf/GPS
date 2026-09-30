@@ -69,6 +69,28 @@ jobs:
         run: |
           mkdir -p ~/.android
           echo "$KS" | base64 -d > ~/.android/debug.keystore
+          cp ~/.android/debug.keystore "$HOME/rumbo.keystore"
+          # Le decimos a Gradle, de forma explícita, que firme con ESTA clave (antes generaba una distinta en cada compilación)
+          python3 - <<'PY'
+          import os,re
+          p='android/app/build.gradle'
+          s=open(p).read()
+          ks=os.path.expanduser('~/rumbo.keystore')
+          blk='''android {
+              signingConfigs {
+                  debug {
+                      storeFile file("%s")
+                      storePassword "android"
+                      keyAlias "androiddebugkey"
+                      keyPassword "android"
+                  }
+              }
+          ''' % ks
+          assert re.search(r'^android \{\s*$',s,re.M),'no encontré el bloque android'
+          s=re.sub(r'^android \{\s*\n',blk,s,count=1,flags=re.M)
+          open(p,'w').write(s)
+          print(s[:900])
+          PY
 
       - name: Número de versión (sube en cada compilación)
         run: |
@@ -99,6 +121,8 @@ jobs:
           AS=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
           { echo "Firma de esta compilación (tiene que ser igual en todas para poder actualizar):"; echo; $AS verify --print-certs Rumbo.apk | grep -i "SHA-256" ; } > cert.txt || echo "sin huella" > cert.txt
           cat cert.txt
+          # La huella tiene que ser la de la clave fija; si no, cortamos acá para no publicar un APK que no se pueda actualizar
+          grep -qi "e10bfd0108716d50db6fe2b593862385b81ec772c85432f10d754db026c9eb36" cert.txt || { echo "::error::La firma NO es la fija. Este APK no se podría actualizar."; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
