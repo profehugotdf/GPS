@@ -26,11 +26,20 @@ jobs:
       - name: Instalar dependencias
         run: npm install --legacy-peer-deps
 
+      - name: Plugins opcionales (voz del sistema y rotación del mapa)
+        run: |
+          npm install --save --legacy-peer-deps @capacitor-community/text-to-speech@5 || echo "::warning::No se pudo instalar la voz del sistema"
+          npm install --no-save --legacy-peer-deps leaflet-rotate@0.2.8 || echo "::warning::No se pudo instalar la rotación del mapa"
+
       - name: Preparar la web
         run: |
           mkdir -p www/lib
           cp index.html www/index.html
           cp node_modules/leaflet/dist/leaflet.js node_modules/leaflet/dist/leaflet.css www/lib/
+          R=node_modules/leaflet-rotate/dist
+          if [ -f $R/leaflet-rotate.js ]; then cp $R/leaflet-rotate.js www/lib/leaflet-rotate.js;
+          elif [ -f $R/leaflet-rotate-src.js ]; then cp $R/leaflet-rotate-src.js www/lib/leaflet-rotate.js;
+          else echo "::warning::Sin módulo de rotación"; fi
 
       - name: Configurar Capacitor
         run: |
@@ -49,6 +58,7 @@ jobs:
           perms=['ACCESS_FINE_LOCATION','ACCESS_COARSE_LOCATION','FOREGROUND_SERVICE','FOREGROUND_SERVICE_LOCATION','POST_NOTIFICATIONS','WAKE_LOCK','VIBRATE']
           add=''.join('\n    <uses-permission android:name="android.permission.%s" />'%x for x in perms if x not in s)
           add+='\n    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\n'
+          add+='    <queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>\n'
           s=s.replace('</manifest>',add+'</manifest>')
           open(p,'w').write(s)
           PY
@@ -60,15 +70,35 @@ jobs:
           mkdir -p ~/.android
           echo "$KS" | base64 -d > ~/.android/debug.keystore
 
+      - name: Número de versión (sube en cada compilación)
+        run: |
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"0.2.${{ github.run_number }}\"/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+
       - name: Sincronizar
         run: npx cap sync android
 
       - name: Compilar
+        id: build
+        continue-on-error: true
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
+      - name: Reintentar sin voz del sistema (solo si falló la compilación)
+        if: steps.build.outcome == 'failure'
+        run: |
+          npm uninstall --legacy-peer-deps @capacitor-community/text-to-speech
+          npx cap sync android
+          cd android && ./gradlew assembleDebug --no-daemon
+
       - name: Renombrar APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk Rumbo.apk
+
+      - name: Huella de la firma (para comparar entre compilaciones)
+        run: |
+          AS=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
+          { echo "Firma de esta compilación (tiene que ser igual en todas para poder actualizar):"; echo; $AS verify --print-certs Rumbo.apk | grep -i "SHA-256" ; } > cert.txt || echo "sin huella" > cert.txt
+          cat cert.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -81,3 +111,4 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Rumbo build ${{ github.run_number }}
           files: Rumbo.apk
+          body_path: cert.txt
