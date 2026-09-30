@@ -190,6 +190,40 @@ body.night .leaflet-control-attribution a{color:#9fc4d6}
 #cap .nvb button{background:var(--ink);color:#fff}
 #cap .nvb button[disabled]{opacity:.4}
 body.night #cap .nvb button{background:#E4EDEF;color:#0E2A36}
+
+.gicon{position:relative;width:60px;height:60px}
+.gicon .gl{position:absolute;left:15px;top:15px}
+.gicon .gar{position:absolute;inset:0;pointer-events:none}
+.gicon .gar i{position:absolute;left:23px;top:-2px;font-style:normal;font-size:15px;line-height:1;color:#F04A1C;text-shadow:0 0 3px #fff,0 0 3px #fff}
+.gicon .gar i.b{top:auto;bottom:-2px;transform:rotate(180deg)}
+#gate{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:965;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:62vh;overflow:auto}
+#gate[hidden]{display:none}
+#gate .chips{margin-top:6px}
+#gate .chips button{min-height:36px;padding:3px 10px;font-size:13px}
+.gnum{width:64px;min-height:40px;border-radius:10px;border:2px solid var(--line);background:var(--foam);color:var(--ink);font:700 15px system-ui;text-align:center}
+.gdialrow{display:flex;gap:10px;align-items:center;margin-top:8px}
+#gDial{touch-action:none;flex:none;cursor:pointer}
+.gdialctl{flex:1}
+#gBv{font:700 20px var(--num);margin-bottom:4px}
+.gdialctl .rowb{display:flex;gap:5px;margin-top:5px;align-items:center}
+.gdialctl button{flex:1;min-height:38px;border-radius:10px;border:2px solid var(--line);background:var(--foam);color:var(--ink);font:700 13px system-ui;padding:0 4px}
+#gDirNote{display:block;color:var(--mut);font-size:12px;margin-top:4px}
+#gate .nvb{margin-top:8px}
+#gate .nvb button{background:var(--ink);color:#fff}
+#gate .nvb #gDel,#gate .nvb #gCancel{background:var(--foam);color:var(--ink);border:2px solid var(--line)}
+body.night #gate .nvb #gOk{background:#E4EDEF;color:#0E2A36}
+
+.posm{position:relative;width:34px;height:34px}
+.posd{position:absolute;left:8px;top:8px;width:18px;height:18px;border-radius:50%;background:#1E6BFF;border:3px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.55)}
+.posa{position:absolute;left:0;top:0;width:34px;height:34px;transition:transform .25s}
+.posa::before{content:"";position:absolute;left:9px;top:-9px;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:15px solid #1E6BFF;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 2px #fff)}
+.posa.off{display:none}
+#nav{top:var(--navtop,calc(var(--top) + 52px));bottom:auto;left:8px;right:8px;background:rgba(14,42,54,var(--navA,.42));-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);text-shadow:0 1px 3px rgba(0,0,0,.85);box-shadow:none;border:1px solid rgba(255,255,255,.25)}
+body.night #nav{background:rgba(9,20,27,var(--navA,.42))}
+#nav .nvb button{background:rgba(38,75,92,.6);color:#fff;text-shadow:none}
+#nav .nvb #nvEnd{background:rgba(240,74,28,.85)}
+#fNorth{position:fixed;right:10px;bottom:calc(var(--bot) + 380px);z-index:900;width:48px;height:48px;border-radius:14px;border:0;background:var(--paper);color:var(--ink);font:800 18px system-ui;box-shadow:0 1px 6px rgba(0,0,0,.3)}
+#fNorth[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -210,6 +244,29 @@ body.night #cap .nvb button{background:#E4EDEF;color:#0E2A36}
   <div class="nvr"><span id="nvEta"></span><span id="nvRem"></span></div>
   <div class="nvb"><button id="nvMute">🔊</button><button id="nvPozo">🕳️ Pozo</button><button id="nvLomo">🚧 Lomo</button><button id="nvEnd">Terminar</button></div>
 </div>
+<div id="gate" hidden>
+  <div class="caph"><b id="gTtl">Puerta</b><button id="gX" aria-label="Cerrar">✕</button></div>
+  <div class="chips" id="gRole"><button data-r="start">🏁 Largada</button><button data-r="split">⏱️ Parcial</button><button data-r="finish">🏆 Llegada</button><button data-r="startfinish">🔁 Largada/Llegada</button></div>
+  <div class="caprow"><label>Ancho</label><input type="range" id="gW" min="5" max="200"><input type="number" id="gWn" class="gnum" min="3" max="500" inputmode="numeric"><span>m</span></div>
+  <div class="chips" id="gQuick"><button data-w="10">10</button><button data-w="20">20</button><button data-w="30">30</button><button data-w="50">50</button><button data-w="100">100</button></div>
+  <div class="gdialrow">
+    <svg id="gDial" viewBox="-50 -50 100 100" width="92" height="92" aria-label="Giro de la puerta">
+      <circle r="46" fill="var(--foam)" stroke="var(--line)" stroke-width="3"/>
+      <g font-size="11" font-weight="700" text-anchor="middle" fill="var(--mut)"><text y="-34">N</text><text x="35" y="4">E</text><text y="42">S</text><text x="-35" y="4">O</text></g>
+      <g id="gLine"><line x1="-26" y1="0" x2="26" y2="0" stroke="var(--ink)" stroke-width="5" stroke-linecap="round"/></g>
+      <g id="gNeedle"><line x1="0" y1="0" x2="0" y2="-30" stroke="#F04A1C" stroke-width="3"/><polygon points="0,-40 -7,-27 7,-27" fill="#F04A1C"/></g>
+      <circle r="4" fill="var(--ink)"/>
+    </svg>
+    <div class="gdialctl">
+      <div id="gBv">0° N</div>
+      <div class="rowb"><button data-rot="-15">−15°</button><button data-rot="-1">−1°</button><button data-rot="1">+1°</button><button data-rot="15">+15°</button></div>
+      <div class="rowb"><input type="number" id="gBn" class="gnum" min="0" max="359" inputmode="numeric"><button id="gInv">⟲ 180°</button><button id="gGps">Mi rumbo</button><button id="gNext">→ Sig.</button></div>
+    </div>
+  </div>
+  <div class="chips" id="gDir"><button data-d="one">➤ Solo en este sentido</button><button data-d="both">⇄ Ambos sentidos</button></div>
+  <small id="gDirNote"></small>
+  <div class="nvb"><button id="gOk">✓ Guardar</button><button id="gDel">Borrar</button><button id="gCancel">Cancelar</button></div>
+</div>
 <div id="cap" hidden>
   <div class="caph"><b id="capTtl">📐 Zona</b><button id="capX" aria-label="Cerrar">✕</button></div>
   <div class="chips" id="capSize"><button data-km="5">5 km</button><button data-km="10">10 km</button><button data-km="25">25 km</button><button id="capFit">🔍 Ver marco entero</button></div>
@@ -223,6 +280,7 @@ body.night #cap .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinSave">📍 Guardar</button><button id="pinX">✕</button></div></div>
 <div id="banner" hidden><span id="bTxt"></span><span class="row"><button class="btn sm" id="bUndo" hidden>Deshacer</button><button class="btn sm primary" id="bOk" hidden>Listo</button><button class="btn sm" id="bCancel">Cancelar</button></span></div>
 
+<button id="fNorth" hidden aria-label="Norte arriba">N⬆</button>
 <div id="fabs">
   <button id="fAct" aria-label="Actividad">🚴</button>
   <button id="fPts" aria-label="Puntos">📍</button>
@@ -290,38 +348,80 @@ function gateAt(c,brg,w){
   return {a:off(-1),b:off(1)};
 }
 
+/* ====================== PUERTAS: roles, sentido de paso y giro ====================== */
+const ROLE_NAME={start:'Largada',split:'Parcial',finish:'Llegada',startfinish:'Largada/Llegada'};
+const ROLE_ICON={start:'🏁',split:'⏱️',finish:'🏆',startfinish:'🔁'};
+const WIND=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'];
+const compassWord=b=>WIND[Math.round((((b%360)+360)%360)/22.5)%16];
+const norm360=b=>((b%360)+360)%360;
+/* ¿el desplazamiento p→q va en el sentido brg (grados desde el norte)? */
+function dirOK(p,q,brg){
+  const k=Math.cos(p[0]*rad),dx=(q[1]-p[1])*k,dy=q[0]-p[0];
+  return dx*Math.sin(brg*rad)+dy*Math.cos(brg*rad)>0;
+}
+/* Puerta completa a partir de centro, ancho, sentido de paso y rol. Los extremos a/b quedan siempre coherentes. */
+function makeGate(o){
+  const brg=norm360(o.brg||0),g=gateAt(o.c,brg,o.w);
+  return {c:[o.c[0],o.c[1]],w:o.w,brg,dirOnly:!!o.dirOnly,role:o.role||'split',a:g.a,b:g.b};
+}
+/* Puertas viejas (solo a y b): se les deduce centro, ancho y sentido; aceptan los dos sentidos como antes */
+function upgradeGate(g,role){
+  if(g.c&&g.w!=null&&g.brg!=null)return Object.assign({},g,{role:g.role||role});
+  const c=[(g.a[0]+g.b[0])/2,(g.a[1]+g.b[1])/2],w=hav(g.a,g.b);
+  return {c,w,brg:norm360(bearingTo(g.a,g.b)-90),dirOnly:false,role:g.role||role,a:g.a,b:g.b};
+}
+/* Rol de cada puerta. Reglas: la primera es largada o largada/llegada; solo la última puede ser llegada; en un punto a punto la última hace de llegada. */
+function gateRoles(c){
+  const n=c.gates.length;if(!n)return [];
+  const legacy=c.type==='p2p'&&n>=2?c.gates.map((_,i)=>i===0?'start':i===n-1?'finish':'split'):c.gates.map((_,i)=>i===0?'startfinish':'split');
+  const r=c.gates.map((g,i)=>g.role||legacy[i]);
+  if(r[0]!=='start'&&r[0]!=='startfinish')r[0]='start';
+  for(let i=1;i<n;i++){
+    if(r[i]==='start'||r[i]==='startfinish')r[i]='split';
+    if(r[i]==='finish'&&i<n-1)r[i]='split';
+  }
+  if(r[0]==='start'&&n>=2)r[n-1]='finish';
+  return r;
+}
+const circType=c=>gateRoles(c)[0]==='startfinish'?'closed':'p2p';
+/* Avisos para mostrar al armar el circuito */
+function gateCheck(c){
+  const w=[],n=c.gates.length;
+  if(!n){w.push('Todavía no hay puertas.');return w;}
+  const raw=c.gates.map(g=>g.role),r=gateRoles(c);
+  if(raw[0]&&raw[0]!=='start'&&raw[0]!=='startfinish')w.push('La primera puerta tiene que ser largada o largada/llegada: se toma como largada.');
+  if(r[0]==='start'&&n<2)w.push('Con una sola puerta de largada no hay dónde terminar: agregá una llegada.');
+  if(r[0]==='start'&&n>=2&&raw[n-1]&&raw[n-1]!=='finish')w.push('En un punto a punto la última puerta funciona como llegada.');
+  if(r[0]==='startfinish'&&raw.some((x,i)=>i>0&&(x==='finish'||x==='start')))w.push('En un circuito cerrado no hace falta puerta de llegada aparte: la largada/llegada cierra cada vuelta.');
+  return w;
+}
+
 /* Cronómetro de puertas. Los puntos son [lat,lon,tMs,...]. */
 class GateTimer{
-  constructor(c,cb){this.c=c;this.cb=cb||{};this.reset();}
+  constructor(c,cb){this.c=c;this.cb=cb||{};this.roles=gateRoles(c);this.reset();}
   reset(){this.exp=0;this.cur=null;this.laps=[];this.lastT=null;}
   best(){let b=null;for(const l of this.laps)if(!b||l.time<b.time)b=l;return b;}
   feed(p,q){
-    const n=this.c.gates.length;
+    const G=this.c.gates,n=G.length;
     if(!n||!(q[2]>p[2]))return;
-    const gi=this.exp, u=crossFrac(p,q,this.c.gates[gi]);
+    const gi=this.exp,g=G[gi],u=crossFrac(p,q,g);
     if(u==null)return;
+    if(g.dirOnly&&g.brg!=null&&!dirOK(p,q,g.brg))return;      /* cruzó al revés: no cuenta */
     const t=p[2]+u*(q[2]-p[2]);
     if(this.lastT!=null&&t-this.lastT<4000)return;
     this.lastT=t; this._cross(gi,t,n);
   }
   _cross(gi,t,n){
-    const cb=this.cb;
-    if(this.c.type==='p2p'&&n>=2){
-      if(gi===0){this.cur={start:t,marks:[]};this.exp=1;cb.onStart&&cb.onStart(t);}
-      else{
-        this.cur.marks.push(t);
-        if(gi===n-1){const cur=this.cur;this.cur=null;this.exp=0;this._end(cur);}
-        else{this.exp=gi+1;cb.onGate&&cb.onGate(gi,t-this.cur.start,this.cur.marks.length);}
-      }
+    const cb=this.cb,role=this.roles[gi];
+    if(role==='start'||role==='startfinish'){
+      if(role==='startfinish'&&this.cur){
+        const cur=this.cur;cur.marks.push(t);this.cur={start:t,marks:[]};this.exp=n>1?1:0;this._end(cur);
+      }else{this.cur={start:t,marks:[]};this.exp=n>1?1:0;cb.onStart&&cb.onStart(t);}
+    }else if(role==='finish'){
+      this.cur.marks.push(t);const cur=this.cur;this.cur=null;this.exp=0;this._end(cur);
     }else{
-      if(gi===0){
-        const had=!!this.cur;
-        if(had){const cur=this.cur;cur.marks.push(t);this.cur={start:t,marks:[]};this.exp=n>1?1:0;this._end(cur);}
-        else{this.cur={start:t,marks:[]};this.exp=n>1?1:0;cb.onStart&&cb.onStart(t);}
-      }else{
-        this.cur.marks.push(t);this.exp=(gi+1)%n;
-        cb.onGate&&cb.onGate(gi,t-this.cur.start,this.cur.marks.length);
-      }
+      this.cur.marks.push(t);this.exp=gi+1>=n?0:gi+1;
+      cb.onGate&&cb.onGate(gi,t-this.cur.start,this.cur.marks.length);
     }
   }
   _end(cur){
@@ -1236,7 +1336,7 @@ const DB=(()=>{
 })();
 
 /* ---------- Ajustes ---------- */
-const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north',ferryWait:20,frameKm:25,capZ:16,timeMode:'model',avgFoot:5,avgBike:16,avgCar:45,avgStops:10};
+const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north',fingerRotate:true,navOp:.42,ferryWait:20,frameKm:25,capZ:16,timeMode:'model',avgFoot:5,avgBike:16,avgCar:45,avgStops:10};
 let S=Object.assign({},DEF);
 try{Object.assign(S,JSON.parse(localStorage.getItem('rumbo.set')||'{}'));}catch(e){}
 const saveS=()=>{try{localStorage.setItem('rumbo.set',JSON.stringify(S));}catch(e){}};
@@ -1271,7 +1371,7 @@ const CachedTiles=L.TileLayer.extend({
   }
 });
 
-const map=L.map('map',{zoomControl:false,preferCanvas:true,maxZoom:21,rotate:(S.orient!=='north'&&!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function')),bearing:0,touchRotate:false,shiftKeyRotate:false,rotateControl:false}).setView([-54.8019,-68.3030],13);
+const map=L.map('map',{zoomControl:false,preferCanvas:true,maxZoom:21,rotate:(!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function')&&(S.orient!=='north'||S.fingerRotate!==false)),bearing:0,touchRotate:(!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function')&&S.fingerRotate!==false),shiftKeyRotate:false,rotateControl:false}).setView([-54.8019,-68.3030],13);
 map.attributionControl.setPrefix(false);
 let baseLayer=null;
 function setLayer(k){
@@ -1413,11 +1513,11 @@ function onFix(f){
   const ll=[f.lat,f.lon];
   if(!posMk){
     accC=L.circle(ll,{radius:f.acc||0,stroke:false,fillColor:'#1E6BFF',fillOpacity:.12,interactive:false}).addTo(map);
-    posMk=L.circleMarker(ll,{radius:9,color:'#fff',weight:3,fillColor:'#1E6BFF',fillOpacity:1,interactive:false}).addTo(map);
+    posMk=L.marker(ll,{interactive:false,keyboard:false,zIndexOffset:2000,icon:posIcon()}).addTo(map);
     if(!centered){map.setView(ll,16);centered=true;}
   }else{posMk.setLatLng(ll);accC.setLatLng(ll);accC.setRadius(f.acc||0);}
   if(follow)map.panTo(ll,{animate:true,duration:.4});
-  oriFromFix(f);
+  oriFromFix(f);setPosHeading(f);
   const a=Math.round(f.acc||0),cls=a<=10?'ok':a<=25?'mid':'bad';
   const pill=$('#pill');pill.className=cls;pill.lastElementChild.textContent=`GPS ±${a} m`;
   $('#hGps').textContent=`GPS ±${a} m`;
@@ -1911,10 +2011,12 @@ async function refreshGates(){
   REC.timers.forEach(t=>ids.add(t.circ.id));
   for(const id of ids){
     const c=await DB.get('kv','circuit:'+id);if(!c)continue;
-    c.gates.forEach((g,i)=>{
-      L.polyline([g.a,g.b],{color:i===0?'#F04A1C':'#0E2A36',weight:6,opacity:.95,interactive:false}).addTo(gateLayer);
-      const mid=[(g.a[0]+g.b[0])/2,(g.a[1]+g.b[1])/2];
-      L.marker(mid,{interactive:false,icon:L.divIcon({html:`<div class="gl ${i===0?'s':''}">${i===0?'🏁':i}</div>`,className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(gateLayer);
+    const roles=gateRoles(c);
+    c.gates.forEach((g0,i)=>{
+      const g=upgradeGate(g0,roles[i]),r=roles[i];
+      L.polyline([g.a,g.b],{color:'#fff',weight:10,opacity:.85,interactive:false}).addTo(gateLayer);
+      L.polyline([g.a,g.b],{color:ROLE_COL[r],weight:6,opacity:.95,interactive:false}).addTo(gateLayer);
+      L.marker(g.c,{interactive:false,icon:L.divIcon({html:gateIconHtml(r,r==='split'?String(i):ROLE_ICON[r],g.brg,g.dirOnly),className:'',iconSize:[60,60],iconAnchor:[30,30]})}).addTo(gateLayer);
     });
   }
 }
@@ -1982,37 +2084,41 @@ async function showBadges(){
     <div class="row" style="margin-top:12px"><button class="btn" data-act="back">Volver</button></div>`,
     a=>{if(a==='back')showCircuits();});
 }
+async function freezeGates(c){const r=gateRoles(c);c.gates=c.gates.map((x,i)=>upgradeGate(x,r[i]));}
 async function showCircuitEdit(id){
   const c=await DB.get('kv','circuit:'+id);if(!c){showCircuits();return;}
   editingCirc=id;refreshGates();
+  const roles=gateRoles(c),warn=gateCheck(c),tp=circType(c);
   openSheet('Circuito',`<label for="cn">Nombre</label><input class="in" id="cn" value="${esc(c.name)}">
-    <label>Tipo</label><div class="seg"><button data-act="type" data-k="closed" class="${c.type!=='p2p'?'on':''}">Cerrado (vueltas)</button><button data-act="type" data-k="p2p" class="${c.type==='p2p'?'on':''}">Punto a punto</button></div>
+    <p>${tp==='closed'?'🔁 <b>Circuito cerrado:</b> se cuentan vueltas':'➡️ <b>Punto a punto:</b> de la largada a la llegada'} <span class="mut">(lo define el rol de cada puerta)</span></p>
     <h3>Puertas (${c.gates.length})</h3>
-    ${c.gates.map((g,i)=>`<div class="item"><div><b>${i===0?'🏁 Puerta 0 · largada'+(c.type==='p2p'?'':' y meta'):'Puerta '+i+(c.type==='p2p'&&i===c.gates.length-1?' · llegada':'')}</b><br><small class="mut">${Math.round(hav(g.a,g.b))} m de ancho</small></div><button class="btn sm danger" data-act="gdel" data-i="${i}">Quitar</button></div>`).join('')||'<p class="mut">Sin puertas todavía.</p>'}
-    <div class="row" style="margin-top:8px"><button class="btn primary" data-act="draw">Dibujar en el mapa</button><button class="btn" data-act="here">Puerta acá</button></div>
-    <label for="gw">Ancho de "Puerta acá" (m)</label><input class="in" id="gw" type="number" min="5" max="200" value="${S.gateW}">
-    <p class="mut">"Puerta acá" se coloca donde estás, cruzada al sentido en que venís avanzando. En kayak o trail conviene 30 m o más por la imprecisión del GPS.</p>
+    ${c.gates.map((g0,i)=>{const g=upgradeGate(g0,roles[i]);return `<div class="item"><div><b>${ROLE_ICON[roles[i]]} ${i+1}. ${ROLE_NAME[roles[i]]}</b><br><small class="mut">${Math.round(g.w)} m de ancho · ${dirText(g)}</small></div><div class="row"><button class="btn sm" data-act="gup" data-i="${i}" ${i?'':'disabled'} aria-label="Subir">▲</button><button class="btn sm" data-act="gdn" data-i="${i}" ${i<c.gates.length-1?'':'disabled'} aria-label="Bajar">▼</button><button class="btn sm" data-act="gedit" data-i="${i}">Editar</button></div></div>`;}).join('')||'<p class="mut">Sin puertas todavía.</p>'}
+    ${warn.map(w=>`<p class="mut">⚠️ ${esc(w)}</p>`).join('')}
+    <div class="row" style="margin-top:8px"><button class="btn primary" data-act="gadd">＋ Agregar puerta</button><button class="btn" data-act="here">📍 En mi posición</button></div>
+    <p class="mut">Cada puerta se ubica tocando el mapa. Elegís el rol (largada, parcial, llegada o largada/llegada), el ancho, si cuenta en un solo sentido o en los dos, y el giro de 0 a 359°. Las puertas se recorren en el orden de esta lista.</p>
     <label class="chk"><input type="checkbox" id="cw" ${c.watch!==false?'checked':''}> Vigilar en cada grabación</label>
     <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Listo</button><button class="btn danger" data-act="del">Borrar circuito</button></div>`,
     async(a,d,el)=>{
-      const save=()=>DB.put('kv','circuit:'+id,c);
-      if(a==='type'){c.type=d.k;await save();await resetRunsOf(id);showCircuitEdit(id);}
-      else if(a==='gdel'){c.gates.splice(+d.i,1);await save();await resetRunsOf(id);showCircuitEdit(id);}
-      else if(a==='draw')startDraw(id);
+      const save=async()=>{c.type=circType(c);await DB.put('kv','circuit:'+id,c);};
+      if(a==='gadd')openGateEditor(id,null);
+      else if(a==='gedit')openGateEditor(id,+d.i);
       else if(a==='here'){
         if(!lastFix){toast('Todavía no hay GPS');return;}
         let brg=null;
         if(lastFix.speed>0.7&&lastFix.brg!=null&&!isNaN(lastFix.brg))brg=lastFix.brg;
         else if(fixHist.length>1){const a0=fixHist[0];if(hav([a0.lat,a0.lon],[lastFix.lat,lastFix.lon])>6)brg=bearingTo([a0.lat,a0.lon],[lastFix.lat,lastFix.lon]);}
-        if(brg==null){toast('Caminá o remá unos metros para tomar el rumbo, o dibujá la puerta en el mapa',5000);return;}
-        c.gates.push(gateAt([lastFix.lat,lastFix.lon],brg,S.gateW));await save();await resetRunsOf(id);showCircuitEdit(id);
+        openGateEditor(id,null,Object.assign({c:[lastFix.lat,lastFix.lon]},brg!=null?{brg}:{}));
+      }
+      else if(a==='gup'||a==='gdn'){
+        const i=+d.i,j=a==='gup'?i-1:i+1;
+        await freezeGates(c);[c.gates[i],c.gates[j]]=[c.gates[j],c.gates[i]];
+        await save();await resetRunsOf(id);showCircuitEdit(id);
       }
       else if(a==='ok')showCircuitDetail(id);
       else if(a==='del'&&armed(el)){await DB.del('kv','circuit:'+id);await resetRunsOf(id);editingCirc=null;refreshGates();showCircuits();}
     },
     async t=>{
       if(t.id==='cn'){c.name=t.value.trim()||c.name;await DB.put('kv','circuit:'+id,c);}
-      else if(t.id==='gw'){S.gateW=Math.max(5,Math.min(200,+t.value||30));saveS();}
       else if(t.id==='cw'){c.watch=t.checked;await DB.put('kv','circuit:'+id,c);}
     });
 }
@@ -2312,10 +2418,10 @@ function showSaveRoute(){
     async a=>{
       if(a==='back')showRoutes();
       else if(a==='ok'){
-        const total=r.dist,step=+$('#ss').value,mk=d=>{const p=pointAlong(r.coords,d);return gateAt([p.lat,p.lon],p.brg,40);};
-        const gates=[mk(Math.min(15,total*.1))];
-        if(step)for(let d=step;d<total-Math.max(150,step*.4);d+=step)gates.push(mk(d));
-        gates.push(mk(Math.max(total-15,total*.9)));
+        const total=r.dist,step=+$('#ss').value,mk=(d,role)=>{const p=pointAlong(r.coords,d);return makeGate({c:[p.lat,p.lon],w:40,brg:p.brg,dirOnly:true,role});};
+        const gates=[mk(Math.min(15,total*.1),'start')];
+        if(step)for(let d=step;d<total-Math.max(150,step*.4);d+=step)gates.push(mk(d,'split'));
+        gates.push(mk(Math.max(total-15,total*.9),'finish'));
         const c={id:uid(),name:$('#sn').value.trim()||'Recorrido',type:'p2p',gates,watch:true};
         await DB.put('kv','circuit:'+c.id,c);
         toast('Recorrido guardado 🏁',3500);showCircuitDetail(c.id);
@@ -2455,7 +2561,7 @@ function undoPick(){
   PICK.pts.pop();const m=PICK.mk.pop();if(m)pickLayer.removeLayer(m);PICK.line.setLatLngs(PICK.pts);
   banner(`Sendero: ${PICK.pts.length} punto${PICK.pts.length===1?'':'s'}. Tocá el siguiente o "Listo".`,{undo:PICK.pts.length>0,ok:PICK.pts.length>=2});
 }
-map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);else onMapTap(e);});
+map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);else if(GE.on)gateTap(e);else onMapTap(e);});
 $('#bCancel').onclick=()=>{if(draw)cancelDraw();else if(PICK)cancelPick();};
 $('#bUndo').onclick=undoPick;
 $('#bOk').onclick=()=>{if(PICK&&PICK.type==='path')finishPath();};
@@ -2487,7 +2593,7 @@ async function startNav(){
     catch(e){toast('No se pudo iniciar el GPS en segundo plano: '+(e.message||e),5000);}
   }
   keepAwake(true);
-  $('#nav').hidden=false;
+  $('#nav').hidden=false;updNavTop();
   const h=NAV.N.hzs.length;
   navSay(r.steps[0].text+'.'+(h?` Hay ${h} aviso${h>1?'s':''} en el camino.`:''));
   const s1=r.steps[1]||r.steps[0];
@@ -2527,6 +2633,12 @@ async function navRecalc(f){
   }catch(e){}
   NAV.busy=false;
 }
+function updNavTop(){
+  const hud=$('#hud'),pill=$('#pill');
+  const ref=hud.classList.contains('on')?hud:pill;
+  document.documentElement.style.setProperty('--navtop',Math.round(ref.getBoundingClientRect().bottom+6)+'px');
+}
+setInterval(()=>{if(NAV.on)updNavTop();},700);
 function endNav(){
   if(!NAV.on)return;
   NAV.on=false;NAV.N=null;clearTimeout(NAV.endT);NAV.endT=null;
@@ -2859,9 +2971,24 @@ async function recoverAll(){
 }
 /* ---------- Elegir la zona a descargar (marco) ---------- */
 const frameLayer=L.layerGroup().addTo(map);
-const CAP={on:false};
+const CAP={on:false,lock:null};
+/* Centro de la parte visible del mapa: descuenta las tarjetas de abajo (captura y puertas) */
+function visPx(){
+  const s=map.getSize(),mapTop=$('#map').getBoundingClientRect().top;
+  let bot=s.y;
+  for(const id of ['#cap','#gate']){const e=$(id);if(e&&!e.hidden)bot=Math.min(bot,e.getBoundingClientRect().top-mapTop);}
+  return {x:s.x/2,y:Math.max(80,bot)/2};
+}
+const visCenter=()=>{const p=visPx();return map.containerPointToLatLng([p.x,p.y]);};
+/* Lleva ll al centro de la parte visible */
+function viewVisible(ll,z){
+  map.setView(ll,z,{animate:false});
+  const d=map.getSize().y/2-visPx().y;
+  if(Math.abs(d)>2)map.panBy([0,d],{animate:false});
+}
 function frameBB(){
-  const c=map.getCenter(),h=S.frameKm*500,dl=h/110540,dn=h/(111320*Math.cos(c.lat*rad));
+  if(CAP.lock)return CAP.lock;      /* mientras se descarga, el marco queda fijo aunque la tarjeta cambie de alto */
+  const c=CAP.on||GE.on?visCenter():map.getCenter(),h=S.frameKm*500,dl=h/110540,dn=h/(111320*Math.cos(c.lat*rad));
   return {s:c.lat-dl,n:c.lat+dl,w:c.lng-dn,e:c.lng+dn};
 }
 function dlPlanFrame(){
@@ -2915,13 +3042,16 @@ $('#capX').onclick=closeCap;
 $('#capSize').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;S.frameKm=+b.dataset.km;saveS();drawFrame();});
 document.querySelectorAll('#cap [data-cap]').forEach(b=>b.onclick=()=>stepFrame(b.dataset.cap));
 $('#capZ').addEventListener('input',e=>{S.capZ=+e.target.value;saveS();updCap();});
-$('#capFit').onclick=()=>{const b=frameBB(),dl=(b.n-b.s),dn=(b.e-b.w);map.fitBounds([[b.s-dl,b.w-dn],[b.n+dl,b.e+dn]],{padding:[10,10]});};
+$('#capFit').onclick=()=>{const b=frameBB(),dl=(b.n-b.s),dn=(b.e-b.w),ph=$('#cap').getBoundingClientRect().height;map.fitBounds([[b.s-dl,b.w-dn],[b.n+dl,b.e+dn]],{paddingTopLeft:[10,70],paddingBottomRight:[10,ph+20]});};
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(CAP.on)drawFrame();}).observe($('#cap'));
 $('#capMap').onclick=async()=>{
   if(DL){DL.cancel=true;return;}
   const p=dlPlanFrame();
   if(!p.l.off||p.n>12000)return;
+  CAP.lock=p.b;
   $('#capprog').hidden=false;$('#capMap').textContent='Cancelar';$('#capNet').disabled=$('#capReg').disabled=true;
   const r=await runDownload(S.layer,p.ranges);
+  CAP.lock=null;
   $('#capMap').textContent='🗺️ Bajar mapa';$('#capNet').disabled=$('#capReg').disabled=false;
   if(!r.cancel){await saveZone(S.layer,p,r);$('#capmsg').textContent=r.fail>r.total*.5?'La mayoría falló. Revisá la conexión.':`Listo: ${r.done-r.fail} teselas guardadas${r.fail?` (${r.fail} fallaron)`:''}.`;}
   else $('#capmsg').textContent='Descarga cancelada.';
@@ -2929,12 +3059,142 @@ $('#capMap').onclick=async()=>{
 };
 async function capNet(mode){
   $('#capNet').disabled=$('#capReg').disabled=$('#capMap').disabled=true;
+  CAP.lock=frameBB();
   const ok=await dlNet(false,mode,{btn:null,msg:'#capmsg'});
-  $('#capNet').disabled=$('#capReg').disabled=false;updCap();
+  CAP.lock=null;
+  $('#capNet').disabled=$('#capReg').disabled=false;drawFrame();
   if(ok){drawCoverage();$('#capmsg').textContent=mode==='regional'?'Red regional guardada.':'Calles y rutas guardadas. Movete al cuadro de al lado para seguir.';}
 }
 $('#capNet').onclick=()=>capNet('detail');
 $('#capReg').onclick=()=>capNet('regional');
+
+/* ---------- Editor de puertas: rol, ancho, giro de 360° y sentido de paso ---------- */
+const gedLayer=L.layerGroup().addTo(map);
+const GE={on:false,cid:null,idx:null,g:null,c:null};
+const visCenterNow=()=>{try{return map.getCenter();}catch(e){return {lat:0,lng:0};}};
+const ROLE_ORDER=['start','split','finish','startfinish'];
+const ROLE_COL={start:'#F04A1C',split:'#0E2A36',finish:'#2E7D5B',startfinish:'#F04A1C'};
+function gateIconHtml(role,label,brg,dirOnly){
+  const s=(role==='start'||role==='startfinish')?' s':'';
+  const ar=dirOnly?`<div class="gar" style="transform:rotate(${brg}deg)"><i>▲</i></div>`:`<div class="gar" style="transform:rotate(${brg}deg)"><i>▲</i><i class="b">▼</i></div>`;
+  return `<div class="gicon">${ar}<div class="gl${s}">${label}</div></div>`;
+}
+const dirText=g=>g.dirOnly?`solo hacia ${Math.round(g.brg)}° ${compassWord(g.brg)}`:'en los dos sentidos';
+
+/* Dibuja la puerta que se está editando */
+function drawGateEd(){
+  gedLayer.clearLayers();
+  if(!GE.on||!GE.g)return;
+  const g=makeGate(GE.g),col=ROLE_COL[g.role]||'#F04A1C';
+  L.polyline([g.a,g.b],{color:'#fff',weight:11,opacity:.9,interactive:false}).addTo(gedLayer);
+  L.polyline([g.a,g.b],{color:col,weight:7,interactive:false}).addTo(gedLayer);
+  L.circleMarker(g.c,{radius:6,color:'#fff',weight:3,fillColor:col,fillOpacity:1,interactive:false}).addTo(gedLayer);
+  L.marker(g.c,{interactive:false,icon:L.divIcon({html:gateIconHtml(g.role,ROLE_ICON[g.role],g.brg,g.dirOnly),className:'',iconSize:[60,60],iconAnchor:[30,30]})}).addTo(gedLayer);
+  updGateUi();
+}
+function updGateUi(){
+  const g=GE.g;if(!g)return;
+  $('#gTtl').textContent=(GE.idx==null?'Nueva puerta':'Puerta '+(GE.idx+1))+' · '+ROLE_NAME[g.role];
+  document.querySelectorAll('#gRole button').forEach(b=>b.classList.toggle('on',b.dataset.r===g.role));
+  document.querySelectorAll('#gDir button').forEach(b=>b.classList.toggle('on',(b.dataset.d==='one')===g.dirOnly));
+  document.querySelectorAll('#gQuick button').forEach(b=>b.classList.toggle('on',+b.dataset.w===Math.round(g.w)));
+  $('#gW').value=Math.min(200,Math.round(g.w));
+  const wn=$('#gWn');if(document.activeElement!==wn)wn.value=Math.round(g.w);
+  const bn=$('#gBn');if(document.activeElement!==bn)bn.value=Math.round(norm360(g.brg));
+  $('#gBv').textContent=`${Math.round(norm360(g.brg))}° ${compassWord(g.brg)}`;
+  $('#gNeedle').setAttribute('transform',`rotate(${g.brg})`);
+  $('#gLine').setAttribute('transform',`rotate(${g.brg})`);
+  $('#gDirNote').textContent=g.dirOnly?'Solo cuenta si cruzás en el sentido de la flecha (el otro sentido se ignora).':'Cuenta cruzando para cualquiera de los dos lados.';
+}
+async function openGateEditor(cid,idx,init){
+  if(REC.state!=='idle'){toast('Terminá la grabación para editar puertas',4000);return;}
+  const c=await DB.get('kv','circuit:'+cid);if(!c)return;
+  const roles=gateRoles(c);
+  let g;
+  if(idx!=null)g=upgradeGate(c.gates[idx],roles[idx]);
+  else{
+    const prev=c.gates[c.gates.length-1],pg=prev?upgradeGate(prev,roles[roles.length-1]):null;
+    g=Object.assign({c:[visCenterNow().lat,visCenterNow().lng],w:S.gateW,brg:pg?pg.brg:0,dirOnly:true,role:c.gates.length?'split':(c.type==='p2p'?'start':'startfinish')},init||{});
+  }
+  Object.assign(GE,{on:true,cid,idx,c,g:{c:g.c,w:g.w,brg:g.brg,dirOnly:!!g.dirOnly,role:g.role}});
+  editingCirc=cid;refreshGates();
+  closeSheet();sBody.innerHTML='';hidePin();
+  $('#gate').hidden=false;
+  viewVisible(GE.g.c,Math.max(map.getZoom(),17));
+  drawGateEd();
+  toast('Tocá el mapa para mover la puerta',3000);
+}
+function closeGateEditor(back){
+  const cid=GE.cid;
+  GE.on=false;GE.g=null;gedLayer.clearLayers();$('#gate').hidden=true;
+  if(back&&cid)showCircuitEdit(cid);
+}
+function gateTap(e){
+  if(!GE.on)return;
+  GE.g.c=[e.latlng.lat,e.latlng.lng];drawGateEd();
+}
+async function saveGateEd(){
+  const c=await DB.get('kv','circuit:'+GE.cid);
+  const rolesBefore=gateRoles(c);
+  c.gates=c.gates.map((x,i)=>upgradeGate(x,rolesBefore[i]));   /* deja fijos los roles y la geometría de las demás */
+  const ng=makeGate(GE.g);
+  if(GE.idx==null)c.gates.push(ng);else c.gates[GE.idx]=ng;
+  c.type=circType(c);
+  await DB.put('kv','circuit:'+GE.cid,c);
+  await resetRunsOf(GE.cid);
+  closeGateEditor(true);
+}
+const setRole=r=>{GE.g.role=r;drawGateEd();};
+document.querySelectorAll('#gRole button').forEach(b=>b.onclick=()=>setRole(b.dataset.r));
+document.querySelectorAll('#gDir button').forEach(b=>b.onclick=()=>{GE.g.dirOnly=b.dataset.d==='one';drawGateEd();});
+document.querySelectorAll('#gQuick button').forEach(b=>b.onclick=()=>{GE.g.w=+b.dataset.w;drawGateEd();});
+$('#gW').addEventListener('input',e=>{GE.g.w=+e.target.value;drawGateEd();});
+$('#gWn').addEventListener('change',e=>{GE.g.w=Math.max(3,Math.min(500,+e.target.value||GE.g.w));drawGateEd();});
+$('#gBn').addEventListener('change',e=>{GE.g.brg=norm360(+e.target.value||0);drawGateEd();});
+document.querySelectorAll('#gate [data-rot]').forEach(b=>b.onclick=()=>{GE.g.brg=norm360(GE.g.brg+ +b.dataset.rot);drawGateEd();});
+$('#gInv').onclick=()=>{GE.g.brg=norm360(GE.g.brg+180);drawGateEd();};
+$('#gGps').onclick=()=>{
+  let b=null;
+  if(lastFix&&lastFix.speed>0.7&&lastFix.brg!=null&&!isNaN(lastFix.brg))b=lastFix.brg;
+  else if(fixHist.length>1){const a0=fixHist[0];if(hav([a0.lat,a0.lon],[lastFix.lat,lastFix.lon])>6)b=bearingTo([a0.lat,a0.lon],[lastFix.lat,lastFix.lon]);}
+  if(b==null){toast('Caminá o remá unos metros para tomar tu rumbo',4000);return;}
+  GE.g.brg=norm360(b);drawGateEd();
+};
+$('#gNext').onclick=()=>{
+  /* apuntar hacia la puerta siguiente (o la primera si es la última) */
+  const gs=GE.c.gates;if(gs.length<2&&GE.idx==null&&!gs.length){toast('Todavía no hay otra puerta hacia dónde apuntar',3000);return;}
+  const me=GE.idx==null?gs.length:GE.idx,tgt=gs[me+1]||gs[0];
+  if(!tgt||(GE.idx==null&&!gs.length))return;
+  const t=upgradeGate(tgt,'split');
+  if(hav(t.c,GE.g.c)<1)return;
+  GE.g.brg=norm360(bearingTo(GE.g.c,t.c));drawGateEd();
+};
+/* perilla circular: se arrastra con el dedo */
+(function(){
+  const dial=$('#gDial');let on=false;
+  const set=e=>{
+    const r=dial.getBoundingClientRect(),x=e.clientX-(r.left+r.width/2),y=e.clientY-(r.top+r.height/2);
+    if(Math.hypot(x,y)<4)return;
+    GE.g.brg=norm360(Math.round(Math.atan2(x,-y)/rad));drawGateEd();
+  };
+  dial.addEventListener('pointerdown',e=>{on=true;dial.setPointerCapture&&dial.setPointerCapture(e.pointerId);set(e);e.preventDefault();});
+  dial.addEventListener('pointermove',e=>{if(on)set(e);});
+  const off=()=>{on=false;};
+  dial.addEventListener('pointerup',off);dial.addEventListener('pointercancel',off);
+})();
+$('#gOk').onclick=saveGateEd;
+$('#gCancel').onclick=()=>closeGateEditor(true);
+$('#gX').onclick=()=>closeGateEditor(true);
+$('#gDel').onclick=async()=>{
+  if(GE.idx==null){closeGateEditor(true);return;}
+  if(!armed($('#gDel')))return;
+  const c=await DB.get('kv','circuit:'+GE.cid);
+  const roles=gateRoles(c);
+  c.gates=c.gates.map((x,i)=>upgradeGate(x,roles[i]));
+  c.gates.splice(GE.idx,1);c.type=circType(c);
+  await DB.put('kv','circuit:'+GE.cid,c);await resetRunsOf(GE.cid);
+  closeGateEditor(true);
+};
 
 /* ---------- Modo noche y orientación del mapa ---------- */
 function isNightNow(){
@@ -2949,7 +3209,9 @@ function applyNight(){
 }
 setInterval(applyNight,60000);
 
-const ORI={ok:null,sign:1,cur:0,comp:null,t:0,bound:false};
+const ORI={ok:null,sign:1,cur:0,comp:null,t:0,bound:false,setB:null,manualUntil:0};
+const POS={hdg:null};
+const getB=()=>{try{return typeof map.getBearing==='function'?(map.getBearing()||0):0;}catch(e){return 0;}};
 const canRotatePlugin=()=>!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function');
 /* Averigua para qué lado hay que girar el mapa: probamos con un punto al este y vemos si queda arriba */
 function oriCalib(){
@@ -2969,11 +3231,12 @@ function oriCalib(){
   return false;
 }
 function setHeading(h){
+  if(Date.now()<ORI.manualUntil)return;      /* si giraste con los dedos, no lo pisamos por un rato */
   if(!oriCalib())return;
   const d=((h-ORI.cur+540)%360)-180;
   if(Math.abs(d)<2)return;
   ORI.cur=(ORI.cur+d*.4+360)%360;
-  map.setBearing(ORI.sign*ORI.cur);
+  map.setBearing(ORI.sign*ORI.cur);ORI.setB=ORI.sign*ORI.cur;
 }
 function oriFromFix(f){
   if(S.orient==='course'&&f.speed!=null&&f.speed>0.8&&f.brg!=null&&!isNaN(f.brg))setHeading(f.brg);
@@ -3026,6 +3289,44 @@ async function say(t){
   sayWeb(t);
 }
 
+
+/* Flecha de rumbo del "vehículo": va en el panel de marcadores, siempre por encima de la ruta */
+function posIcon(){
+  return L.divIcon({className:'',iconSize:[34,34],iconAnchor:[17,17],html:'<div class="posm"><div class="posa off"></div><div class="posd"></div></div>'});
+}
+function setPosHeading(f){
+  if(!posMk||typeof posMk.getElement!=='function')return;
+  const el=posMk.getElement();if(!el||!el.querySelector)return;
+  const a=el.querySelector('.posa');if(!a)return;
+  const moving=f&&f.speed!=null&&f.speed>0.8&&f.brg!=null&&!isNaN(f.brg);
+  if(moving)POS.hdg=f.brg;
+  a.classList.toggle('off',POS.hdg==null);
+  a.style.opacity=moving?1:.5;
+  if(POS.hdg!=null){
+    const hUp=ORI.ok===false?0:ORI.sign*getB();       /* hacia dónde mira la parte de arriba de la pantalla */
+    a.style.transform=`rotate(${POS.hdg-hUp}deg)`;
+  }
+}
+/* Botón "norte": aparece cuando el mapa está girado */
+function northBtn(){
+  const b=getB(),rot=Math.abs(((b+540)%360)-180)>1.5;
+  const n=$('#fNorth');if(n)n.hidden=!rot;
+  /* ¿lo giró el usuario con los dedos? */
+  if(ORI.setB!=null&&Math.abs(((b-ORI.setB+540)%360)-180)>3){
+    ORI.manualUntil=Date.now()+15000;ORI.cur=norm360((ORI.sign||1)*b);ORI.setB=b;
+  }
+  else if(ORI.setB==null&&rot){ORI.manualUntil=Date.now()+15000;ORI.setB=b;ORI.cur=norm360((ORI.sign||1)*b);}
+  if(lastFix)setPosHeading(null);
+}
+setInterval(northBtn,500);
+$('#fNorth').onclick=()=>{
+  try{map.setBearing(0);}catch(e){}
+  ORI.cur=0;ORI.setB=0;ORI.manualUntil=0;
+  if(S.orient!=='north'){S.orient='north';saveS();toast('Norte arriba');}
+  northBtn();
+};
+
+function applyNavOp(){document.documentElement.style.setProperty('--navA',String(S.navOp==null?.42:S.navOp));}
 /* ---------- Más, ajustes y backup ---------- */
 function showMoreMenu(){
   openSheet('Más',`<div class="grid3">
@@ -3045,7 +3346,10 @@ function showMore(){
     <p class="mut">Automático: se oscurece cuando el sol baja, según dónde estás.</p>
     <label>Orientación del mapa</label>
     ${chips('ori',S.orient,[['north','🧭 Norte arriba'],['course','➡️ Rumbo arriba (GPS)'],['compass','📱 Brújula del teléfono']])}
-    <p class="mut">Rumbo arriba usa hacia dónde te movés (hace falta ir a más de 3 km/h). La brújula sirve también parado. Al cambiar desde "Norte arriba" el mapa se reinicia.</p>
+    <p class="mut">Rumbo arriba usa hacia dónde te movés (hace falta ir a más de 3 km/h). La brújula sirve también parado. Si girás el mapa con los dedos, la orientación automática espera 15 segundos antes de volver a actuar.</p>
+    <label class="chk"><input type="checkbox" id="s15" ${S.fingerRotate!==false?'checked':''}> Rotar el mapa con dos dedos (reinicia el mapa al cambiar)</label>
+    <label for="s16">Opacidad del fondo de la tarjeta de guía: <b id="s16v">${Math.round(S.navOp*100)} %</b></label>
+    <input type="range" id="s16" min="0" max="90" value="${Math.round(S.navOp*100)}">
     <h3>GPS</h3>
     <label for="s1">Precisión máxima aceptada (m)</label><input class="in" id="s1" type="number" min="5" max="150" value="${S.maxAcc}">
     <p class="mut">Los puntos con peor precisión se descartan. Bajo el follaje conviene subirla a 40 o 50.</p>
@@ -3111,6 +3415,13 @@ function showMore(){
       else if(t.id==='s7'){S.vBike=Math.max(5,Math.min(40,+t.value||16));dropGraph();}
       else if(t.id==='s8'){S.carF=+t.value;dropGraph();}
       else if(t.id==='s9')S.routeMode=t.value;
+      else if(t.id==='s15'){
+        if(t.checked&&!canRotatePlugin()){t.checked=false;toast('Esta versión no trae el módulo para rotar el mapa.',5000);return;}
+        S.fingerRotate=t.checked;saveS();
+        if(REC.state!=='idle'){toast('Se aplica la próxima vez que abras la app',4000);return;}
+        toast('Reiniciando el mapa…',1500);setTimeout(()=>location.reload(),1200);
+      }
+      else if(t.id==='s16'){S.navOp=+t.value/100;$('#s16v').textContent=t.value+' %';applyNavOp();}
       else if(t.id==='s11'){S.avgFoot=Math.max(1,Math.min(12,+t.value||5));dropGraph();}
       else if(t.id==='s12'){S.avgBike=Math.max(3,Math.min(45,+t.value||16));dropGraph();}
       else if(t.id==='s13'){S.avgCar=Math.max(10,Math.min(120,+t.value||45));dropGraph();}
@@ -3149,7 +3460,7 @@ $('#fAct').onclick=()=>{
   await loadWpts();
   await loadOvl();
   updActBtn();updRecUi();
-  applyNight();if(S.orient==='compass')oriStart();
+  applyNight();applyNavOp();if(map.options&&map.options.rotate){oriCalib();oriStart();}
   startWatch(false);
   drawEdits();
   const rc=await DB.get('kv','rec:current');
