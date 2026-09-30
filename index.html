@@ -175,6 +175,21 @@ body.night.inv .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness
 body.night .leaflet-ovl-pane img{filter:brightness(.7)}
 body.night .leaflet-control-attribution{background:rgba(15,30,39,.75)!important;color:#93A9B2}
 body.night .leaflet-control-attribution a{color:#9fc4d6}
+
+#cap{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:960;background:var(--paper);color:var(--ink);border-radius:16px;padding:10px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
+#cap[hidden]{display:none}
+.caph{display:flex;justify-content:space-between;align-items:center}
+.caph b{font-size:16px}
+#capX{width:40px;height:40px;border:0;background:none;font-size:22px;color:var(--ink)}
+#cap .chips button{min-height:38px;padding:4px 12px;font-size:14px}
+.caprow{display:flex;align-items:center;gap:8px;margin-top:6px}
+.caprow label{margin:0;flex:1;font-size:13px}
+.caprow button{min-width:46px;min-height:40px;border-radius:10px;border:2px solid var(--line);background:var(--foam);color:var(--ink);font:700 14px system-ui}
+#cap input[type=range]{height:28px;flex:1}
+#capInfo,#capmsg{display:block;color:var(--mut);font-size:12px;margin-top:4px}
+#cap .nvb button{background:var(--ink);color:#fff}
+#cap .nvb button[disabled]{opacity:.4}
+body.night #cap .nvb button{background:#E4EDEF;color:#0E2A36}
 </style>
 </head>
 <body>
@@ -194,6 +209,16 @@ body.night .leaflet-control-attribution a{color:#9fc4d6}
   <div class="nvm"><span id="nvIco">⬆️</span><div class="nvt"><b id="nvTxt"></b><span id="nvDist"></span></div></div>
   <div class="nvr"><span id="nvEta"></span><span id="nvRem"></span></div>
   <div class="nvb"><button id="nvMute">🔊</button><button id="nvPozo">🕳️ Pozo</button><button id="nvLomo">🚧 Lomo</button><button id="nvEnd">Terminar</button></div>
+</div>
+<div id="cap" hidden>
+  <div class="caph"><b id="capTtl">📐 Zona</b><button id="capX" aria-label="Cerrar">✕</button></div>
+  <div class="chips" id="capSize"><button data-km="5">5 km</button><button data-km="10">10 km</button><button data-km="25">25 km</button><button id="capFit">🔍 Ver marco entero</button></div>
+  <div class="caprow"><span>Mover</span><button data-cap="w">◀ O</button><button data-cap="n">▲ N</button><button data-cap="s">▼ S</button><button data-cap="e">▶ E</button></div>
+  <div class="caprow"><label>Mapa: zoom máximo <b id="capZv"></b></label><input type="range" id="capZ" min="10" max="19"></div>
+  <small id="capInfo"></small>
+  <div class="nvb" style="margin-top:6px"><button id="capMap">🗺️ Bajar mapa</button><button id="capNet">🛣️ Bajar calles</button><button id="capReg">🌐 Regional</button></div>
+  <div id="capprog" hidden><div class="bar"><i id="dlbar"></i></div><small id="dlt"></small></div>
+  <small id="capmsg"></small>
 </div>
 <div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinSave">📍 Guardar</button><button id="pinX">✕</button></div></div>
 <div id="banner" hidden><span id="bTxt"></span><span class="row"><button class="btn sm" id="bUndo" hidden>Deshacer</button><button class="btn sm primary" id="bOk" hidden>Listo</button><button class="btn sm" id="bCancel">Cancelar</button></span></div>
@@ -416,6 +441,11 @@ function sampleDem(tiles,z,lat,lon){
 
 /* Perfil de cada tramo: por modo, si se puede pasar, sentido único (0 doble, 1 a favor, −1 en contra) y velocidad (m/s) */
 function wayProfile(t,c){
+  if(t.route==='ferry'&&!t.highway){
+    const no=v=>NOACC.has(v),base=!no(t.access);
+    return {foot:{ok:base&&!no(t.foot),ow:0,v:1},bike:{ok:base&&!no(t.bicycle),ow:0,v:1},
+            car:{ok:base&&!no(t.motor_vehicle)&&!no(t.vehicle)&&!no(t.motorcar),ow:0,v:1}};
+  }
   const hw=t.highway||'',b=hw.replace('_link','');
   const out={foot:{ok:false,ow:0,v:1},bike:{ok:false,ow:0,v:1},car:{ok:false,ow:0,v:1}};
   let ow=0;
@@ -452,6 +482,7 @@ function wayProfile(t,c){
   if(CAR[b]&&!NOACC.has(t.motor_vehicle)&&!NOACC.has(t.vehicle)&&!NOACC.has(t.motorcar)&&!(NOACC.has(acc)&&!YESACC.has(t.motor_vehicle))
      &&!(b==='service'&&(t.service==='driveway'||t.service==='parking_aisle'))){
     let kmh=CAR[b];const ms=parseFloat(t.maxspeed);
+    if(/^(unpaved|gravel|dirt|ground|earth|sand|compacted|fine_gravel|mud|grass)$/.test(t.surface||''))kmh=Math.min(kmh,55);
     if(ms>0&&ms<=130&&!/mph/.test(t.maxspeed||''))kmh=ms;
     if(hw.endsWith('_link'))kmh=Math.min(kmh,40);
     out.car={ok:true,ow,v:Math.max(5,kmh*c.carF)/3.6};
@@ -488,7 +519,7 @@ class Graph{
     if(!MODES.some(m=>prof[m].ok))return -1;
     const nodes=osm.map((o,i)=>this.node(o,pts[i][0],pts[i][1]));
     if(zs)nodes.forEach((n,i)=>{if(zs[i]!=null&&!isNaN(zs[i])){this.z[n]=zs[i];this.hasZ=true;}});
-    this.W.push({id,tags,name:tags.name||'',hw:tags.highway||'',prof,nodes,edges:[],user:false});
+    this.W.push({id,tags,name:tags.name||'',hw:tags.highway||'',prof,nodes,edges:[],user:false,ferry:tags.route==='ferry'&&!tags.highway});
     return this.W.length-1;
   }
   _edge(a,b,wi,len){
@@ -499,6 +530,15 @@ class Graph{
   link(wi){
     const w=this.W[wi],n=w.nodes;
     for(let k=1;k<n.length;k++){ if(n[k]===n[k-1]){w.edges.push(-1);continue;} w.edges.push(this._edge(n[k-1],n[k],wi)); }
+    if(w.ferry){
+      /* velocidad efectiva = distancia / (duración del cruce + espera para embarcar) */
+      let L=0;for(const ei of w.edges)if(ei>=0)L+=this.E[ei].len;
+      const d=parseDur(w.tags.duration)||L/(20/3.6);
+      w.ferryDur=d;
+      const v=L/(d+(this.cfg.ferryWait==null?20:this.cfg.ferryWait)*60);
+      for(const m of MODES)if(w.prof[m].ok)w.prof[m].v=Math.max(v,.05);
+      this.vFerry=Math.max(this.vFerry||0,v);
+    }
   }
   blocks(wi,ov){
     const w=this.W[wi],n=w.nodes;let s=0;
@@ -549,6 +589,7 @@ class Graph{
   }
   /* pendiente (subida/tramo) en el sentido de marcha d */
   slope(e,d){
+    if(this.W[e.w].ferry)return 0;
     const a=d>0?e.a:e.b,b=d>0?e.b:e.a,za=this.z[a],zb=this.z[b];
     if(isNaN(za)||isNaN(zb)||e.len<1)return 0;
     return Math.max(-.4,Math.min(.4,(zb-za)/e.len));
@@ -627,7 +668,7 @@ function buildGraph(nets,paths,ov,cfg){
 function astar(G,mode,src,dst,pref){
   if(src===dst)return {edges:[],cost:0};
   const n=G.lat.length,g=new Float64Array(n).fill(Infinity),pe=new Int32Array(n).fill(-1),done=new Uint8Array(n);
-  const c=G.cfg,vmax=pref==='short'?1:mode==='foot'?c.vFoot/3.6*1.2:mode==='bike'?c.vBike/3.6*1.1*1.8:130*c.carF/3.6;
+  const c=G.cfg,vmax=pref==='short'?1:Math.max(G.vFerry||0,mode==='foot'?c.vFoot/3.6*1.2:mode==='bike'?c.vBike/3.6*1.1*1.8:130*c.carF/3.6);
   const k=Math.cos(G.lat[dst]*rad),tl=G.lat[dst],tn=G.lon[dst];
   const h=i=>Math.hypot((G.lat[i]-tl)*110540,(G.lon[i]-tn)*111320*k)/vmax;
   const H=new Heap();g[src]=0;H.push(h(src),src);
@@ -658,21 +699,23 @@ function makeSteps(G,edges,mode){
   const segs=[];let cur=null;
   for(let k=0;k<edges.length;k++){
     const {ei,d}=edges[k],e=G.E[ei],w=G.W[e.w],f=d>0?e.a:e.b,t=d>0?e.b:e.a;
-    const rb=isRbWay(w),hw=w.hw==='connector'?'path':w.hw,key=rb?'#rb':(w.name?w.name:'#'+hw);
-    if(!cur||cur.key!==key){cur={key,name:rb?'':w.name,hw,rb,dist:0,pts:[[G.lat[f],G.lon[f]]],nodes:[f],stairs:hw==='steps',k0:k};segs.push(cur);}
+    const rb=isRbWay(w),fe=!!w.ferry,hw=w.hw==='connector'?'path':w.hw,key=fe?'#ferry:'+w.id:rb?'#rb':(w.name?w.name:'#'+hw);
+    if(!cur||cur.key!==key){cur={key,name:rb?'':w.name,hw,rb,ferry:fe,ferryDur:w.ferryDur,unver:fe&&w.tags.motor_vehicle==null,dist:0,pts:[[G.lat[f],G.lon[f]]],nodes:[f],stairs:hw==='steps',k0:k};segs.push(cur);}
     cur.dist+=e.len;cur.pts.push([G.lat[t],G.lon[t]]);cur.nodes.push(t);
   }
   const m=[];
   for(const s of segs){
     const p=m[m.length-1];
-    if(p&&s.dist<12&&!s.stairs&&!s.rb&&!p.rb){p.dist+=s.dist;p.pts.push(...s.pts.slice(1));p.nodes.push(...s.nodes.slice(1));}
+    if(p&&s.dist<12&&!s.stairs&&!s.rb&&!p.rb&&!s.ferry&&!p.ferry){p.dist+=s.dist;p.pts.push(...s.pts.slice(1));p.nodes.push(...s.nodes.slice(1));}
     else m.push(s);
   }
   const out=[];
   m.forEach((s,i)=>{
     const via=s.name||HWN[s.hw]||'la calle',prev=m[i-1];
     let text,ico;
-    if(s.rb){
+    if(s.ferry){
+      text=`Tomá el ferry${s.name?' '+s.name:''} (cruce de ${fmtDur(s.ferryDur||0)}, más la espera)`;ico='⛴️';
+    }else if(s.rb){
       let n=0;
       for(let q=1;q<s.nodes.length;q++){
         const nd=s.nodes[q];
@@ -681,6 +724,7 @@ function makeSteps(G,edges,mode){
       text=`En la rotonda, tomá la ${ORD[n-1]||n+'.ª'} salida`;ico='🔄';
     }else if(i===0){text=s.stairs?'Tomá la escalera':`Salí por ${via}`;ico=s.stairs?'🪜':'⬆️';}
     else if(s.stairs){text='Tomá la escalera';ico='🪜';}
+    else if(prev.ferry){text=`Bajá del ferry y seguí por ${via}`;ico='⬆️';}
     else if(prev.rb){text=`Seguí por ${via}`;ico='⬆️';}
     else{
       const dl=((bearStart(s.pts)-bearEnd(prev.pts)+540)%360)-180,ad=Math.abs(dl),side=dl>0?'derecha':'izquierda';
@@ -689,7 +733,7 @@ function makeSteps(G,edges,mode){
       else if(ad<120){text=`Girá a la ${side} por ${via}`;ico=dl>0?'➡️':'⬅️';}
       else{text=`Giro cerrado a la ${side} por ${via}`;ico=dl>0?'↪️':'↩️';}
     }
-    out.push({text,dist:s.dist,k0:s.k0,ico,kind:s.rb?'rb':'turn'});
+    out.push({text,dist:s.dist,k0:s.k0,ico,kind:s.rb?'rb':s.ferry?'ferry':'turn'});
   });
   out.push({text:'Llegaste a tu destino',dist:0,k0:edges.length,ico:'🏁',kind:'end'});
   return out;
@@ -707,11 +751,13 @@ function findRoute(G,mode,from,to,pref){
   const B=snap(to);if(!B)return {err:'destino'};
   const r=astar(G,mode,A.nd,B.nd,pref);if(!r)return {err:'camino'};
   const vleg=mode==='car'?3:G.cfg.vFoot/3.6;
-  let dist=A.off+B.off,time=(A.off+B.off)/vleg,stairs=0,up=0,down=0;
+  let dist=A.off+B.off,time=(A.off+B.off)/vleg,stairs=0,up=0,down=0,fDist=0,fTime=0,fNames=[],fUnver=false;
   const coords=[[from.lat,from.lon],[G.lat[A.nd],G.lon[A.nd]]];
   for(const {ei,d} of r.edges){
     const e=G.E[ei],v=G.pass(e,mode,d),g=G.slope(e,d);
-    dist+=e.len;time+=e.len/(v*slopeFactor(mode,g));if(G.W[e.w].hw==='steps')stairs+=e.len;
+    const dt=e.len/(v*slopeFactor(mode,g));
+    dist+=e.len;time+=dt;if(G.W[e.w].hw==='steps')stairs+=e.len;
+    if(G.W[e.w].ferry){fDist+=e.len;fTime+=dt;const fw=G.W[e.w];if(fw.name&&!fNames.includes(fw.name))fNames.push(fw.name);if(fw.tags.motor_vehicle==null)fUnver=true;}
     if(g>0)up+=g*e.len;else down-=g*e.len;
     const nn=d>0?e.b:e.a;coords.push([G.lat[nn],G.lon[nn]]);
   }
@@ -723,7 +769,7 @@ function findRoute(G,mode,from,to,pref){
     s.at=cd[ci];s.lat=coords[ci][0];s.lon=coords[ci][1];
   });
   steps[0].at=0;
-  return {mode,pref,dist,time,coords,stairs,steps,up,down,hasZ:G.hasZ};
+  return {mode,pref,dist,time,coords,stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
 }
 
 /* ====================== GUÍA PASO A PASO ====================== */
@@ -840,8 +886,63 @@ function searchPlaces(G,q,center){
   return uniq(res);
 }
 
+/* Duración de OpenStreetMap ("hh:mm", "hh:mm:ss", "mm" o ISO "PT1H30M") en segundos */
+function parseDur(s){
+  if(!s)return null;s=String(s).trim();
+  let m=s.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/i);
+  if(m&&(m[1]||m[2]||m[3]))return (+m[1]||0)*3600+(+m[2]||0)*60+(+m[3]||0);
+  m=s.match(/^(\d{1,3}):(\d{2})(?::(\d{2}))?$/);
+  if(m)return (+m[1])*3600+(+m[2])*60+(+m[3]||0);
+  m=s.match(/^(\d+(?:\.\d+)?)$/);
+  if(m)return +m[1]*60;
+  return null;
+}
 /* Simplificación Douglas-Peucker: pts [[lat,lon,...]], tol en metros */
+function dpKeep(pts,tol){
+  const keep=new Uint8Array(pts.length);
+  if(!pts.length)return keep;
+  keep[0]=keep[pts.length-1]=1;
+  if(pts.length<3)return keep;
+  const k=Math.cos(pts[0][0]*rad),xy=pts.map(p=>[p[1]*111320*k,p[0]*110540]);
+  const st=[[0,pts.length-1]];
+  while(st.length){
+    const [s,e]=st.pop();let md=0,mi=-1;
+    const ax=xy[s][0],ay=xy[s][1],dx=xy[e][0]-ax,dy=xy[e][1]-ay,L2=dx*dx+dy*dy;
+    for(let i=s+1;i<e;i++){
+      let t=L2?((xy[i][0]-ax)*dx+(xy[i][1]-ay)*dy)/L2:0;t=Math.max(0,Math.min(1,t));
+      const d=Math.hypot(xy[i][0]-(ax+t*dx),xy[i][1]-(ay+t*dy));
+      if(d>md){md=d;mi=i;}
+    }
+    if(md>tol&&mi>0){keep[mi]=1;st.push([s,mi],[mi,e]);}
+  }
+  return keep;
+}
+/* Achica las rutas de una región grande: deja las esquinas donde se cruzan rutas y los puntos que hacen falta para no desviarse más de tol metros */
+function compactWays(ways,tol){
+  const cnt=new Map();
+  for(const w of ways)for(const n of w.n)cnt.set(n,(cnt.get(n)||0)+1);
+  return ways.map(w=>{
+    const N=w.n.length,pts=[];for(let i=0;i<N;i++)pts.push([w.p[2*i],w.p[2*i+1]]);
+    const keep=new Uint8Array(N);
+    let s=0;
+    for(let i=0;i<N;i++){
+      if(i===0||i===N-1||cnt.get(w.n[i])>1){
+        keep[i]=1;
+        if(i>s){const k=dpKeep(pts.slice(s,i+1),tol);for(let j=0;j<k.length;j++)if(k[j])keep[s+j]=1;}
+        s=i;
+      }
+    }
+    const n=[],p=[];
+    for(let i=0;i<N;i++)if(keep[i]){n.push(w.n[i]);p.push(w.p[2*i],w.p[2*i+1]);}
+    return Object.assign({},w,{n,p});
+  });
+}
 function simplifyDP(pts,tol){
+  if(pts.length<3)return pts.map(p=>[p[0],p[1]]);
+  const keep=dpKeep(pts,tol);
+  return pts.filter((_,i)=>keep[i]).map(p=>[p[0],p[1]]);
+}
+function simplifyDP_OLD(pts,tol){
   if(pts.length<3)return pts.map(p=>[p[0],p[1]]);
   const k=Math.cos(pts[0][0]*rad),xy=pts.map(p=>[p[1]*111320*k,p[0]*110540]),keep=new Uint8Array(pts.length);
   keep[0]=keep[pts.length-1]=1;
@@ -1106,7 +1207,7 @@ const DB=(()=>{
 })();
 
 /* ---------- Ajustes ---------- */
-const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north'};
+const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north',ferryWait:20,frameKm:25,capZ:16};
 let S=Object.assign({},DEF);
 try{Object.assign(S,JSON.parse(localStorage.getItem('rumbo.set')||'{}'));}catch(e){}
 const saveS=()=>{try{localStorage.setItem('rumbo.set',JSON.stringify(S));}catch(e){}};
@@ -1213,6 +1314,7 @@ async function showMaps(){
   const cnt=await tileTotal();
   let h=`<div class="seg">${Object.entries(LAYERS).map(([k,v])=>`<button data-act="layer" data-k="${k}" class="${k===S.layer?'on':''}">${esc(v.name)}</button>`).join('')}</div>
   <button class="btn sm" data-act="mgr">🗂️ Ver qué tengo descargado</button>
+  <button class="btn sm primary" data-act="cap">📐 Elegir zona en el mapa (ver el panorama)</button>
   <h3>Para usar sin señal</h3>`;
   if(l.off){
     h+=`<p class="mut">Encuadrá en el mapa la zona que vas a recorrer. Se baja lo que se ve en pantalla, del zoom actual hacia más detalle.</p>
@@ -1229,6 +1331,7 @@ async function showMaps(){
   openSheet('Mapas',h,async(a,d,el)=>{
     if(a==='layer'){setLayer(d.k);showMaps();}
     else if(a==='mgr')showMapMgr();
+    else if(a==='cap')openCap();
     else if(a==='dl'){
       const p=dlPlan();
       if(p.n>12000){toast('Zona demasiado grande. Acercá el mapa o bajá niveles.');return;}
@@ -1922,13 +2025,13 @@ let G=null,GP=null,PICK=null;
 function ensureGraph(){
   if(G)return Promise.resolve(G);
   if(!GP)GP=(async()=>{
-    const nets=await DB.all('kv','net:');
+    const nets=(await DB.all('kv','net:')).sort((a,b)=>(a.regional?1:0)-(b.regional?1:0));
     if(!nets.length){GP=null;return null;}
     const edits=await DB.all('kv','edit:');
     const ov=new Map();
     edits.filter(e=>e.type==='ov').forEach(e=>ov.set(`${e.way}:${e.n1}:${e.n2}`,{dir:e.dir,all:!!e.all}));
     await new Promise(r=>setTimeout(r,0));
-    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{vFoot:S.vFoot,vBike:S.vBike,carF:S.carF});
+    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait});
     GP=null;return G;
   })();
   return GP;
@@ -1937,14 +2040,17 @@ function dropGraph(){G=null;GP=null;}
 
 /* Descarga de la red desde OpenStreetMap (Overpass) */
 const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
-const KEEP=['highway','name','oneway','junction','access','foot','bicycle','motor_vehicle','motorcar','vehicle','maxspeed','service','oneway:bicycle','cycleway','cycleway:left','cycleway:right'];
-async function fetchNet(bb){
+const KEEP=['highway','name','oneway','junction','access','foot','bicycle','motor_vehicle','motorcar','vehicle','maxspeed','service','oneway:bicycle','cycleway','cycleway:left','cycleway:right','route','duration','ref','surface'];
+async function fetchNet(bb,regional){
   const bx=`(${bb.s},${bb.w},${bb.n},${bb.e})`;
-  const q=`[out:json][timeout:120];(way["highway"]["highway"!~"^(proposed|construction|abandoned|razed|platform|bus_stop|raceway|elevator|rest_area|services|no)$"]${bx};node["traffic_calming"]${bx};);out geom qt;`;
+  /* zona chica: todas las calles, lomos y ferris. Región grande: solo rutas principales y ferris */
+  const q=regional
+    ?`[out:json][timeout:300][maxsize:1073741824];(way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]${bx};way["highway"="unclassified"]["ref"]${bx};way["route"="ferry"]${bx};);out geom qt;`
+    :`[out:json][timeout:120];(way["highway"]["highway"!~"^(proposed|construction|abandoned|razed|platform|bus_stop|raceway|elevator|rest_area|services|no)$"]${bx};way["route"="ferry"]${bx};node["traffic_calming"]${bx};);out geom qt;`;
   let last;
   for(const url of OVERPASS){
     try{
-      const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),130000);
+      const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),regional?320000:130000);
       const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});
       clearTimeout(to);
       if(!r.ok)throw new Error('HTTP '+r.status);
@@ -1990,7 +2096,11 @@ async function fetchDem(bb){
   if(!tiles.size)throw new Error('no se pudo bajar');
   return tiles;
 }
-async function fetchNetFull(bb,say){
+async function fetchNetFull(bb,say,regional){
+  if(regional){
+    const g=await fetchNet(bb,true);
+    return {ways:compactWays(g.ways,15),hz:[],dem:false,demErr:'',regional:true};
+  }
   const {ways,hz}=await fetchNet(bb);
   let dem=null,demErr='';
   try{
@@ -2005,43 +2115,55 @@ async function fetchNetFull(bb,say){
   }catch(e){demErr=e.message||String(e);dem=null;}
   return {ways,hz,dem:!!dem,demErr};
 }
-async function dlNet(replace){
-  const btn=$('#netgo'),msg=$('#netmsg'),b=map.getBounds(),[wk,hk]=viewKm();
-  if(wk>25||hk>25){msg.textContent='La zona es muy grande (máximo 25 km por lado). Acercá el mapa.';return false;}
-  btn.disabled=true;msg.textContent='Descargando… puede tardar hasta un minuto.';
+async function dlNet(replace,mode,ui){
+  ui=ui||{btn:'#netgo',msg:'#netmsg'};
+  const btn=ui.btn?$(ui.btn):null,say=t=>{const m=$(ui.msg);if(m)m.textContent=t;};
+  const regional=mode==='regional';
+  let bb;
+  if(regional){
+    const b=map.getBounds(),[wk,hk]=viewKm();
+    if(wk>1200||hk>1200){say('La vista es enorme (máximo 1200 km por lado). Acercá un poco el mapa.');return false;}
+    bb={s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()};
+  }else bb=frameBB();
+  if(btn)btn.disabled=true;
+  say(regional?'Descargando la red regional (solo rutas principales y ferris)… puede tardar varios minutos.':'Descargando calles… puede tardar hasta un minuto.');
   try{
-    const bb={s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()};
-    const f=await fetchNetFull(bb,t=>{const m=$('#netmsg');if(m)m.textContent=t;});
+    const f=await fetchNetFull(bb,say,regional);
     if(replace)for(const n of await DB.all('kv','net:'))await DB.del('kv','net:'+n.id);
     const id=uid();
-    await DB.put('kv','net:'+id,{id,bb,date:Date.now(),ways:f.ways,hz:f.hz});
+    await DB.put('kv','net:'+id,{id,bb,date:Date.now(),ways:f.ways,hz:f.hz,regional:!!f.regional});
     await netIndex();
     dropGraph();
+    if(regional){toast(`Red regional descargada: ${f.ways.length} tramos de rutas principales y ferris`,6000);return true;}
     toast(`Red descargada: ${f.ways.length} calles y senderos, ${f.hz.length} lomos de burro`+(f.dem?' y la altura del terreno':`. Sin altura (${f.demErr}): no va a funcionar "menos pendiente"`),6000);
     return true;
   }catch(e){
-    const m=$('#netmsg'),bt=$('#netgo');
-    if(m)m.textContent='No se pudo descargar: '+(e.message||e)+'. Revisá la conexión y probá de nuevo.';
-    if(bt)bt.disabled=false;
+    say('No se pudo descargar: '+(e.message||e)+'. Revisá la conexión y probá de nuevo.');
+    const bt=ui.btn?$(ui.btn):null;if(bt)bt.disabled=false;
     return false;
   }
 }
 function showNetDownload(){
-  const [wk,hk]=viewKm();
   openSheet('Rutas',`<p>Para calcular rutas, Rumbo necesita la red de calles y senderos de OpenStreetMap de tu zona. Se baja una sola vez, con internet, y queda guardada en el teléfono.</p>
-    <p class="mut">Encuadrá la ciudad en el mapa: se baja lo que ves. Ahora son unos ${wk.toFixed(1)} × ${hk.toFixed(1)} km (máximo 25 km por lado).</p>
-    <button class="btn primary" id="netgo" data-act="dl">Descargar red de esta zona</button><p id="netmsg" class="mut"></p>`,
+    <p class="mut">Cada descarga de calles cubre hasta <b>25 × 25 km</b> (con lomos de burro y altura del terreno). Para una zona más grande se arma un mosaico de cuadros de al lado.</p>
+    <button class="btn primary" data-act="cap" style="width:100%">📐 Elegir la zona en el mapa</button>
+    <div class="row"><button class="btn" id="netgo" data-act="dl">Bajar 25 × 25 km centrados en el mapa</button></div>
+    <p class="mut"><b>Para un viaje largo</b> (por ejemplo cruzando el Estrecho de Magallanes): alejá el mapa hasta ver todo el recorrido y bajá solo las rutas principales y ferris.</p>
+    <div class="row"><button class="btn" id="netreg" data-act="dlreg">🌐 Bajar red regional (lo que ves)</button></div><p id="netmsg" class="mut"></p>`,
     async a=>{
-      if(a==='dl'&&await dlNet()){
-        if(RT.to&&(RT.from||lastFix)){const g=await ensureGraph();if(g){await calcRoutes(g);return;}}
-        showRoutes();
+      if(a==='cap'){openCap();return;}
+      if(a==='dl'||a==='dlreg'){
+        if(await dlNet(false,a==='dlreg'?'regional':'detail',{btn:a==='dl'?'#netgo':'#netreg',msg:'#netmsg'})){
+          if(RT.to&&(RT.from||lastFix)){const g=await ensureGraph();if(g){await calcRoutes(g);return;}}
+          showRoutes();
+        }
       }
     });
 }
 
 /* Rutas */
 const depMs=()=>{if(!RT.dep)return Date.now();const [h,m]=RT.dep.split(':').map(Number),d=new Date();d.setHours(h,m,0,0);return d.getTime();};
-const errText=r=>!r?'':r.err==='origen'?'No hay calles cerca del origen (a menos de 500 m).':r.err==='destino'?'No hay calles cerca del destino.':'No hay un camino conectado. Si sabés que existe, agregalo en Correcciones.';
+const errText=r=>!r?'':r.err==='origen'?'No hay calles cerca del origen (a menos de 500 m). Si es un viaje largo, bajá también la zona detallada de esa ciudad.':r.err==='destino'?'No hay calles cerca del destino.':'No hay un camino conectado. Si sabés que existe, agregalo en Correcciones.';
 function drawRoute(fit){
   routeLayer.clearLayers();
   const r=RT.res&&RT.res[RT.sel];
@@ -2057,13 +2179,18 @@ function drawRoute(fit){
   ends.forEach(([t,c])=>L.marker(c,{interactive:false,icon:L.divIcon({html:`<div class="gl s">${t}</div>`,className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(routeLayer));
   if(fit&&r&&!r.err)map.fitBounds(L.latLngBounds(r.coords),{paddingTopLeft:[24,24],paddingBottomRight:[24,360]});
 }
+function arrLabel(start,arr){
+  const d0=new Date(start),d1=new Date(arr);d0.setHours(0,0,0,0);d1.setHours(0,0,0,0);
+  const n=Math.round((d1-d0)/86400000);
+  return (n<=0?'':n===1?'mañana ':`en ${n} días `)+'a las '+hhmm(arr);
+}
 function resultsHtml(){
   const start=depMs();
   let h='<h3>Resultado</h3>';
   for(const m of MODES){
     const r=RT.res[m];
     if(!r||r.err){h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${errText(r)}</span></div>`;continue;}
-    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás a las <b>${hhmm(start+r.time*1000)}</b></div>`;
+    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+r.time*1000)}</b></div>`;
   }
   const cmp=RT.alt?`<h3>Comparar para ${MI[RT.sel]}</h3><div class="row">`+PREFS.filter(([k])=>!(RT.sel==='car'&&k==='flat')).map(([k,e])=>{
     const a=RT.alt[k];if(!a||a.err)return '';
@@ -2074,7 +2201,7 @@ function resultsHtml(){
   if(r&&!r.err)h+=`<button class="btn primary" data-act="nav" style="width:100%;margin-top:8px">▶ Guiarme por esta ruta</button>
     ${r.hzs&&r.hzs.length?`<p>⚠️ En el camino: ${hzSummary(r.hzs)}</p>`:''}
     <div class="row"><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button><button class="btn sm" data-act="rclear">Quitar del mapa</button></div>
-    <h3>Indicaciones</h3>${r.steps.map(s=>`<div class="item"><div>${esc(s.text)}</div><small class="mut">${s.dist?fmtD(s.dist):''}</small></div>`).join('')}`;
+    <h3>Indicaciones</h3>${r.steps.map(s=>`<div class="item"><div>${s.ico?s.ico+' ':''}${esc(s.text)}</div><small class="mut">${s.dist?fmtD(s.dist):''}</small></div>`).join('')}`;
   return h;
 }
 function computeAlt(g){
@@ -2190,7 +2317,8 @@ async function showFix(){
   const nets=await DB.all('kv','net:'),edits=(await DB.all('kv','edit:')).sort((a,b)=>b.created-a.created);
   const nW=nets.reduce((a,n)=>a+n.ways.length,0);
   let h=`<p class="mut">Red de calles: ${nets.length?`${nW} tramos en ${nets.length} zona${nets.length>1?'s':''}`:'todavía no descargaste ninguna'}.</p>
-    <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar esta zona':'Descargar red de esta zona'}</button>${nets.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button><button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div><p id="netmsg" class="mut"></p>`;
+    <div class="row"><button class="btn primary" data-act="cap">📐 Elegir la zona en el mapa</button></div>
+    <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar 25 × 25 km centrados':'Bajar 25 × 25 km centrados'}</button>${nets.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button><button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div><p id="netmsg" class="mut"></p>`;
   if(nets.length)h+=`<h3>Corregir el mapa</h3>
     <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">🥾<br>Sendero o escalera nuevos</button><button class="btn big" data-act="pickway">↔️<br>Sentido o cierre de una calle</button></div>`;
   if(edits.length)h+=`<h3>Tus correcciones (${edits.length})</h3>`+edits.map(e=>{
@@ -2198,7 +2326,8 @@ async function showFix(){
     return `<div class="item"><div><b>${t}</b><br><small class="mut">${fmtDate(e.created)}</small></div><div class="row"><button class="btn sm" data-act="eview" data-id="${e.id}">Ver</button><button class="btn sm danger" data-act="edel" data-id="${e.id}">Quitar</button></div></div>`;
   }).join('');
   openSheet('Correcciones',h,async(a,d,el)=>{
-    if(a==='dl'){if(await dlNet())showFix();}
+    if(a==='cap')openCap();
+    else if(a==='dl'){if(await dlNet())showFix();}
     else if(a==='dlr'){if(await dlNet(true))showFix();}
     else if(a==='netdel'){if(armed(el)){for(const n of nets)await DB.del('kv','net:'+n.id);dropGraph();toast('Red borrada');showFix();}}
     else if(a==='newpath')showPathForm();
@@ -2547,7 +2676,7 @@ async function netIndex(){
   for(const id of keys)if(!idx.some(x=>x.id===id&&!x.pending)){
     idx=idx.filter(x=>x.id!==id);
     const n=await DB.get('kv','net:'+id);if(!n)continue;
-    const x={id,bb:n.bb,date:n.date,ways:n.ways.length,hz:(n.hz||[]).length,z:n.ways.some(w=>w.z&&w.z.some(v=>v!=null))};
+    const x={id,bb:n.bb,date:n.date,ways:n.ways.length,hz:(n.hz||[]).length,z:n.ways.some(w=>w.z&&w.z.some(v=>v!=null)),regional:!!n.regional};
     await DB.put('kv','netidx:'+id,x);idx.push(x);
   }
   return idx;
@@ -2558,7 +2687,7 @@ async function drawCoverage(){
   for(const z of await DB.all('kv','dlz:'))if(z.layer===S.layer)
     L.rectangle([[z.bb.s,z.bb.w],[z.bb.n,z.bb.e]],{color:'#1E6BFF',weight:2,fill:false,dashArray:'6 4',opacity:.75,interactive:false}).addTo(covLayer);
   for(const n of (await netIndex()).filter(x=>!x.pending))
-    L.rectangle([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{color:'#2E7D5B',weight:2,fill:false,opacity:.75,interactive:false}).addTo(covLayer);
+    L.rectangle([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{color:n.regional?'#E0A100':'#2E7D5B',weight:2,fill:false,opacity:.75,dashArray:n.regional?'2 6':null,interactive:false}).addTo(covLayer);
 }
 async function showMapMgr(){
   const zs=(await DB.all('kv','dlz:')).sort((a,b)=>b.date-a.date),idxAll=(await netIndex()).sort((a,b)=>b.date-a.date);
@@ -2586,9 +2715,9 @@ async function showMapMgr(){
       ${n?`<button class="btn sm danger" data-act="ldel" data-k="${k}">Borrar todo de este mapa</button>`:''}</div>`;
   }
   h+='<h3>Calles y rutas</h3>';
-  h+=idx.length?idx.map(n=>`<div class="card"><b>${fmtDate(n.date)}</b><br><small class="mut">${n.ways} calles y senderos · ${n.hz} lomos de burro · ${n.z?'con altura del terreno':'sin altura del terreno'}</small>
+  h+=idx.length?idx.map(n=>`<div class="card"><b>${fmtDate(n.date)}</b>${n.regional?' <span class="tag">regional</span>':''}<br><small class="mut">${n.regional?`${n.ways} tramos de rutas principales y ferris`:`${n.ways} calles y senderos · ${n.hz} lomos de burro · ${n.z?'con altura del terreno':'sin altura del terreno'}`}</small>
       <div class="row" style="margin-top:6px"><button class="btn sm" data-act="nview" data-id="${n.id}">Ver zona</button><button class="btn sm danger" data-act="ndel" data-id="${n.id}">Borrar</button></div></div>`).join(''):'<p class="mut">No hay red de calles descargada.</p>';
-  h+=`<div class="row"><button class="btn" id="netgo" data-act="dl">${idx.length?'Agregar esta zona':'Descargar red de esta zona'}</button>${idx.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button>':''}</div><p id="netmsg" class="mut"></p>`;
+  h+=`<div class="row"><button class="btn primary" data-act="cap">📐 Elegir zona en el mapa</button></div><div class="row"><button class="btn" id="netgo" data-act="dl">${idx.length?'Agregar 25 × 25 km centrados':'Bajar 25 × 25 km centrados'}</button>${idx.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button>':''}<button class="btn" data-act="dlreg">🌐 Red regional (lo que ves)</button></div><p id="netmsg" class="mut"></p>`;
   const nOv=OVL.length;
   h+=`<h3>Fotos de dron</h3><div class="item" data-act="ovl"><div><b>${nOv} foto${nOv===1?'':'s'}</b><br><small class="mut">Se guardan aparte: borrar mapas no las toca.</small></div><span>›</span></div>`;
   openSheet('Mis mapas',h,async(a,d,el)=>{
@@ -2604,6 +2733,8 @@ async function showMapMgr(){
     else if(a==='ndel'){if(armed(el)){await DB.del('kv','net:'+d.id);await DB.del('kv','netidx:'+d.id);dropGraph();drawCoverage();toast('Red borrada');showMapMgr();}}
     else if(a==='dl'){if(await dlNet()){drawCoverage();showMapMgr();}}
     else if(a==='dlr'){if(await dlNet(true)){drawCoverage();showMapMgr();}}
+    else if(a==='dlreg'){if(await dlNet(false,'regional')){drawCoverage();showMapMgr();}}
+    else if(a==='cap')openCap();
     else if(a==='ovl')showOvl();
     else if(a==='recover')recoverAll();
     else if(a==='dlcancel'){if(DL)DL.cancel=true;}
@@ -2614,7 +2745,7 @@ async function showMapMgr(){
 let PIN=null;
 function hidePin(){PIN=null;pinLayer.clearLayers();$('#pin').hidden=true;}
 async function onMapTap(e){
-  if(REC.state!=='idle'||NAV.on||sheet.classList.contains('open')||!$('#banner').hidden)return;
+  if(REC.state!=='idle'||NAV.on||CAP.on||sheet.classList.contains('open')||!$('#banner').hidden)return;
   const ll={lat:e.latlng.lat,lon:e.latlng.lng};
   PIN={lat:ll.lat,lon:ll.lon,label:'Punto en el mapa'};
   pinLayer.clearLayers();
@@ -2657,7 +2788,7 @@ async function exportFull(){
   const kv=(await DB.entries('kv')).filter(e=>e.k!=='rec:current'&&!/^(net|netidx):/.test(e.k));
   const photos=[];
   for(const o of OVL){const b=await DB.get('tiles','ovl/'+o.id);if(b)photos.push({id:o.id,b64:await blobB64(b)});}
-  const nets=(await netIndex()).filter(n=>!n.pending).map(n=>({id:n.id,bb:n.bb,date:n.date,ways:n.ways,hz:n.hz,z:n.z}));
+  const nets=(await netIndex()).filter(n=>!n.pending).map(n=>({id:n.id,bb:n.bb,date:n.date,ways:n.ways,hz:n.hz,z:n.z,regional:n.regional}));
   const d=new Date();
   shareFile(`rumbo-copia-${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}.json`,JSON.stringify({v:3,kv,photos,nets}),'application/json');
 }
@@ -2690,13 +2821,92 @@ async function recoverAll(){
   for(const n of pend){
     i++;msg(`Calles ${i} de ${total}: bajando…`);
     try{
-      const f=await fetchNetFull(n.bb,msg);
-      await DB.put('kv','net:'+n.id,{id:n.id,bb:n.bb,date:Date.now(),ways:f.ways,hz:f.hz});
+      const f=await fetchNetFull(n.bb,msg,n.regional);
+      await DB.put('kv','net:'+n.id,{id:n.id,bb:n.bb,date:Date.now(),ways:f.ways,hz:f.hz,regional:!!n.regional});
       await DB.del('kv','netidx:'+n.id);
     }catch(e){toast('No se pudo bajar una red de calles: '+(e.message||e),5000);}
   }
   dropGraph();await netIndex();drawCoverage();toast('Mapas recuperados ✅',4000);showMapMgr();
 }
+/* ---------- Elegir la zona a descargar (marco) ---------- */
+const frameLayer=L.layerGroup().addTo(map);
+const CAP={on:false};
+function frameBB(){
+  const c=map.getCenter(),h=S.frameKm*500,dl=h/110540,dn=h/(111320*Math.cos(c.lat*rad));
+  return {s:c.lat-dl,n:c.lat+dl,w:c.lng-dn,e:c.lng+dn};
+}
+function dlPlanFrame(){
+  const l=LAYERS[S.layer],b=frameBB();
+  const zmax=Math.min(18,l.maxNative||18),z1=Math.min(zmax,S.capZ),z0=Math.max(8,z1-S.dlZoom);
+  const ranges=tileRanges({w:b.w,e:b.e,n:b.n,s:b.s},z0,z1),n=tileCount(ranges);
+  return {l,b,ranges,z0,z1,n,mb:n*(l.kb||20)/1024};
+}
+function drawFrame(){
+  frameLayer.clearLayers();
+  if(!CAP.on)return;
+  const b=frameBB();
+  L.rectangle([[b.s,b.w],[b.n,b.e]],{color:'#F04A1C',weight:3,fill:true,fillColor:'#F04A1C',fillOpacity:.07,dashArray:'10 6',interactive:false}).addTo(frameLayer);
+  updCap();
+}
+function updCap(){
+  if(!CAP.on)return;
+  const l=LAYERS[S.layer],km=S.frameKm;
+  $('#capTtl').textContent=`📐 Zona: ${km} × ${km} km`;
+  document.querySelectorAll('#capSize button').forEach(b=>b.classList.toggle('on',+b.dataset.km===km));
+  $('#capZv').textContent=Math.min(S.capZ,Math.min(18,l.maxNative||18));
+  $('#capZ').value=S.capZ;
+  let t='';
+  if(l.off){
+    const p=dlPlanFrame();
+    t=`${l.name}: zoom ${p.z0} a ${p.z1} · ${p.n} teselas · unos ${p.mb<10?p.mb.toFixed(1):Math.round(p.mb)} MB`+(p.n>12000?' — demasiado grande: bajá el zoom o el tamaño':'');
+    $('#capMap').disabled=p.n>12000&&!DL;
+  }else{t=`${l.name} no se puede bajar. Cambiá a Satélite o Topográfico Esri en Mapas.`;$('#capMap').disabled=true;}
+  const [wk,hk]=viewKm();
+  $('#capInfo').textContent=t+` · Lo que ves ahora: ${Math.round(wk)} × ${Math.round(hk)} km (para "Regional", hasta 1200).`;
+}
+map.on('move zoom moveend zoomend',()=>{if(CAP.on)drawFrame();});
+function openCap(){
+  closeSheet();sBody.innerHTML='';
+  hidePin();
+  CAP.on=true;S.cov=true;saveS();setFollow(false);
+  $('#cap').hidden=false;$('#capprog').hidden=true;$('#capmsg').textContent='';
+  drawCoverage();drawFrame();
+  toast('Alejá el mapa para ver el panorama y movete con las flechas de un cuadro al otro',5000);
+}
+function closeCap(){
+  if(DL)DL.cancel=true;
+  CAP.on=false;$('#cap').hidden=true;frameLayer.clearLayers();
+}
+function stepFrame(dir){
+  const c=map.getCenter(),km=Math.max(1,S.frameKm-1)*1000,dl=km/110540,dn=km/(111320*Math.cos(c.lat*rad));
+  const t={n:[c.lat+dl,c.lng],s:[c.lat-dl,c.lng],e:[c.lat,c.lng+dn],w:[c.lat,c.lng-dn]}[dir];
+  map.panTo(t,{animate:true,duration:.4});
+}
+$('#capX').onclick=closeCap;
+$('#capSize').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;S.frameKm=+b.dataset.km;saveS();drawFrame();});
+document.querySelectorAll('#cap [data-cap]').forEach(b=>b.onclick=()=>stepFrame(b.dataset.cap));
+$('#capZ').addEventListener('input',e=>{S.capZ=+e.target.value;saveS();updCap();});
+$('#capFit').onclick=()=>{const b=frameBB(),dl=(b.n-b.s),dn=(b.e-b.w);map.fitBounds([[b.s-dl,b.w-dn],[b.n+dl,b.e+dn]],{padding:[10,10]});};
+$('#capMap').onclick=async()=>{
+  if(DL){DL.cancel=true;return;}
+  const p=dlPlanFrame();
+  if(!p.l.off||p.n>12000)return;
+  $('#capprog').hidden=false;$('#capMap').textContent='Cancelar';$('#capNet').disabled=$('#capReg').disabled=true;
+  const r=await runDownload(S.layer,p.ranges);
+  $('#capMap').textContent='🗺️ Bajar mapa';$('#capNet').disabled=$('#capReg').disabled=false;
+  if(!r.cancel){await saveZone(S.layer,p,r);$('#capmsg').textContent=r.fail>r.total*.5?'La mayoría falló. Revisá la conexión.':`Listo: ${r.done-r.fail} teselas guardadas${r.fail?` (${r.fail} fallaron)`:''}.`;}
+  else $('#capmsg').textContent='Descarga cancelada.';
+  $('#capprog').hidden=true;
+};
+async function capNet(mode){
+  $('#capNet').disabled=$('#capReg').disabled=$('#capMap').disabled=true;
+  const ok=await dlNet(false,mode,{btn:null,msg:'#capmsg'});
+  $('#capNet').disabled=$('#capReg').disabled=false;updCap();
+  if(ok){drawCoverage();$('#capmsg').textContent=mode==='regional'?'Red regional guardada.':'Calles y rutas guardadas. Movete al cuadro de al lado para seguir.';}
+}
+$('#capNet').onclick=()=>capNet('detail');
+$('#capReg').onclick=()=>capNet('regional');
+
 /* ---------- Modo noche y orientación del mapa ---------- */
 function isNightNow(){
   if(S.night==='on')return true;
@@ -2822,6 +3032,8 @@ function showMore(){
     <label for="s7">Tu velocidad en bici (km/h)</label><input class="in" id="s7" type="number" step="1" min="5" max="40" value="${S.vBike}">
     <label for="s8">Tráfico en auto</label>
     <select class="in" id="s8"><option value="0.6">Pesado (60 % de la velocidad legal)</option><option value="0.8">Normal (80 %)</option><option value="1">Fluido (100 %)</option></select>
+    <label for="s10">Espera para embarcar en un ferry (min)</label><input class="in" id="s10" type="number" min="0" max="240" value="${S.ferryWait}">
+    <p class="mut">Se suma al tiempo del cruce. Los horarios reales no están en el mapa: conviene confirmarlos.</p>
     <label for="s9">Ruta que se muestra primero</label>
     <select class="in" id="s9"><option value="foot">A pie</option><option value="bike">En bici</option><option value="car">En auto</option></select>
     <h3>Copia de seguridad</h3>
@@ -2854,6 +3066,7 @@ function showMore(){
       else if(t.id==='s7'){S.vBike=Math.max(5,Math.min(40,+t.value||16));dropGraph();}
       else if(t.id==='s8'){S.carF=+t.value;dropGraph();}
       else if(t.id==='s9')S.routeMode=t.value;
+      else if(t.id==='s10'){S.ferryWait=Math.max(0,Math.min(240,+t.value||0));dropGraph();}
       saveS();
     });
   $('#s3').value=S.speedMode;$('#s8').value=String(S.carF);$('#s9').value=S.routeMode;
