@@ -249,6 +249,12 @@ body.night #trace .nvb button{background:#E4EDEF;color:#0E2A36}
 #nodep .nvb button[disabled]{opacity:.4}
 body.night #nodep .nvb button{background:#E4EDEF;color:#0E2A36}
 #capCtr{align-items:center}
+
+.sw{display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:-2px;margin-right:2px}
+
+#pin .nvb{flex-wrap:wrap}
+#pin .nvb button{flex:1 1 28%}
+#pin .nvb #pinGo{flex:2 1 52%}
 </style>
 </head>
 <body>
@@ -330,7 +336,7 @@ body.night #nodep .nvb button{background:#E4EDEF;color:#0E2A36}
   <div id="capprog" hidden><div class="bar"><i id="dlbar"></i></div><small id="dlt"></small></div>
   <small id="capmsg"></small>
 </div>
-<div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinSave">📍 Guardar</button><button id="pinX">✕</button></div></div>
+<div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinFrom">Ⓐ Salir de acá</button><button id="pinVia" hidden>↦ Pasar por</button><button id="pinSave">📍 Guardar</button><button id="pinX">✕</button></div></div>
 <div id="banner" hidden><span id="bTxt"></span><span class="row"><button class="btn sm" id="bUndo" hidden>Deshacer</button><button class="btn sm primary" id="bOk" hidden>Listo</button><button class="btn sm" id="bCancel">Cancelar</button></span></div>
 
 <button id="fNorth" hidden aria-label="Norte arriba">N⬆</button>
@@ -724,7 +730,7 @@ class Graph{
   }
   _edge(a,b,wi,len){
     const ei=this.E.length;
-    this.E.push({a,b,len:len==null?this.dist(a,b):len,w:wi,blk:null,ov:null,alive:true});
+    this.E.push({a,b,len:len==null?this.dist(a,b):len,w:wi,blk:null,ov:null,alive:true,i:ei});
     this.adj[a].push(ei);this.adj[b].push(ei);this.ix(ei);return ei;
   }
   link(wi){
@@ -794,6 +800,11 @@ class Graph{
   }
   /* costo del tramo según la preferencia: 'fast' tiempo, 'short' distancia, 'flat' tiempo + castigo por subir */
   cost(e,d,mode,pref,v){
+    const c=this.cost0(e,d,mode,pref,v);
+    if(this.pen){const f=this.pen.get(e.i);if(f)return c*f;}      /* para buscar caminos distintos */
+    return c;
+  }
+  cost0(e,d,mode,pref,v){
     if(pref==='short')return e.len;
     const g=this.slope(e,d),t=e.len/(v*slopeFactor(mode,g));
     if(pref==='flat'&&mode!=='car'){
@@ -1082,7 +1093,7 @@ function findRoute(G,mode,from,to,pref){
     avgKmh=G.cfg.avg[mode]*3.6;
     time=(dist-fDist)/G.cfg.avg[mode]*(1+(G.cfg.avgStops||0)/100)+fTime;
   }
-  return {mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,coords,stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
+  return {mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,coords,eids:r.edges.map(x=>x.ei),elen:r.edges.map(x=>G.E[x.ei].len),stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
 }
 
 /* ====================== GUÍA PASO A PASO ====================== */
@@ -1570,6 +1581,50 @@ function pickNets(nets,center,budget){
     if(!keep.length||used+x.p<=budget){keep.push(x.n);used+=x.p;}else dropped++;
   }
   return {nets:keep.concat(reg),dropped,points:used,limited:dropped>0};
+}
+
+
+/* ====================== COMPARAR CAMINOS DISTINTOS ====================== */
+/* fracción del camino más corto que comparten dos rutas */
+function routeShare(a,b){
+  const sa=new Map();a.eids.forEach((ei,i)=>sa.set(ei,a.elen[i]));
+  let sh=0;b.eids.forEach((ei,i)=>{if(sa.has(ei))sh+=b.elen[i];});
+  const la=a.elen.reduce((x,y)=>x+y,0),lb=b.elen.reduce((x,y)=>x+y,0);
+  return sh/Math.max(1,Math.min(la,lb));
+}
+/* La mejor ruta y hasta k alternativas que no se parezcan (se encarece lo ya usado y se vuelve a buscar) */
+function findAlternatives(G,mode,from,to,pref,k){
+  k=k||2;
+  const base=findRoute(G,mode,from,to,pref);
+  if(base.err)return {base,alts:[]};
+  const alts=[],pen=new Map();
+  const bump=r=>r.eids.forEach(ei=>pen.set(ei,(pen.get(ei)||1)*1.9));
+  bump(base);
+  for(let tries=0;tries<7&&alts.length<k;tries++){
+    G.pen=pen;
+    const r=findRoute(G,mode,from,to,pref);
+    G.pen=null;
+    if(r.err)break;
+    if([base].concat(alts).some(x=>routeShare(x,r)>0.8)){bump(r);continue;}
+    if(r.time>base.time*2.5)break;                         /* demasiado peor para ser una alternativa */
+    alts.push(r);bump(r);
+  }
+  G.pen=null;
+  return {base,alts};
+}
+/* Une dos tramos (origen→punto y punto→destino) en una sola ruta */
+function joinRoutes(a,b,via){
+  let off=0;for(let i=1;i<a.coords.length;i++)off+=hav(a.coords[i-1],a.coords[i]);
+  const steps=a.steps.slice(0,-1).concat([{text:`Pasás por ${via.label||'el punto intermedio'}`,dist:0,at:off,ico:'📍',kind:'via',lat:via.lat,lon:via.lon,k0:0}]);
+  b.steps.forEach((s,i)=>{const c=Object.assign({},s,{at:s.at+off});if(i===0&&/^Salí por/.test(c.text))c.text=c.text.replace(/^Salí por/,'Seguí por');steps.push(c);});
+  const fa=a.ferry,fb=b.ferry;
+  const ferry=(fa||fb)?{dist:(fa?fa.dist:0)+(fb?fb.dist:0),time:(fa?fa.time:0)+(fb?fb.time:0),names:[...(fa?fa.names:[]),...(fb?fb.names:[])],unver:!!((fa&&fa.unver)||(fb&&fb.unver))}:null;
+  return {mode:a.mode,pref:a.pref,dist:a.dist+b.dist,time:a.time+b.time,avgKmh:a.avgKmh,avgStops:a.avgStops,coords:a.coords.concat(b.coords.slice(1)),eids:a.eids.concat(b.eids),elen:a.elen.concat(b.elen),stairs:a.stairs+b.stairs,steps,up:a.up+b.up,down:a.down+b.down,hasZ:a.hasZ,ferry,via:true};
+}
+function findRouteVia(G,mode,from,to,pref,via){
+  const a=findRoute(G,mode,from,via,pref);if(a.err)return a;
+  const b=findRoute(G,mode,via,to,pref);if(b.err)return b;
+  return joinRoutes(a,b,via);
 }
 /*</pure>*/
 
@@ -2460,7 +2515,8 @@ const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],calle:['�
 const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',camino:'#8E5B2B',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E'};
 const routeLayer=L.layerGroup().addTo(map),editLayer=L.layerGroup().addTo(map),pickLayer=L.layerGroup().addTo(map);
 const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente']];
-const RT={from:null,to:null,res:null,sel:null,dep:'',sr:{}};
+const CAND_COL=['#1E6BFF','#F04A1C','#2E7D5B','#9B59B6','#E0A100'];
+const RT={cands:[],selCand:null,from:null,to:null,res:null,sel:null,dep:'',sr:{}};
 let G=null,GP=null,PICK=null;
 /* Las redes se leen una sola vez y se sueltan a los 40 s: el grafo y el mapa de calles comparten la misma lectura */
 let NETC=null,NETT=null;
@@ -2628,12 +2684,15 @@ function drawRoute(fit){
   const ends=[];
   if(r&&!r.err){
     L.polyline(r.coords,{color:'#fff',weight:10,opacity:.9,interactive:false}).addTo(routeLayer);
-    L.polyline(r.coords,{color:MC[RT.sel],weight:6,interactive:false}).addTo(routeLayer);
+    const cc=(RT.cands||[]).find(c=>c.route===r);
+    L.polyline(r.coords,{color:(RT.cands&&RT.cands.length>1&&cc)?cc.col:MC[RT.sel],weight:6,interactive:false}).addTo(routeLayer);
     ends.push(['A',r.coords[0]],['B',r.coords[r.coords.length-1]]);
   }else{
     if(RT.from)ends.push(['A',[RT.from.lat,RT.from.lon]]);
     if(RT.to)ends.push(['B',[RT.to.lat,RT.to.lon]]);
   }
+  /* los otros caminos que se están comparando, más finos y punteados */
+  for(const c of RT.cands||[])if(c.route!==r&&c.mode===RT.sel)L.polyline(c.route.coords,{color:c.col,weight:5,opacity:.8,dashArray:'9 7',interactive:false}).addTo(routeLayer);
   ends.forEach(([t,c])=>L.marker(c,{interactive:false,icon:L.divIcon({html:`<div class="gl s">${t}</div>`,className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(routeLayer));
   if(fit&&r&&!r.err)map.fitBounds(L.latLngBounds(r.coords),{paddingTopLeft:[24,24],paddingBottomRight:[24,360]});
 }
@@ -2655,11 +2714,38 @@ function resultsHtml(){
     return `<button class="btn sm ${k===S.pref?'primary':''}" data-act="pref" data-p="${k}">${e} ${fmtDur(a.time)} · ${fmtD(a.dist)}${a.hasZ&&RT.sel!=='car'?' · ↑'+Math.round(a.up)+' m':''}</button>`;
   }).join('')+'</div>':'';
   h+=cmp;
+  h+=candsHtml(start);
   const r=RT.res[RT.sel];
   if(r&&!r.err)h+=`<button class="btn primary" data-act="nav" style="width:100%;margin-top:8px">▶ Guiarme por esta ruta</button>
     ${r.hzs&&r.hzs.length?`<p>⚠️ En el camino: ${hzSummary(r.hzs)}</p>`:''}
     <div class="row"><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button><button class="btn sm" data-act="rclear">Quitar del mapa</button></div>
     <h3>Indicaciones</h3>${r.steps.map(s=>`<div class="item"><div>${s.ico?s.ico+' ':''}${esc(s.text)}</div><small class="mut">${s.dist?fmtD(s.dist):''}</small></div>`).join('')}`;
+  return h;
+}
+/* comparador de caminos distintos */
+function resetCands(){
+  const r=RT.res&&RT.res[RT.sel];
+  RT.cands=(r&&!r.err)?[{id:uid(),label:'Ruta principal',mode:RT.sel,route:r,col:CAND_COL[0]}]:[];
+  RT.selCand=RT.cands.length?RT.cands[0].id:null;
+}
+function addCand(label,route,select){
+  const used=new Set(RT.cands.map(c=>c.col)),col=CAND_COL.find(c=>!used.has(c))||CAND_COL[RT.cands.length%CAND_COL.length];
+  const c={id:uid(),label,mode:route.mode,route,col};RT.cands.push(c);
+  if(select){RT.res[c.mode]=route;RT.sel=c.mode;RT.selCand=c.id;}
+  return c;
+}
+function candsHtml(start){
+  const cs=(RT.cands||[]).filter(c=>c.mode===RT.sel);
+  let h=`<h3>Comparar caminos distintos</h3><div class="row"><button class="btn sm" data-act="alts">🔀 Buscar alternativas</button><button class="btn sm" data-act="viaset">📍 Pasar por…</button></div>`;
+  if(cs.length>1){
+    const best=Math.min(...cs.map(c=>c.route.time));
+    h+=cs.map(c=>{
+      const r=c.route,d=r.time-best,sel=c.id===RT.selCand;
+      return `<div class="card ${sel?'on':''}" data-act="selc" data-id="${c.id}"><span class="sw" style="background:${c.col}"></span> <b>${esc(c.label)}</b>${c.label==='Ruta principal'?'':` <button class="btn sm" data-act="delc" data-id="${c.id}" style="float:right;min-height:32px">✕</button>`}<br>
+        <b class="big">${fmtDur(r.time)}</b> · ${fmtD(r.dist)}${r.hasZ&&r.mode!=='car'?` · ↑${Math.round(r.up)} m`:''}<br>
+        llegás <b>${arrLabel(start,start+r.time*1000)}</b> · ${d<1?'<b>⚡ la más rápida</b>':'+'+fmtDur(d)+' más'}</div>`;
+    }).join('');
+  }else h+='<p class="mut">Buscá otros caminos o elegí un punto por el que pasar, y comparás tiempos y llegada de cada uno.</p>';
   return h;
 }
 function computeAlt(g){
@@ -2683,14 +2769,37 @@ async function calcRoutes(g,keep){
   const ok=m=>RT.res[m]&&!RT.res[m].err;
   RT.sel=keep&&RT.sel&&ok(RT.sel)?RT.sel:(ok(S.routeMode)?S.routeMode:MODES.find(ok)||S.routeMode);
   computeAlt(g);
+  resetCands();
   drawRoute(true);showRoutes();
+}
+async function findAlts(){
+  const g=await ensureGraph();if(!g||!RT.calcFrom||!RT.to)return;
+  const {alts}=findAlternatives(g,RT.sel,RT.calcFrom,RT.to,S.pref,2);
+  RT.cands=RT.cands.filter(c=>!/^Alternativa/.test(c.label));
+  if(!alts.length){toast('No encontré otro camino razonable entre esos dos puntos',4500);showRoutes();return;}
+  const hz=await collectHz(g);
+  alts.forEach((a,i)=>{a.hzs=navInit(a,a.mode,hz).hzs;addCand('Alternativa '+(i+1),a,false);});
+  drawRoute(false);toast(`${alts.length} alternativa${alts.length>1?'s':''} para comparar`,3000);showRoutes();
+}
+/* camino que pasa por un punto elegido */
+async function addViaAt(ll){
+  const g=await ensureGraph();if(!g||!RT.calcFrom||!RT.to){showRoutes();return;}
+  let label='el punto elegido';
+  try{const h=g.nearestEdge(ll.lat,ll.lon,60,x=>g.W[x.w].name);if(h)label=g.W[g.E[h.ei].w].name;}catch(er){}
+  const via={lat:ll.lat,lon:ll.lon,label};
+  const r=findRouteVia(g,RT.sel,RT.calcFrom,RT.to,S.pref,via);
+  if(r.err){toast('No hay camino pasando por ahí: '+errText(r),5000);showRoutes();return;}
+  r.hzs=navInit(r,r.mode,await collectHz(g)).hzs;
+  const c=addCand('Por '+label,r,true);
+  drawRoute(true);toast('Camino agregado para comparar',2500);showRoutes();
 }
 async function showRoutes(){
   let g;
   try{g=await ensureGraph();}catch(e){toast('No se pudo preparar la red: '+e.message,5000);return;}
   if(!g){showNetDownload();return;}
   drawRoute(false);
-  const fromL=RT.from?RT.from.label:'Mi posición',toL=RT.to?RT.to.label:'Sin elegir';
+  const gps=lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null;
+  const fromL=RT.from?RT.from.label+(gps?` · a ${fmtD(hav([gps.lat,gps.lon],[RT.from.lat,RT.from.lon]))} de tu posición`:''):'Mi posición (donde estás ahora)',toL=RT.to?RT.to.label:'Sin elegir';
   const h=`<p class="mut">✅ Red de calles descargada${g.hasZ?', con altura del terreno':' (sin altura del terreno)'} · <a href="#" data-act="mgr" style="color:inherit">ver qué tengo</a></p>
     <h3>Desde</h3><div class="card"><b>${esc(fromL)}</b></div>
     <div class="row"><button class="btn sm" data-act="fmine">Mi posición</button><button class="btn sm" data-act="fpick">En el mapa</button></div>
@@ -2702,16 +2811,25 @@ async function showRoutes(){
     <label>Preferencia</label>
     <div class="chips">${PREFS.map(([k,e,n])=>`<button data-act="pref" data-p="${k}" class="${k===S.pref?'on':''}">${e} ${n}</button>`).join('')}</div>
     ${g.hasZ?'':'<p class="mut">Para "menos pendiente" hace falta la altura del terreno: en Más → Correcciones tocá "Reemplazar por esta zona", con internet.</p>'}
-    <button class="btn primary" data-act="calc" style="margin-top:10px">Calcular ruta</button>
+    <div class="row" style="margin-top:10px"><button class="btn primary" data-act="calc">Calcular ruta</button><button class="btn" data-act="swap">⇅ Invertir A y B</button></div>
     <div id="rres">${RT.res?resultsHtml():''}</div>`;
   openSheet('Rutas',h,async(a,d)=>{
     if(a==='mgr')showMapMgr();
-    else if(a==='fmine'){RT.from=null;showRoutes();}
+    else if(a==='swap'){
+      const f=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon,label:'Mi posición'}:null);
+      if(!f||!RT.to){toast('Elegí el origen y el destino para invertirlos');return;}
+      RT.from=RT.to;RT.to=f;RT.res=null;RT.cands=[];drawRoute(false);showRoutes();
+    }
+    else if(a==='fmine'){RT.from=null;RT.res=null;showRoutes();}
     else if(a==='fpick'||a==='tpick'){PICK={type:'pt',target:a==='fpick'?'from':'to'};closeSheet();banner(`Tocá en el mapa el punto de ${a==='fpick'?'partida':'llegada'}`);}
     else if(a==='tpts')showPickWpt();
     else if(a==='setf'||a==='sett'){const r=RT.sr[a==='setf'?'f':'q'][+d.i];RT[a==='setf'?'from':'to']={lat:r.lat,lon:r.lon,label:r.label};RT.res=null;showRoutes();}
     else if(a==='calc')calcRoutes(g);
-    else if(a==='selm'){RT.sel=d.m;computeAlt(g);drawRoute(true);showRoutes();}
+    else if(a==='selm'){RT.sel=d.m;computeAlt(g);resetCands();drawRoute(true);showRoutes();}
+    else if(a==='selc'){const c=RT.cands.find(x=>x.id===d.id);if(c){RT.res[c.mode]=c.route;RT.sel=c.mode;RT.selCand=c.id;drawRoute(true);showRoutes();}}
+    else if(a==='delc'){RT.cands=RT.cands.filter(x=>x.id!==d.id);if(RT.selCand===d.id){const m=RT.cands.find(x=>x.mode===RT.sel)||RT.cands[0];if(m){RT.res[m.mode]=m.route;RT.sel=m.mode;RT.selCand=m.id;}}drawRoute(true);showRoutes();}
+    else if(a==='alts')findAlts();
+    else if(a==='viaset'){PICK={type:'via'};closeSheet();banner('Tocá en el mapa por dónde querés pasar');}
     else if(a==='pref'){S.pref=d.p;saveS();if(RT.to&&RT.res)calcRoutes(g,true);else showRoutes();}
     else if(a==='rfit'){closeSheet();drawRoute(true);}
     else if(a==='rclear'){routeLayer.clearLayers();RT.res=null;showRoutes();}
@@ -2856,7 +2974,7 @@ function showPathForm(){
 }
 function cancelPick(){
   const p=PICK;PICK=null;pickLayer.clearLayers();banner(null);
-  if(p)(p.type==='pt'?showRoutes:p.type==='ovl'?()=>showOvlAdjust(p.id):showFix)();
+  if(p)(p.type==='pt'||p.type==='via'?showRoutes:p.type==='ovl'?()=>showOvlAdjust(p.id):showFix)();
 }
 async function finishPath(){
   const p=PICK;PICK=null;pickLayer.clearLayers();banner(null);
@@ -2906,7 +3024,8 @@ function onPickClick(e){
   if(PICK.type==='pt'){
     RT[PICK.target]={lat:ll.lat,lon:ll.lon,label:'Punto en el mapa'};RT.res=null;
     PICK=null;banner(null);showRoutes();
-  }else if(PICK.type==='way')pickWayAt(ll);
+  }else if(PICK.type==='via'){PICK=null;banner(null);addViaAt(ll);}
+  else if(PICK.type==='way')pickWayAt(ll);
   else if(PICK.type==='ovl')ovlPick(ll);
   else if(PICK.type==='path'){
     PICK.pts.push([ll.lat,ll.lon]);
@@ -3264,8 +3383,10 @@ async function onMapTap(e){
   if(!PIN||PIN.lat!==ll.lat)return;
   PIN.label=label;
   $('#pinTxt').textContent=label;
-  const d=lastFix?hav([lastFix.lat,lastFix.lon],[ll.lat,ll.lon]):null;
-  $('#pinSub').textContent=(d!=null?fmtD(d)+' en línea recta · ':'')+ll.lat.toFixed(5)+', '+ll.lon.toFixed(5);
+  $('#pinVia').hidden=!(RT.res&&RT.to&&RT.calcFrom&&(RT.res[RT.sel]&&!RT.res[RT.sel].err));
+  /* distancia desde el origen que se va a usar: el punto A elegido, o tu posición si no elegiste ninguno */
+  const o=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null),d=o?hav([o.lat,o.lon],[ll.lat,ll.lon]):null;
+  $('#pinSub').textContent=(d!=null?fmtD(d)+' en línea recta desde '+(RT.from?'el origen elegido':'tu posición')+' · ':'')+ll.lat.toFixed(5)+', '+ll.lon.toFixed(5);
   $('#pin').hidden=false;
 }
 async function goToPin(){
@@ -3279,6 +3400,19 @@ async function goToPin(){
 }
 $('#pinGo').onclick=goToPin;
 $('#pinX').onclick=hidePin;
+$('#pinFrom').onclick=async()=>{
+  if(!PIN)return;
+  RT.from={lat:PIN.lat,lon:PIN.lon,label:PIN.label};RT.res=null;RT.cands=[];
+  hidePin();drawRoute(false);
+  toast('Salís desde: '+RT.from.label,3500);
+  if(RT.to){const g=await ensureGraph();if(g)await calcRoutes(g);}
+  else toast('Salís desde: '+RT.from.label+'. Ahora tocá el destino.',4500);
+};
+$('#pinVia').onclick=async()=>{
+  if(!PIN)return;
+  const ll={lat:PIN.lat,lon:PIN.lon};hidePin();
+  await addViaAt(ll);
+};
 $('#pinSave').onclick=async()=>{
   if(!PIN)return;
   const n=(await DB.all('kv','wpt:')).filter(w=>w.type==='punto').length+1;
