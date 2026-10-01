@@ -1554,6 +1554,23 @@ function demContours(tiles,z,x0,y0,nx,ny,interval,f){
   }
   return res;
 }
+
+
+/* ====================== MEMORIA: qué redes cargar ====================== */
+const netPoints=n=>{let s=0;for(const w of n.ways)s+=w.p.length/2;return s;};
+/* Si las redes bajadas son demasiadas para el teléfono, se usan las más cercanas a `center` ([lat,lon]) hasta llenar el presupuesto de puntos.
+   Las regionales (rutas principales) entran siempre, y las detalladas van primero para que ganen en caso de repetirse. */
+function pickNets(nets,center,budget){
+  const reg=nets.filter(n=>n.regional),det=nets.filter(n=>!n.regional);
+  let used=reg.reduce((a,n)=>a+netPoints(n),0);
+  const dist=n=>{const b=n.bb,la=Math.max(b.s,Math.min(b.n,center[0])),lo=Math.max(b.w,Math.min(b.e,center[1]));return hav([la,lo],center);};
+  const sorted=det.map(n=>({n,d:dist(n),p:netPoints(n)})).sort((a,b)=>a.d-b.d);
+  const keep=[];let dropped=0;
+  for(const x of sorted){
+    if(!keep.length||used+x.p<=budget){keep.push(x.n);used+=x.p;}else dropped++;
+  }
+  return {nets:keep.concat(reg),dropped,points:used,limited:dropped>0};
+}
 /*</pure>*/
 
 /* ---------- Utilidades ---------- */
@@ -2445,17 +2462,34 @@ const routeLayer=L.layerGroup().addTo(map),editLayer=L.layerGroup().addTo(map),p
 const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente']];
 const RT={from:null,to:null,res:null,sel:null,dep:'',sr:{}};
 let G=null,GP=null,PICK=null;
+/* Las redes se leen una sola vez y se sueltan a los 40 s: el grafo y el mapa de calles comparten la misma lectura */
+let NETC=null,NETT=null;
+function loadNets(){
+  if(!NETC)NETC=DB.all('kv','net:').then(l=>l.sort((a,b)=>(a.regional?1:0)-(b.regional?1:0)));
+  clearTimeout(NETT);NETT=setTimeout(()=>{NETC=null;},40000);
+  return NETC;
+}
+function netsChanged(){NETC=null;dropGraph();vecInvalidate();}
+const NET_BUDGET=450000;   /* puntos de calles que el grafo puede tener en memoria
 
-function ensureGraph(){
+/* opt.center: [lat,lon] donde se va a trabajar; si hay demasiadas redes se cargan las cercanas */
+function ensureGraph(opt){
+  const c=opt&&opt.center;
+  if(G&&G.limited&&c&&G.center&&hav(G.center,c)>40000)dropGraph();     /* me fui lejos de lo que está cargado */
   if(G)return Promise.resolve(G);
   if(!GP)GP=(async()=>{
-    const nets=(await DB.all('kv','net:')).sort((a,b)=>(a.regional?1:0)-(b.regional?1:0));
+    let nets=await loadNets();
     if(!nets.length){GP=null;return null;}
+    const center=c||(typeof lastFix!=='undefined'&&lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng]);
+    const pk=pickNets(nets,center,NET_BUDGET);
+    nets=pk.nets;
     const edits=await DB.all('kv','edit:');
     const ov=new Map();
     edits.filter(e=>e.type==='ov').forEach(e=>ov.set(`${e.way}:${e.n1}:${e.n2}`,{dir:e.dir,all:!!e.all}));
     await new Promise(r=>setTimeout(r,0));
     G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait,avg:S.timeMode==='avg'?{foot:S.avgFoot/3.6,bike:S.avgBike/3.6,car:S.avgCar/3.6}:null,avgStops:S.avgStops},{turns:edits.filter(e=>e.type==='turn'),barriers:edits.filter(e=>e.type==='barrier'),areas:edits.filter(e=>e.type==='area')});
+    G.limited=pk.limited;G.center=center;
+    if(pk.limited)toast(`Hay muchas zonas bajadas: por memoria se usan las ${pk.nets.length} más cercanas a donde estás (${pk.dropped} quedaron afuera)`,6000);
     GP=null;return G;
   })();
   return GP;
@@ -2553,11 +2587,11 @@ async function dlNet(replace,mode,ui){
   say(regional?'Descargando la red regional (solo rutas principales y ferris)… puede tardar varios minutos.':'Descargando calles… puede tardar hasta un minuto.');
   try{
     const f=await fetchNetFull(bb,say,regional);
-    if(replace)for(const n of await DB.all('kv','net:'))await DB.del('kv','net:'+n.id);
+    if(replace)for(const k of await DB.keys('kv','net:'))await DB.del('kv',k);
     const id=uid();
     await DB.put('kv','net:'+id,{id,bb,date:Date.now(),ways:f.ways,hz:f.hz,regional:!!f.regional});
     await netIndex();
-    dropGraph();vecInvalidate();
+    netsChanged();
     if(regional){toast(`Red regional descargada: ${f.ways.length} tramos de rutas principales y ferris`,6000);return true;}
     toast(`Red descargada: ${f.ways.length} calles y senderos, ${f.hz.length} lomos de burro`+(f.dem?' y la altura del terreno':`. Sin altura (${f.demErr}): no va a funcionar "menos pendiente"`),6000);
     return true;
@@ -2635,6 +2669,7 @@ function computeAlt(g){
   for(const [p] of PREFS)RT.alt[p]=p===S.pref?r:findRoute(g,RT.sel,RT.calcFrom,RT.to,p);
 }
 async function calcRoutes(g,keep){
+  if(RT.to){const f0=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null);if(f0)g=await ensureGraph({center:[(f0.lat+RT.to.lat)/2,(f0.lon+RT.to.lon)/2]})||g;}
   const from=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon,label:'Mi posición'}:null);
   if(!from){toast('Todavía sin GPS: elegí el origen en el mapa o buscá una calle',4500);showRoutes();return;}
   if(!RT.to){toast('Elegí el destino');return;}
@@ -2730,6 +2765,7 @@ const editTitle=e=>e.type==='path'?`${KIND_UI[e.kind][0]} ${esc(e.name||KIND_UI[
   :e.type==='turn'?`🚫 Giro ${e.kind==='only'?'obligatorio':'prohibido'}: ${esc(e.name||'')}`
   :e.type==='barrier'?`⛔ ${esc(e.name||'Barrera')}`
   :`↔️ ${esc(e.name||'Calle')} · ${dirLabel({dir:e.dir,all:e.all})}`;
+const blockGeom=(g,key)=>g.blockEdges(key).map(ei=>{const x=g.E[ei];return [g.lat[x.a],g.lon[x.a],g.lat[x.b],g.lon[x.b]];});
 async function drawEdits(){
   editLayer.clearLayers();
   const edits=await DB.all('kv','edit:');
@@ -2753,17 +2789,20 @@ async function drawEdits(){
   }
   for(const e of edits)if(e.type==='turn'||e.type==='barrier')
     L.marker([e.lat,e.lon],{interactive:false,icon:L.divIcon({html:`<div class="nodem">${e.type==='turn'?'🚫':'⛔'}</div>`,className:'',iconSize:[26,26],iconAnchor:[13,13]})}).addTo(editLayer);
-  if(edits.some(e=>e.type==='ov')){
+  /* los tramos corregidos se dibujan con la geometría guardada; solo los viejos (sin ella) necesitan el grafo, una única vez */
+  const old=edits.filter(e=>e.type==='ov'&&!e.geom);
+  if(old.length){
     let g=null;try{g=await ensureGraph();}catch(er){}
-    if(g)for(const e of edits)if(e.type==='ov'){
-      const col=e.dir==='closed'?'#F04A1C':'#E0A100';
-      g.blockEdges(`${e.way}:${e.n1}:${e.n2}`).forEach(ei=>{const x=g.E[ei];L.polyline([[g.lat[x.a],g.lon[x.a]],[g.lat[x.b],g.lon[x.b]]],{color:col,weight:6,opacity:.8,interactive:false}).addTo(editLayer);});
-    }
+    if(g)for(const e of old){e.geom=blockGeom(g,`${e.way}:${e.n1}:${e.n2}`);if(e.geom.length)await DB.put('kv','edit:'+e.id,e);}
+  }
+  for(const e of edits)if(e.type==='ov'&&e.geom){
+    const col=e.dir==='closed'?'#F04A1C':'#E0A100';
+    for(const q of e.geom)L.polyline([[q[0],q[1]],[q[2],q[3]]],{color:col,weight:6,opacity:.8,interactive:false}).addTo(editLayer);
   }
 }
 async function showFix(){
-  const nets=await DB.all('kv','net:'),edits=(await DB.all('kv','edit:')).sort((a,b)=>b.created-a.created);
-  const nW=nets.reduce((a,n)=>a+n.ways.length,0);
+  const nets=await netIndex(),edits=(await DB.all('kv','edit:')).sort((a,b)=>b.created-a.created);
+  const nW=nets.reduce((a,n)=>a+n.ways,0);
   let h=`<p class="mut">Red de calles: ${nets.length?`${nW} tramos en ${nets.length} zona${nets.length>1?'s':''}`:'todavía no descargaste ninguna'}.</p>
     <div class="row"><button class="btn primary" data-act="cap">📐 Elegir la zona en el mapa</button></div>
     <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar 25 × 25 km centrados':'Bajar 25 × 25 km centrados'}</button>${nets.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button><button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div><p id="netmsg" class="mut"></p>`;
@@ -2778,7 +2817,7 @@ async function showFix(){
     if(a==='cap')openCap();
     else if(a==='dl'){if(await dlNet())showFix();}
     else if(a==='dlr'){if(await dlNet(true))showFix();}
-    else if(a==='netdel'){if(armed(el)){for(const n of nets)await DB.del('kv','net:'+n.id);dropGraph();vecInvalidate();toast('Red borrada');showFix();}}
+    else if(a==='netdel'){if(armed(el)){for(const n of nets)await DB.del('kv','net:'+n.id);netsChanged();toast('Red borrada');showFix();}}
     else if(a==='newpath')openTrace();
     else if(a==='etr')showEditPath(d.id);
     else if(a==='ear')showEditArea(d.id);
@@ -2791,7 +2830,7 @@ async function showFix(){
       const e=edits.find(x=>x.id===d.id);
       if(e.type==='path'||e.type==='area'){closeSheet();map.fitBounds(L.latLngBounds(e.pts),{padding:[50,50]});}
       else if(e.type==='turn'||e.type==='barrier'){closeSheet();map.setView([e.lat,e.lon],18);}
-      else{const g=await ensureGraph();const es=g.blockEdges(`${e.way}:${e.n1}:${e.n2}`);if(es.length){const x=g.E[es[0]];closeSheet();map.setView([g.lat[x.a],g.lon[x.a]],18);}}
+      else if(e.geom&&e.geom.length){closeSheet();map.setView([e.geom[0][0],e.geom[0][1]],18);}
     }
   });
 }
@@ -2846,7 +2885,7 @@ async function pickWayAt(ll){
   const info={key:e.blk,wid:Number(wid),n1:Number(n1),n2:Number(n2),name:w.name};
   const save=async(dir,all)=>{
     const id=`ov_${info.wid}_${info.n1}_${info.n2}`;
-    await DB.put('kv','edit:'+id,{type:'ov',id,way:info.wid,n1:info.n1,n2:info.n2,dir,all:!!all,name:info.name,created:Date.now()});
+    await DB.put('kv','edit:'+id,{type:'ov',id,way:info.wid,n1:info.n1,n2:info.n2,dir,all:!!all,name:info.name,geom:blockGeom(g,e.blk),created:Date.now()});
     dropGraph();toast('Corrección guardada');pickLayer.clearLayers();await drawEdits();showFix();
   };
   openSheet('Sentido o cierre',`<p><b>${esc(w.name||'Calle sin nombre')}</b> · ${Math.round(len)} m entre esquinas</p>
@@ -3194,7 +3233,7 @@ async function showMapMgr(){
     }
     else if(a==='ldel'){if(armed(el)){await clearTiles(d.k);toast('Borrado');showMapMgr();}}
     else if(a==='nview'){const n=idx.find(x=>x.id===d.id);closeSheet();map.fitBounds([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{padding:[20,20]});}
-    else if(a==='ndel'){if(armed(el)){await DB.del('kv','net:'+d.id);await DB.del('kv','netidx:'+d.id);dropGraph();vecInvalidate();drawCoverage();toast('Red borrada');showMapMgr();}}
+    else if(a==='ndel'){if(armed(el)){await DB.del('kv','net:'+d.id);await DB.del('kv','netidx:'+d.id);netsChanged();drawCoverage();toast('Red borrada');showMapMgr();}}
     else if(a==='dl'){if(await dlNet()){drawCoverage();showMapMgr();}}
     else if(a==='dlr'){if(await dlNet(true)){drawCoverage();showMapMgr();}}
     else if(a==='dlreg'){if(await dlNet(false,'regional')){drawCoverage();showMapMgr();}}
@@ -3252,7 +3291,8 @@ $('#pinSave').onclick=async()=>{
 const blobB64=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(String(f.result).split(',')[1]);f.readAsDataURL(b);});
 async function exportFull(){
   toast('Preparando la copia…',3000);
-  const kv=(await DB.entries('kv')).filter(e=>e.k!=='rec:current'&&!/^(net|netidx|ctr):/.test(e.k));
+  const kv=[];
+  for(const k of await DB.keys('kv'))if(k!=='rec:current'&&!/^(net|netidx|ctr):/.test(k))kv.push({k,v:await DB.get('kv',k)});
   const photos=[];
   for(const o of OVL){const b=await DB.get('tiles','ovl/'+o.id);if(b)photos.push({id:o.id,b64:await blobB64(b)});}
   const nets=(await netIndex()).filter(n=>!n.pending).map(n=>({id:n.id,bb:n.bb,date:n.date,ways:n.ways,hz:n.hz,z:n.z,regional:n.regional}));
@@ -3293,7 +3333,7 @@ async function recoverAll(){
       await DB.del('kv','netidx:'+n.id);
     }catch(e){toast('No se pudo bajar una red de calles: '+(e.message||e),5000);}
   }
-  dropGraph();vecInvalidate();await netIndex();drawCoverage();toast('Mapas recuperados ✅',4000);showMapMgr();
+  netsChanged();await netIndex();drawCoverage();toast('Mapas recuperados ✅',4000);showMapMgr();
 }
 /* ---------- Elegir la zona a descargar (marco) ---------- */
 const frameLayer=L.layerGroup().addTo(map);
@@ -4049,7 +4089,7 @@ const vcls=t=>{
 };
 async function vecBuild(){
   VEC.dirty=false;
-  const nets=(await DB.all('kv','net:')).sort((a,b)=>(a.regional?1:0)-(b.regional?1:0));
+  const nets=await loadNets();
   const ways=[],chunks=[],cells=new Map(),big=[],seen=new Set(),cs=VEC.cs;
   for(const n of nets)for(const w of n.ways){
     if(seen.has(w.id))continue;seen.add(w.id);
