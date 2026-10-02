@@ -1700,9 +1700,9 @@ const saveS=()=>{try{localStorage.setItem('rumbo.set',JSON.stringify(S));}catch(
 /* ---------- Mapa y capas ---------- */
 const LAYERS={
   sat:{name:'Satélite',url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    att:'Imágenes © Esri, Maxar, Earthstar Geographics',maxNative:19,off:true,kb:28},
+    att:'Imágenes © Esri, Maxar, Earthstar Geographics',maxNative:19,off:true,fb:true,kb:28},
   etopo:{name:'Topográfico Esri',url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-    att:'© Esri, HERE, Garmin, OpenStreetMap',maxNative:19,off:true,kb:14},
+    att:'© Esri, HERE, Garmin, OpenStreetMap',maxNative:19,off:true,fb:true,kb:14},
   s2:{name:'Sentinel-2 (reciente, 10 m)',url:'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg',
     att:'Sentinel-2 cloudless (s2maps.eu) by EOX IT Services GmbH · Contains modified Copernicus Sentinel data 2024',maxNative:13,off:true,kb:18},
   vec:{name:'Calles descargadas (sin imagen)',vec:true,att:'Calles © colaboradores de OpenStreetMap, guardadas en el teléfono',maxNative:19,off:false},
@@ -1714,6 +1714,7 @@ const tileUrl=(l,z,x,y)=>l.url.replace('{z}',z).replace('{x}',x).replace('{y}',y
 
 const CachedTiles=L.TileLayer.extend({
   createTile(coords,done){
+    if(this.options.fb&&coords.z>=15)return fbTile(this,coords,done);
     const img=document.createElement('img');img.alt='';img.setAttribute('role','presentation');
     const fin=()=>done(null,img);
     const url=this.getTileUrl(coords);
@@ -1736,7 +1737,7 @@ function setLayer(k){
   S.layer=k;saveS();
   if(baseLayer)map.removeLayer(baseLayer);
   const l=LAYERS[k];
-  baseLayer=l.vec?new VecTiles({lid:k,vec:true,maxNativeZoom:19,maxZoom:21,tileSize:256,attribution:l.att}):new CachedTiles(l.url,{lid:k,offline:l.off,maxNativeZoom:l.maxNative,maxZoom:21,subdomains:l.subs||'abc',attribution:l.att});
+  baseLayer=l.vec?new VecTiles({lid:k,vec:true,maxNativeZoom:19,maxZoom:21,tileSize:256,attribution:l.att}):new CachedTiles(l.url,{lid:k,fb:l.fb,offline:l.off,maxNativeZoom:l.maxNative,maxZoom:21,subdomains:l.subs||'abc',attribution:l.att});
   baseLayer.addTo(map);
   applyContours();
   if(l.vec)vecEnsure().then(()=>{if(VEC.count===0)toast('Todavía no hay calles descargadas: bajalas en Rutas o en Más → Mis mapas',5000);});
@@ -1775,7 +1776,9 @@ async function runDownload(k,ranges){
         if(!(await DB.has('tiles',key))){
           const b=await getTileBlob(tileUrl(l,z,x,y));
           if(b.size<80)throw new Error('vacía');
-          await DB.put('tiles',key,b);
+          let vacia=false;
+          if(z>=15&&b.size<26000){try{vacia=isPlaceholder(await createImageBitmap(b),b.size);}catch(er){}}
+          if(!vacia)await DB.put('tiles',key,b);
         }
       }catch(e){DL.fail++;}
       DL.done++;if(DL.done%5===0||DL.done===DL.total)upd();
@@ -4194,6 +4197,67 @@ async function showWptEdit(id){
       }
       else if(a==='del'&&armed(el)){await DB.del('kv','wpt:'+id);if(wptMk[id]){wptLayer.removeLayer(wptMk[id]);delete wptMk[id];}showPoints();}
     });
+}
+
+/* ---------- Ver el último nivel disponible cuando el mapa no tiene más detalle ---------- */
+/* Esri devuelve una imagen gris con "Map data not yet available" donde no hay más zoom. Acá se la detecta y, en lugar de mostrarla,
+   se agranda la tesela del nivel anterior (aunque se vea con menos resolución). */
+const VOID=new Set(),TPROM=new Map();
+let _pc=null;
+function isPlaceholder(bmp,size){
+  if(size>26000)return false;
+  if(!_pc){_pc=document.createElement('canvas');_pc.width=_pc.height=32;}
+  const g=_pc.getContext('2d',{willReadFrequently:true});
+  g.drawImage(bmp,0,0,32,32);
+  const d=g.getImageData(0,0,32,32).data;
+  let gray=0,sum=0;
+  for(let i=0;i<d.length;i+=4){
+    sum+=d[i];
+    if(Math.abs(d[i]-d[i+1])<7&&Math.abs(d[i+1]-d[i+2])<7)gray++;
+  }
+  const px=d.length/4,mean=sum/px;
+  return gray/px>0.95&&mean>105&&mean<185;
+}
+/* la misma tesela se pide una sola vez aunque la usen varias a la vez */
+function tileBlobOnce(opt,z,x,y){
+  const key=opt.lid+'/'+z+'/'+x+'/'+y;
+  let p=TPROM.get(key);
+  if(p)return p;
+  p=(async()=>{
+    if(opt.offline){try{const b=await DB.get('tiles',key);if(b)return b;}catch(e){}}
+    try{return await getTileBlob(tileUrl(LAYERS[opt.lid],z,x,y));}catch(e){return null;}
+  })();
+  TPROM.set(key,p);
+  if(TPROM.size>500)TPROM.delete(TPROM.keys().next().value);
+  return p;
+}
+/* Devuelve {bmp,d}: la imagen del nivel z-d que cubre la tesela pedida, o null si no hay ninguna */
+async function tileFallback(opt,z,x,y){
+  const n=Math.pow(2,z);x=((x%n)+n)%n;
+  for(let d=0;d<=5&&z-d>=10;d++){
+    const zz=z-d,xx=x>>d,yy=y>>d,key=opt.lid+'/'+zz+'/'+xx+'/'+yy;
+    if(VOID.has(key))continue;
+    if(zz>=15&&VOID.has(opt.lid+'/'+(zz-1)+'/'+(xx>>1)+'/'+(yy>>1))){VOID.add(key);continue;}   /* si el nivel de arriba está vacío, este también */
+    const b=await tileBlobOnce(opt,zz,xx,yy);
+    if(!b)continue;
+    let bmp;try{bmp=await createImageBitmap(b);}catch(e){continue;}
+    if(zz>=15&&isPlaceholder(bmp,b.size)){VOID.add(key);continue;}
+    return {bmp,d};
+  }
+  return null;
+}
+function fbTile(layer,coords,done){
+  const dpr=Math.min(2,window.devicePixelRatio||1),c=document.createElement('canvas');
+  c.width=c.height=Math.round(256*dpr);c.style.width=c.style.height='256px';
+  tileFallback(layer.options,coords.z,coords.x,coords.y).then(r=>{
+    if(r){
+      const g=c.getContext('2d'),k=Math.pow(2,r.d),sw=r.bmp.width/k,sh=r.bmp.height/k,n=Math.pow(2,coords.z),xm=((coords.x%n)+n)%n;
+      g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';
+      g.drawImage(r.bmp,(xm%k)*sw,(coords.y%k)*sh,sw,sh,0,0,c.width,c.height);
+    }
+    done(null,c);
+  }).catch(()=>done(null,c));
+  return c;
 }
 
 /* ---------- Calles descargadas dibujadas como mapa (sin imágenes, funciona sin conexión) ---------- */
