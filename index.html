@@ -4208,19 +4208,25 @@ async function showWptEdit(id){
    se agranda la tesela del nivel anterior (aunque se vea con menos resolución). */
 const VOID=new Set(),TPROM=new Map();
 let _pc=null;
+/* La tesela "Map data not yet available" es un fondo gris liso (del tono que sea) con letras: casi todos sus píxeles valen lo mismo.
+   Una foto real, aunque sea nieve o cemento, tiene textura. Se mira a tamaño real, sin promediar. */
 function isPlaceholder(bmp,size){
-  if(size>26000)return false;
-  if(!_pc){_pc=document.createElement('canvas');_pc.width=_pc.height=32;}
+  if(size>30000)return false;
+  if(!_pc){_pc=document.createElement('canvas');_pc.width=_pc.height=256;}
   const g=_pc.getContext('2d',{willReadFrequently:true});
-  g.drawImage(bmp,0,0,32,32);
-  const d=g.getImageData(0,0,32,32).data;
-  let gray=0,sum=0;
-  for(let i=0;i<d.length;i+=4){
-    sum+=d[i];
-    if(Math.abs(d[i]-d[i+1])<7&&Math.abs(d[i+1]-d[i+2])<7)gray++;
+  g.clearRect(0,0,256,256);
+  g.drawImage(bmp,0,0,256,256);
+  const d=g.getImageData(0,0,256,256).data,hist=new Uint32Array(256);
+  let low=0,n=0;
+  for(let i=0;i<d.length;i+=8){
+    n++;
+    if(Math.abs(d[i]-d[i+1])<7&&Math.abs(d[i+1]-d[i+2])<7)low++;
+    hist[d[i+1]]++;
   }
-  const px=d.length/4,mean=sum/px;
-  return gray/px>0.95&&mean>105&&mean<185;
+  if(low/n<0.95)return false;
+  let mode=0;for(let v=1;v<256;v++)if(hist[v]>hist[mode])mode=v;
+  let near=0;for(let v=Math.max(0,mode-2);v<=Math.min(255,mode+2);v++)near+=hist[v];
+  return near/n>0.70;
 }
 /* la misma tesela se pide una sola vez aunque la usen varias a la vez */
 function tileBlobOnce(opt,z,x,y){
