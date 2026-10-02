@@ -1710,7 +1710,7 @@ const LAYERS={
   otm:{name:'OpenTopoMap (curvas)',url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',subs:'abc',
     att:'© OpenTopoMap, © OpenStreetMap',maxNative:17,off:false}
 };
-const tileUrl=(l,z,x,y)=>l.url.replace('{z}',z).replace('{x}',x).replace('{y}',y).replace('{s}','a');
+const tileUrl=(l,z,x,y)=>l.url.replace('{z}',z).replace('{x}',x).replace('{-y}',Math.pow(2,z)-1-y).replace('{y}',y).replace('{s}','a').replace('{key}',encodeURIComponent(l.key||''));
 
 const CachedTiles=L.TileLayer.extend({
   createTile(coords,done){
@@ -1737,7 +1737,7 @@ function setLayer(k){
   S.layer=k;saveS();
   if(baseLayer)map.removeLayer(baseLayer);
   const l=LAYERS[k];
-  baseLayer=l.vec?new VecTiles({lid:k,vec:true,maxNativeZoom:19,maxZoom:21,tileSize:256,attribution:l.att}):new CachedTiles(l.url,{lid:k,fb:l.fb,offline:l.off,maxNativeZoom:l.maxNative,maxZoom:21,subdomains:l.subs||'abc',attribution:l.att});
+  baseLayer=l.vec?new VecTiles({lid:k,vec:true,maxNativeZoom:19,maxZoom:21,tileSize:256,attribution:l.att}):new CachedTiles(l.url,{lid:k,fb:l.fb,key:l.key,offline:l.off,maxNativeZoom:l.maxNative,maxZoom:21,subdomains:l.subs||'abc',attribution:l.att});
   baseLayer.addTo(map);
   applyContours();
   if(l.vec)vecEnsure().then(()=>{if(VEC.count===0)toast('Todavía no hay calles descargadas: bajalas en Rutas o en Más → Mis mapas',5000);});
@@ -1803,8 +1803,10 @@ function dlPlan(){
 async function showMaps(){
   const l=LAYERS[S.layer];
   const cnt=await tileTotal();
-  let h=`<div class="seg">${Object.entries(LAYERS).map(([k,v])=>`<button data-act="layer" data-k="${k}" class="${k===S.layer?'on':''}">${esc(v.name)}</button>`).join('')}</div>
+  let h=`<div class="seg">${Object.entries(LAYERS).filter(([k,v])=>!v.overlay).map(([k,v])=>`<button data-act="layer" data-k="${k}" class="${k===S.layer?'on':''}">${esc(v.name)}</button>`).join('')}</div>
   <button class="btn sm" data-act="mgr">🗂️ Ver qué tengo descargado</button>
+  <button class="btn sm" data-act="src">➕ Fuentes de mapa</button>
+  ${overlaysHtml()}
   <button class="btn sm primary" data-act="cap">📐 Elegir zona en el mapa (ver el panorama)</button>
   <label class="chk"><input type="checkbox" id="cton" ${S.contourOn?'checked':''}> ⛰️ Mostrar curvas de nivel sobre el mapa</label>
   <h3>Para usar sin señal</h3>`;
@@ -1822,6 +1824,7 @@ async function showMaps(){
   <button class="btn danger sm" data-act="dlclear">Borrar mapas descargados</button>`;
   openSheet('Mapas',h,async(a,d,el)=>{
     if(a==='layer'){setLayer(d.k);showMaps();}
+    else if(a==='src')showSources();
     else if(a==='mgr')showMapMgr();
     else if(a==='cap')openCap();
     else if(a==='dl'){
@@ -1838,6 +1841,7 @@ async function showMaps(){
     else if(a==='dlcancel'){if(DL)DL.cancel=true;}
     else if(a==='dlclear'){if(armed(el)){await clearTiles();toast('Mapas borrados');showMaps();}}
   },(t)=>{
+    if(t.dataset&&t.dataset.ov){toggleOverlay(t.dataset.ov,t.checked);return;}
     if(t.id==='cton'){S.contourOn=t.checked;saveS();applyContours();return;}
     if(t.id==='zr'){S.dlZoom=+t.value;saveS();$('#zv').textContent=S.dlZoom;updDlInfo();}
   });
@@ -4260,6 +4264,111 @@ function fbTile(layer,coords,done){
   return c;
 }
 
+/* ---------- Fuentes de mapa propias (cualquier servidor de teselas que vos elijas) ---------- */
+const SRC_PRESETS=[
+  ['','— Elegir una plantilla —','','',18,false,false],
+  ['MapTiler Satélite (clave gratis en maptiler.com)','MapTiler Satélite','https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key={key}','© MapTiler © OpenStreetMap',20,false,false],
+  ['MapTiler Outdoor (clave)','MapTiler Outdoor','https://api.maptiler.com/maps/outdoor-v2/256/{z}/{x}/{y}.png?key={key}','© MapTiler © OpenStreetMap',20,false,false],
+  ['Thunderforest CycleMap (clave gratis)','Open CycleMap','https://tile.thunderforest.com/cycle/{z}/{x}/{y}.png?apikey={key}','© Thunderforest, © OpenStreetMap',19,false,false],
+  ['Mapbox Satélite (token)','Mapbox Satélite','https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}?access_token={key}','© Mapbox © OpenStreetMap © Maxar',20,false,false],
+  ['CyclOSM (sin clave)','CyclOSM','https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png','© CyclOSM, © OpenStreetMap',18,false,false],
+  ['Pistas de esquí OpenSnowMap (capa transparente)','Open Piste','https://tiles.opensnowmap.org/pistes/{z}/{x}/{y}.png','© OpenSnowMap.org, © OpenStreetMap',18,false,true],
+  ['Relieve sombreado Esri (capa transparente)','Relieve Esri','https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}','© Esri',16,false,true]
+];
+/* sumar las fuentes guardadas a la lista de mapas */
+async function loadSources(){
+  for(const k of Object.keys(LAYERS))if(k.startsWith('c_'))delete LAYERS[k];
+  for(const s of await DB.all('kv','src:')){
+    LAYERS['c_'+s.id]={name:s.name,url:s.url,att:s.att||'',maxNative:s.maxNative||18,off:!!s.cache&&!s.overlay,subs:s.subs||'abc',key:s.key||'',custom:true,overlay:!!s.overlay,kb:s.kb||25,sid:s.id};
+  }
+  if(!LAYERS[S.layer])S.layer='sat';
+}
+/* capas transparentes encendidas */
+const OVT={};
+function applyOverlays(){
+  const want=new Set((S.ovr||[]).filter(id=>LAYERS['c_'+id]&&LAYERS['c_'+id].overlay));
+  for(const id of Object.keys(OVT))if(!want.has(id)){map.removeLayer(OVT[id]);delete OVT[id];}
+  for(const id of want)if(!OVT[id]){
+    const l=LAYERS['c_'+id];
+    OVT[id]=new CachedTiles(l.url,{lid:'c_'+id,offline:false,maxNativeZoom:l.maxNative,maxZoom:21,subdomains:l.subs||'abc',key:l.key,attribution:l.att,opacity:S.ovrOp==null?.85:S.ovrOp});
+    OVT[id].addTo(map);
+  }
+}
+function srcLine(s){return `${s.overlay?'capa transparente':'mapa de fondo'} · zoom hasta ${s.maxNative||18}${s.key?' · con clave':''}${s.cache?' · guardable':''}`;}
+async function showSources(){
+  const list=(await DB.all('kv','src:')).sort((a,b)=>a.name.localeCompare(b.name));
+  openSheet('Fuentes de mapa',`<p class="mut">Podés agregar cualquier servidor de teselas (formato XYZ) con su dirección. Rumbo <b>no trae</b> Google, Bing ni Yahoo: sus condiciones no permiten usarlos desde una app ajena, y Yahoo y el plan gratis de Bing ya no funcionan. Las claves y las condiciones de cada servicio son responsabilidad tuya.</p>
+    <div class="row"><button class="btn primary" data-act="new">➕ Agregar fuente</button></div>
+    ${list.map(s=>`<div class="item"><div style="flex:1"><b>${esc(s.name)}</b><br><small class="mut">${srcLine(s)}</small></div><div class="row"><button class="btn sm" data-act="edit" data-id="${s.id}">Editar</button></div></div>`).join('')||'<p class="mut">Todavía no agregaste ninguna.</p>'}
+    <div class="row" style="margin-top:12px"><button class="btn" data-act="back">Volver a Mapas</button></div>`,
+    (a,d)=>{if(a==='new')showSourceForm(null);else if(a==='edit')showSourceForm(d.id);else if(a==='back')showMaps();});
+}
+async function showSourceForm(id,draft){
+  const s=draft||(id?await DB.get('kv','src:'+id):{id:uid(),name:'',url:'',att:'',maxNative:18,key:'',overlay:false,cache:false,subs:'abc'});
+  if(!s){showSources();return;}
+  const chk=(i,v,t)=>`<label class="chk"><input type="checkbox" id="${i}" ${v?'checked':''}> ${t}</label>`;
+  openSheet(id?'Editar fuente':'Nueva fuente',`
+    <label for="sp">Plantilla</label><select class="in" id="sp">${SRC_PRESETS.map((p,i)=>`<option value="${i}">${esc(p[0]||p[1])}</option>`).join('')}</select>
+    <label for="sn">Nombre</label><input class="in" id="sn" value="${esc(s.name)}">
+    <label for="su">Dirección de las teselas</label><textarea class="in" id="su" rows="3" placeholder="https://servidor/{z}/{x}/{y}.png">${esc(s.url)}</textarea>
+    <p class="mut">Usá <b>{z}</b>, <b>{x}</b>, <b>{y}</b> (o <b>{-y}</b> en formato TMS), <b>{s}</b> si el servidor tiene subdominios a, b, c y <b>{key}</b> para tu clave.</p>
+    <label for="sk">Clave o token (si el servicio la pide)</label><input class="in" id="sk" value="${esc(s.key||'')}" autocomplete="off">
+    <label for="sz">Zoom máximo del servidor</label><input class="in" id="sz" type="number" min="3" max="22" value="${s.maxNative||18}">
+    <label for="sa">Atribución (quién lo ofrece)</label><input class="in" id="sa" value="${esc(s.att||'')}">
+    ${chk('so',s.overlay,'Es una capa transparente: se muestra sobre el mapa de fondo')}
+    ${chk('sc',s.cache,'Permitir guardar teselas para usarlo sin conexión (revisá antes que el servicio lo permita)')}
+    <p id="stest" class="mut"></p>
+    <div class="row" style="margin-top:8px"><button class="btn primary" data-act="ok">Guardar</button><button class="btn" data-act="test">Probar</button><button class="btn" data-act="back">Volver</button>${id?'<button class="btn danger" data-act="del">Borrar</button>':''}</div>`,
+    async(a,d,el)=>{
+      if(a==='back'){showSources();return;}
+      if(a==='del'){
+        if(armed(el)){await DB.del('kv','src:'+s.id);S.ovr=(S.ovr||[]).filter(x=>x!==s.id);if(S.layer==='c_'+s.id)S.layer='sat';saveS();await loadSources();setLayer(S.layer);applyOverlays();showSources();}
+        return;
+      }
+      const msg=t=>{$('#stest').textContent=t;};
+      if(!/\{z\}/.test(s.url)||!/\{x\}/.test(s.url)||!(/\{y\}/.test(s.url)||/\{-y\}/.test(s.url))){msg('La dirección tiene que incluir {z}, {x} y {y}.');return;}
+      if(/\{key\}/.test(s.url)&&!s.key){msg('La dirección usa {key}: falta cargar la clave.');return;}
+      if(a==='test'){
+        msg('Probando…');
+        const z=Math.min(s.maxNative||18,Math.max(3,Math.round(map.getZoom()))),c=map.getCenter(),n=Math.pow(2,z);
+        const x=Math.floor((c.lng+180)/360*n),y=Math.floor((1-Math.log(Math.tan(c.lat*rad)+1/Math.cos(c.lat*rad))/Math.PI)/2*n);
+        const url=tileUrl({url:s.url,key:s.key},z,x,y);
+        const ok=await new Promise(r=>{const im=new Image(),t=setTimeout(()=>r(false),9000);im.onload=()=>{clearTimeout(t);r(true);};im.onerror=()=>{clearTimeout(t);r(false);};im.src=url;});
+        msg(ok?`✔ El servidor responde con una imagen (nivel ${z}).`:'✖ No respondió una imagen: revisá la dirección, la clave o la conexión.');
+        return;
+      }
+      if(a==='ok'){
+        if(!s.name){msg('Ponele un nombre.');return;}
+        await DB.put('kv','src:'+s.id,s);
+        await loadSources();
+        if(s.overlay){S.ovr=Array.from(new Set([...(S.ovr||[]),s.id]));saveS();applyOverlays();}
+        else setLayer('c_'+s.id);
+        toast('Fuente guardada',2500);showSources();
+      }
+    },
+    t=>{
+      if(t.id==='sp'){
+        const p=SRC_PRESETS[+t.value];
+        if(p&&p[2]){Object.assign(s,{name:s.name||p[1],url:p[2],att:p[3],maxNative:p[4],cache:p[5],overlay:p[6]});showSourceForm(id,s);}
+      }
+      else if(t.id==='sn')s.name=t.value.trim();
+      else if(t.id==='su')s.url=t.value.trim();
+      else if(t.id==='sk')s.key=t.value.trim();
+      else if(t.id==='sz')s.maxNative=Math.max(3,Math.min(22,+t.value||18));
+      else if(t.id==='sa')s.att=t.value.trim();
+      else if(t.id==='so')s.overlay=t.checked;
+      else if(t.id==='sc')s.cache=t.checked;
+    });
+}
+/* casillas de las capas transparentes en la pantalla de Mapas */
+function overlaysHtml(){
+  const ov=Object.entries(LAYERS).filter(([k,l])=>l.overlay);
+  return ov.map(([k,l])=>`<label class="chk"><input type="checkbox" data-ov="${l.sid}" ${(S.ovr||[]).includes(l.sid)?'checked':''}> 🧩 ${esc(l.name)}</label>`).join('');
+}
+function toggleOverlay(id,on){
+  S.ovr=on?Array.from(new Set([...(S.ovr||[]),id])):(S.ovr||[]).filter(x=>x!==id);
+  saveS();applyOverlays();
+}
 /* ---------- Calles descargadas dibujadas como mapa (sin imágenes, funciona sin conexión) ---------- */
 const VORDER=['contour_minor','contour_major','service','track','bridleway','path','footway','steps','cycleway','pedestrian','living_street','residential','road','unclassified','tertiary','secondary','primary','trunk','motorway','ferry'];
 const VSTY={
@@ -4723,7 +4832,8 @@ $('#fAct').onclick=()=>{
 /* ---------- Inicio ---------- */
 (async()=>{
   await DB.open();
-  setLayer(S.layer);
+  await loadSources();
+  setLayer(S.layer);applyOverlays();
   await loadRuns();
   await migrate();
   await loadWpts();
