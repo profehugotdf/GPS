@@ -258,6 +258,44 @@ body.night #nodep .nvb button{background:#E4EDEF;color:#0E2A36}
 
 #netpill{position:fixed;top:calc(var(--top) + 8px);right:12px;z-index:905;background:rgba(14,42,54,.85);color:#fff;border-radius:16px;padding:6px 12px;font:700 13px system-ui;box-shadow:0 1px 5px rgba(0,0,0,.35)}
 #netpill[hidden]{display:none}
+
+#meas{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
+#meas[hidden]{display:none}
+#meas .chips{margin-top:4px}
+#msOut{margin:6px 0 2px}
+#msOut .mbig{font-size:26px;font-weight:800;line-height:1.15}
+#msOut .mwarn{color:#C0392B;font-weight:700;margin-top:4px;font-size:13px}
+#msHint{display:block;color:var(--mut);font-size:13px;margin-top:2px}
+#meas .nvb{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+#meas .nvb button{flex:1 1 22%;min-height:40px;border:0;border-radius:12px;background:var(--ink);color:#fff;font:700 14px system-ui}
+#meas .nvb button[disabled]{opacity:.4}
+body.night #meas .nvb button{background:#E4EDEF;color:#0E2A36}
+.mpt{width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid #F04A1C;box-shadow:0 0 3px rgba(0,0,0,.5);box-sizing:border-box}
+.mpt.first{background:#F04A1C;border-color:#fff}
+.mlab{position:absolute;transform:translate(-50%,-50%);background:rgba(255,255,255,.92);color:#0E2A36;border-radius:9px;padding:1px 6px;font:700 12px system-ui;white-space:nowrap;box-shadow:0 0 3px rgba(0,0,0,.4);pointer-events:none}
+
+#meas{max-height:62vh;overflow:auto}
+#msRelOut{margin-top:6px;font-size:14px;line-height:1.35}
+#msRelOut .mrel{font-size:16px}
+.mprof{position:relative;height:76px;margin-top:6px;background:rgba(14,42,54,.06);border-radius:10px;overflow:hidden}
+.mprof svg{position:absolute;inset:0;width:100%;height:100%}
+.mprof span{position:absolute;font:700 11px system-ui;color:#0E2A36;background:rgba(255,255,255,.75);border-radius:6px;padding:0 4px}
+.mprof .a{left:4px;top:3px}.mprof .b{left:4px;bottom:3px}.mprof .c{right:4px;bottom:3px}
+body.night .mprof{background:rgba(255,255,255,.08)}
+
+#hud .hud-foot{gap:6px}
+#hBack{background:#F04A1C;color:#fff;border:0}
+#rvbar{position:fixed;top:calc(var(--top) + 44px);right:12px;z-index:904;display:flex;align-items:center;gap:4px;background:rgba(14,42,54,.88);color:#fff;border-radius:18px;padding:4px 8px;font:600 12px system-ui;box-shadow:0 1px 5px rgba(0,0,0,.35)}
+#rvbar[hidden]{display:none}
+#rvbar button{border:0;background:rgba(255,255,255,.18);color:#fff;border-radius:12px;min-width:30px;min-height:30px;font-size:13px}
+#rvbar button.on{background:#F04A1C}
+.wxnow{font-size:15px;line-height:1.35}.wxnow .wxi{font-size:34px;vertical-align:-6px;margin-right:4px}.wxnow b{font-size:28px}
+.wxal{border-radius:10px;padding:6px 10px;margin:6px 0;font-weight:700;font-size:14px}
+.wxal.warn{background:#FFF1C7;color:#6B4B00}.wxal.danger{background:#FFD9D4;color:#8A1C10}
+body.night .wxal.warn{background:#4A3B10;color:#FFE08A}body.night .wxal.danger{background:#5A1D18;color:#FFB4AB}
+.wxh{margin-top:8px}.wxr{display:grid;grid-template-columns:48px 28px 40px 1fr 70px;gap:4px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px}
+.wxr span:last-child{text-align:right}
+.small{font-size:12px}
 </style>
 </head>
 <body>
@@ -270,13 +308,23 @@ body.night #nodep .nvb button{background:#E4EDEF;color:#0E2A36}
     <div class="hc" id="hSpWrap"><b id="hS">0.0</b><small id="hSU">km/h</small></div>
   </div>
   <div id="hCirc" class="hcirc" hidden></div>
-  <div class="hud-foot"><span id="hGps">Buscando GPS…</span><button class="btn sm" id="hStop">Terminar</button></div>
+  <div class="hud-foot"><span id="hGps">Buscando GPS…</span><button class="btn sm" id="hBack">↩︎ Retorno</button><button class="btn sm" id="hStop">Terminar</button></div>
 </header>
 <div id="pill"><i></i><span>Buscando GPS…</span></div>
 <div id="nav" hidden>
   <div class="nvm"><span id="nvIco">⬆️</span><div class="nvt"><b id="nvTxt"></b><span id="nvDist"></span></div></div>
   <div class="nvr"><span id="nvEta"></span><span id="nvRem"></span></div>
   <div class="nvb"><button id="nvMute">🔊</button><button id="nvPozo">🕳️ Pozo</button><button id="nvLomo">🚧 Lomo</button><button id="nvEnd">Terminar</button></div>
+</div>
+<div id="rvbar" hidden><b>🌧️ Radar</b> <span id="rvT"></span><button id="rvPrev" aria-label="Antes">◀</button><button id="rvNext" aria-label="Después">▶</button><button id="rvCov" title="Cobertura del radar">🗺️</button><button id="rvX" aria-label="Quitar">✕</button></div>
+<div id="meas" hidden>
+  <div class="caph"><b>📏 Medir</b><button id="msX" aria-label="Cerrar">✕</button></div>
+  <div class="chips" id="msMode"><button data-m="dist">📏 Distancia</button><button data-m="area">⬛ Superficie</button></div>
+  <div id="msOut"></div>
+  <div class="chips" style="margin-top:2px"><button id="msRel">⛰️ Con relieve</button></div>
+  <div id="msRelOut"></div><div id="msProf"></div>
+  <small id="msHint"></small>
+  <div class="nvb"><button id="msUndo">↶ Deshacer</button><button id="msMe">＋ Mi posición</button><button id="msClr">🗑️ Borrar</button><button id="msSave">💾 Guardar</button></div>
 </div>
 <div id="nodep" hidden>
   <div class="caph"><b id="npTtl">🚫 Giros prohibidos y barreras</b><button id="npX" aria-label="Cerrar">✕</button></div>
@@ -574,7 +622,7 @@ function toGPX(tracks,wpts,esc){
 /* ====================== RED DE CALLES Y RUTAS ====================== */
 const MODES=['foot','bike','car'];
 const KIND_TAGS={sendero:{highway:'path'},escalera:{highway:'steps'},peatonal:{highway:'footway'},ciclovia:{highway:'cycleway'},calle:{highway:'residential'},
-  camino:{highway:'track'},servicio:{highway:'service'},principal:{highway:'secondary'},ruta:{highway:'primary'},ferry:{route:'ferry'},nivel:{contour:'elevation'}};
+  camino:{highway:'track'},servicio:{highway:'service'},principal:{highway:'secondary'},ruta:{highway:'primary'},ferry:{route:'ferry'},nivel:{contour:'elevation'},medida:{measure:'yes'}};
 /* "clave=valor" por línea -> pares válidos */
 function parseTagLines(s){
   const out=[];
@@ -1630,6 +1678,213 @@ function findRouteVia(G,mode,from,to,pref,via){
   const b=findRoute(G,mode,via,to,pref);if(b.err)return b;
   return joinRoutes(a,b,via);
 }
+
+
+/* ====================== MEDIR DISTANCIAS Y SUPERFICIES ====================== */
+/* largo de una línea de puntos [lat,lon] en metros; closed=true suma el lado que vuelve al primero */
+function polyLen(pts,closed){
+  let d=0;
+  for(let i=1;i<pts.length;i++)d+=hav(pts[i-1],pts[i]);
+  if(closed&&pts.length>2)d+=hav(pts[pts.length-1],pts[0]);
+  return d;
+}
+/* superficie de un polígono sobre la esfera (m²), sin importar para qué lado se dibujó */
+function polyArea(pts){
+  const n=pts.length;if(n<3)return 0;
+  const R=6371008.8,r=Math.PI/180;let s=0;
+  for(let i=0;i<n;i++){
+    const a=pts[i],b=pts[(i+1)%n];
+    let dl=(b[1]-a[1])*r;
+    if(dl>Math.PI)dl-=2*Math.PI;else if(dl<-Math.PI)dl+=2*Math.PI;
+    s+=dl*(2+Math.sin(a[0]*r)+Math.sin(b[0]*r));
+  }
+  return Math.abs(s*R*R/2);
+}
+function segCross(p1,p2,p3,p4){
+  const d=(a,b,c)=>(c[1]-a[1])*(b[0]-a[0])-(b[1]-a[1])*(c[0]-a[0]);
+  return ((d(p3,p4,p1)>0)!==(d(p3,p4,p2)>0))&&((d(p1,p2,p3)>0)!==(d(p1,p2,p4)>0));
+}
+/* ¿se cruzan los lados del polígono? (entonces la superficie no es confiable) */
+function selfIntersects(pts){
+  const n=pts.length;if(n<4)return false;
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+    if(j===i+1||(i===0&&j===n-1))continue;
+    if(segCross(pts[i],pts[(i+1)%n],pts[j],pts[(j+1)%n]))return true;
+  }
+  return false;
+}
+const miles=n=>String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+function fmtLen(m){return m<1000?(m<100?m.toFixed(1):String(Math.round(m)))+' m':(m/1000).toFixed(m<10000?3:2)+' km';}
+function fmtArea(a){
+  if(a<10000)return miles(a)+' m²';
+  if(a<1e6)return (a/10000).toFixed(2)+' ha ('+miles(a)+' m²)';
+  return (a/1e6).toFixed(3)+' km² ('+miles(a/10000)+' ha)';
+}
+
+
+/* ====================== MEDIR CON RELIEVE ====================== */
+/* Recorre la línea cada ~15 m, toma la altura (sample(lat,lon) → m) y calcula el largo real sobre el terreno, el desnivel y el perfil */
+function reliefProfile(pts,sample,o){
+  o=o||{};
+  const flat=polyLen(pts,false);
+  if(pts.length<2||flat<=0)return {error:'faltan puntos'};
+  let step=o.step||15;if(flat/step>2500)step=flat/2500;
+  const P=[pts[0]],D=[0];let acc=0;
+  for(let i=1;i<pts.length;i++){
+    const a=pts[i-1],b=pts[i],L=hav(a,b),n=Math.max(1,Math.ceil(L/step));
+    for(let k=1;k<=n;k++){const t=k/n;P.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]);acc+=L/n;D.push(acc);}
+  }
+  const raw=P.map(p=>sample(p[0],p[1])),miss=raw.filter(v=>!isFinite(v)).length;
+  if(miss/raw.length>0.05)return {error:'sin datos de altura en esa zona'};
+  /* huecos chicos: se completan con el vecino más cercano */
+  let last=raw.find(v=>isFinite(v));
+  const el=raw.map(v=>{if(isFinite(v))last=v;return last;});
+  /* suavizado de 5 muestras: la altura de la grilla tiene ruido que inflaría el desnivel */
+  /* en los extremos se refleja la serie (reflexión impar) para que el suavizado no corra los valores de salida y llegada */
+  const nE=el.length,at=j=>j<0?2*el[0]-el[Math.min(nE-1,-j)]:j>nE-1?2*el[nE-1]-el[Math.max(0,2*(nE-1)-j)]:el[j];
+  const sm=el.map((_,i)=>(at(i-2)+at(i-1)+at(i)+at(i+1)+at(i+2))/5);
+  let d3=0,gain=0,loss=0,ref=sm[0],mn=Infinity,mx=-Infinity,maxS=0;
+  for(let i=0;i<sm.length;i++){
+    if(i)d3+=Math.hypot(D[i]-D[i-1],sm[i]-sm[i-1]);
+    if(Math.abs(sm[i]-ref)>=3){const d=sm[i]-ref;if(d>0)gain+=d;else loss-=d;ref=sm[i];}
+    if(sm[i]<mn)mn=sm[i];if(sm[i]>mx)mx=sm[i];
+  }
+  for(let i=0,j=0;i<sm.length;i++){
+    while(j<sm.length-1&&D[j]-D[i]<50)j++;
+    if(D[j]-D[i]>=30){const g=Math.abs(sm[j]-sm[i])/(D[j]-D[i]);if(g>maxS)maxS=g;}
+  }
+  const k=Math.max(1,Math.ceil(sm.length/200)),prof=[];
+  for(let i=0;i<sm.length;i+=k)prof.push([D[i],sm[i]]);
+  if(prof[prof.length-1][0]<D[D.length-1])prof.push([D[D.length-1],sm[sm.length-1]]);
+  return {flat,relief:d3,gain:Math.round(gain),loss:Math.round(loss),min:Math.round(mn),max:Math.round(mx),start:Math.round(sm[0]),end:Math.round(sm[sm.length-1]),
+    avgSlope:(gain+loss)/flat*100,maxSlope:maxS*100,profile:prof};
+}
+/* Superficie real del terreno de un polígono: cada celda se agranda según su pendiente (1/cos) */
+function terrainArea(poly,sample,o){
+  o=o||{};
+  const flat=polyArea(poly);
+  if(poly.length<3||flat<=0)return {error:'faltan puntos'};
+  let la0=90,la1=-90,lo0=180,lo1=-180;
+  for(const p of poly){if(p[0]<la0)la0=p[0];if(p[0]>la1)la1=p[0];if(p[1]<lo0)lo0=p[1];if(p[1]>lo1)lo1=p[1];}
+  const latM=111194.93,lonM=latM*Math.cos((la0+la1)/2*Math.PI/180);
+  let s=o.step||Math.max(5,Math.min(20,Math.sqrt(flat)/6));
+  const wM=(lo1-lo0)*lonM,hM=(la1-la0)*latM;
+  while((wM/s)*(hM/s)>40000)s*=1.25;
+  const dLat=s/latM,dLon=s/lonM;
+  let n=0,miss=0,sumF=0,sumE=0,sumS=0,mn=Infinity,mx=-Infinity;
+  for(let la=la0+dLat/2;la<la1;la+=dLat)for(let lo=lo0+dLon/2;lo<lo1;lo+=dLon){
+    if(!pip(la,lo,poly))continue;
+    const e=sample(la,lo),eE=sample(la,lo+dLon),eW=sample(la,lo-dLon),eN=sample(la+dLat,lo),eS=sample(la-dLat,lo);
+    if(![e,eE,eW,eN,eS].every(isFinite)){miss++;continue;}
+    const gx=(eE-eW)/(2*s),gy=(eN-eS)/(2*s);
+    sumF+=Math.sqrt(1+gx*gx+gy*gy);sumS+=Math.hypot(gx,gy);sumE+=e;n++;
+    if(e<mn)mn=e;if(e>mx)mx=e;
+  }
+  if(!n||miss/(n+miss)>0.1)return {error:'sin datos de altura en esa zona'};
+  return {flat,relief:flat*sumF/n,factor:sumF/n,mean:Math.round(sumE/n),min:Math.round(mn),max:Math.round(mx),avgSlope:sumS/n*100,cells:n};
+}
+
+
+/* ====================== CLIMA (Open-Meteo) Y RETORNO POR LA HUELLA ====================== */
+function wxCode(c){
+  if(c===0)return ['☀️','Despejado'];
+  if(c===1)return ['🌤️','Casi despejado'];
+  if(c===2)return ['⛅','Parcialmente nublado'];
+  if(c===3)return ['☁️','Nublado'];
+  if(c===45||c===48)return ['🌫️','Niebla'];
+  if(c>=51&&c<=55)return ['🌦️','Llovizna'];
+  if(c===56||c===57)return ['🌧️','Llovizna helada'];
+  if(c===61)return ['🌦️','Lluvia débil'];
+  if(c===63)return ['🌧️','Lluvia'];
+  if(c===65)return ['🌧️','Lluvia fuerte'];
+  if(c===66||c===67)return ['🌧️','Lluvia helada'];
+  if(c===71)return ['🌨️','Nevada débil'];
+  if(c===73)return ['🌨️','Nevada'];
+  if(c===75)return ['❄️','Nevada fuerte'];
+  if(c===77)return ['🌨️','Nieve granulada'];
+  if(c===80||c===81)return ['🌦️','Chubascos'];
+  if(c===82)return ['🌧️','Chubascos fuertes'];
+  if(c===85||c===86)return ['🌨️','Chubascos de nieve'];
+  if(c===95)return ['⛈️','Tormenta eléctrica'];
+  if(c===96||c===99)return ['⛈️','Tormenta con granizo'];
+  return ['❔','Sin datos'];
+}
+/* Ordena la respuesta de Open-Meteo: ahora, las próximas horas y los avisos que importan para salir al campo */
+function wxSummary(d,hours){
+  hours=hours||12;
+  const cur=d.current||{},h=d.hourly||{time:[]};
+  const hr=(cur.time||'').slice(0,13)+':00';
+  let i0=h.time.findIndex(t=>t>=hr);if(i0<0)i0=0;
+  const rows=[];
+  for(let i=i0;i<Math.min(h.time.length,i0+hours);i++)
+    rows.push({time:h.time[i].slice(11,16),temp:h.temperature_2m[i],pp:h.precipitation_probability?h.precipitation_probability[i]:null,mm:h.precipitation?h.precipitation[i]:0,code:h.weather_code[i],wind:h.wind_speed_10m[i],gust:h.wind_gusts_10m[i]});
+  const near=rows.slice(0,4),num=v=>v==null||!isFinite(v)?0:v;
+  const maxPP=Math.max(0,...near.map(r=>num(r.pp))),mm3=near.reduce((a,r)=>a+num(r.mm),0);
+  const maxGust=Math.max(num(cur.wind_gusts_10m),...near.map(r=>num(r.gust)));
+  const alerts=[],add=(id,lvl,txt)=>alerts.push({id,lvl,txt});
+  const at=num(cur.apparent_temperature!=null?cur.apparent_temperature:cur.temperature_2m);
+  if(rows.slice(0,7).some(r=>r.code>=95))add('storm','danger','Tormenta eléctrica en las próximas horas');
+  if(maxGust>=75)add('wind','danger',`Ráfagas muy fuertes (hasta ${Math.round(maxGust)} km/h)`);
+  else if(maxGust>=55)add('wind','warn',`Ráfagas fuertes (hasta ${Math.round(maxGust)} km/h)`);
+  if(mm3>=6)add('rain','danger',`Lluvia fuerte en las próximas horas (${mm3.toFixed(1)} mm)`);
+  else if(maxPP>=60||mm3>=2)add('rain','warn',`Lluvia probable en las próximas horas (${Math.round(maxPP)} %${mm3>0?', '+mm3.toFixed(1)+' mm':''})`);
+  if(near.some(r=>(r.code>=71&&r.code<=77)||r.code===85||r.code===86))add('snow','warn','Nevada en las próximas horas');
+  if(at<=-8)add('cold','danger',`Sensación térmica muy baja (${Math.round(at)} °)`);
+  else if(at<=0)add('cold','warn',`Sensación térmica bajo cero (${Math.round(at)} °)`);
+  if((maxPP>=50||mm3>=1)&&at<=6)add('hypo','warn','Lluvia con frío: riesgo de hipotermia, abrigate');
+  const level=alerts.some(a=>a.lvl==='danger')?'danger':alerts.length?'warn':'ok';
+  const iRain=rows.findIndex(r=>num(r.pp)>=50||num(r.mm)>=0.5);
+  return {cur,rows,alerts,level,rainInHours:iRain};
+}
+function projSeg(a,b,p){
+  const k=111194.93,cl=Math.cos(a[0]*Math.PI/180);
+  const bx=(b[1]-a[1])*k*cl,by=(b[0]-a[0])*k,px=(p[1]-a[1])*k*cl,py=(p[0]-a[0])*k,L2=bx*bx+by*by;
+  let t=L2>0?(px*bx+py*by)/L2:0;t=Math.max(0,Math.min(1,t));
+  return {t,pt:[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t],d:Math.hypot(px-t*bx,py-t*by)};
+}
+/* Ruta de regreso por la huella: desde tu posición hacia atrás por los puntos grabados hasta el inicio */
+function backtrackRoute(track,cur,o){
+  o=o||{};
+  const P=track.map(p=>[p[0],p[1]]);
+  if(P.length<2)return {error:'La huella tiene muy pocos puntos'};
+  let best={d:Infinity,i:0,pt:P[0]};
+  for(let i=1;i<P.length;i++){const pr=projSeg(P[i-1],P[i],cur);if(pr.d<best.d)best={d:pr.d,i:i-1,pt:pr.pt};}
+  const raw=[cur,best.pt];
+  for(let i=best.i;i>=0;i--)raw.push(P[i]);
+  const back=raw.filter((p,i)=>i===0||hav(raw[i-1],p)>0.5);
+  if(back.length<2)back.push(P[0]);
+  const coords=simplifyDP(back,o.tol||5);
+  const cd=[0];for(let i=1;i<coords.length;i++)cd.push(cd[i-1]+hav(coords[i-1],coords[i]));
+  const dist=cd[cd.length-1],speed=o.speed>0.3?o.speed:1.1;
+  const steps=[{text:'Volvé por tu huella hacia el inicio',dist:0,at:0,ico:'↩️',kind:'start'}];
+  for(let k=1;k<coords.length-1;k++){
+    const l1=cd[k]-cd[k-1],l2=cd[k+1]-cd[k];
+    if(l1<12||l2<12)continue;
+    const turn=((bearingTo(coords[k],coords[k+1])-bearingTo(coords[k-1],coords[k])+540)%360)-180,ab=Math.abs(turn);
+    if(ab<40)continue;
+    const right=turn>0;
+    steps.push({text:(ab>=135?'Giro muy cerrado a la ':'Girá a la ')+(right?'derecha':'izquierda'),dist:l2,at:cd[k],ico:ab>=135?'↩️':right?'➡️':'⬅️',kind:'turn'});
+  }
+  steps.push({text:'Llegaste al punto de partida',dist:0,at:dist,ico:'🏁',kind:'end'});
+  for(let i=0;i<steps.length-1;i++)steps[i].dist=steps[i+1].at-steps[i].at;
+  return {mode:o.mode||'foot',pref:'fast',dist,time:dist/speed,avgKmh:null,avgStops:0,coords,eids:[],elen:[],stairs:0,steps,up:0,down:0,hasZ:false,ferry:null,fixed:true,back:true,offTrack:best.d};
+}
+
+
+/* ====================== LUZ DEL DÍA ====================== */
+/* Dónde está "ahora" respecto del sol: {day:true/false, next:{t,k:'rise'|'set'}, prev:{...}}. Mira el día anterior, el de hoy y el siguiente. */
+function sunInfo(lat,lon,now){
+  const ev=[];
+  for(const k of [-1,0,1]){
+    const t=sunTimes(lat,lon,now+k*86400000);
+    if(t.polar)return {polar:t.polar,day:t.polar==='dia'};
+    ev.push({t:t.rise,k:'rise'},{t:t.set,k:'set'});
+  }
+  ev.sort((a,b)=>a.t-b.t);
+  const uniq=ev.filter((e,i)=>i===0||Math.abs(e.t-ev[i-1].t)>3600000);
+  const prev=[...uniq].reverse().find(e=>e.t<=now),next=uniq.find(e=>e.t>now);
+  return {day:!!prev&&prev.k==='rise',prev,next};
+}
 /*</pure>*/
 
 /* ---------- Utilidades ---------- */
@@ -1813,6 +2068,7 @@ async function showMaps(){
   ${overlaysHtml()}
   <button class="btn sm primary" data-act="cap">📐 Elegir zona en el mapa (ver el panorama)</button>
   <label class="chk"><input type="checkbox" id="cton" ${S.contourOn?'checked':''}> ⛰️ Mostrar curvas de nivel sobre el mapa</label>
+  <label class="chk"><input type="checkbox" id="rvon" ${RV.on?'checked':''}> 🌧️ Radar de lluvia (últimas 2 h)</label>
   <h3>Para usar sin señal</h3>`;
   if(l.off){
     h+=`<p class="mut">Encuadrá en el mapa la zona que vas a recorrer. Se baja lo que se ve en pantalla, del zoom actual hacia más detalle.</p>
@@ -1847,6 +2103,7 @@ async function showMaps(){
     else if(a==='dlclear'){if(armed(el)){await clearTiles();toast('Mapas borrados');showMaps();}}
   },(t)=>{
     if(t.dataset&&t.dataset.ov){toggleOverlay(t.dataset.ov,t.checked);return;}
+    if(t.id==='rvon'){setRadar(t.checked);return;}
     if(t.id==='cton'){S.contourOn=t.checked;saveS();applyContours();return;}
     if(t.id==='zr'){S.dlZoom=+t.value;saveS();$('#zv').textContent=S.dlZoom;updDlInfo();}
   });
@@ -2522,8 +2779,8 @@ async function onDrawClick(e){
 
 /* ---------- Red de calles y rutas ---------- */
 const MI={foot:'🚶',bike:'🚴',car:'🚗'},MC={foot:'#1E6BFF',bike:'#2E7D5B',car:'#F04A1C'},MN={foot:'A pie',bike:'En bici',car:'En auto'};
-const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],calle:['🏘️','Calle'],ciclovia:['🚲','Ciclovía'],peatonal:['🚶','Paso peatonal'],camino:['🛤️','Camino de ripio o tierra'],servicio:['🅿️','Calle de servicio'],principal:['🚗','Calle principal'],ruta:['🛣️','Ruta'],ferry:['⛴️','Ferry'],nivel:['〰️','Curva de nivel']};
-const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',camino:'#8E5B2B',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E'};
+const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],calle:['🏘️','Calle'],ciclovia:['🚲','Ciclovía'],peatonal:['🚶','Paso peatonal'],camino:['🛤️','Camino de ripio o tierra'],medida:['📏','Medición'],servicio:['🅿️','Calle de servicio'],principal:['🚗','Calle principal'],ruta:['🛣️','Ruta'],ferry:['⛴️','Ferry'],nivel:['〰️','Curva de nivel']};
+const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',camino:'#8E5B2B',medida:'#F04A1C',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E'};
 const routeLayer=L.layerGroup().addTo(map),editLayer=L.layerGroup().addTo(map),pickLayer=L.layerGroup().addTo(map);
 const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente']];
 const CAND_COL=['#1E6BFF','#F04A1C','#2E7D5B','#9B59B6','#E0A100'];
@@ -2599,15 +2856,20 @@ async function fetchNet(bb,regional){
 }
 const viewKm=()=>{const b=map.getBounds();return [(b.getEast()-b.getWest())*111.32*Math.cos((b.getNorth()+b.getSouth())/2*rad),(b.getNorth()-b.getSouth())*110.54];};
 const DEM_Z=13;
-async function fetchDem(bb){
-  const list=demTiles(bb,DEM_Z),tiles=new Map();
+async function fetchDem(bb,zz){
+  const Z=zz||DEM_Z,list=demTiles(bb,Z),tiles=new Map();
   if(list.length>150)throw new Error('la zona es demasiado grande para bajar la altura');
   let i=0;
   const worker=async()=>{
     while(i<list.length){
       const t=list[i++];
       try{
-        const blob=await getTileBlob(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${DEM_Z}/${t.x}/${t.y}.png`);
+        const dk=`dem/${Z}/${t.x}/${t.y}`;
+        let blob=null;try{blob=await DB.get('tiles',dk);}catch(er){}
+        if(!blob){
+          blob=await getTileBlob(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${Z}/${t.x}/${t.y}.png`);
+          try{await DB.put('tiles',dk,blob);}catch(er){}
+        }
         const bmp=await createImageBitmap(blob);
         const c=document.createElement('canvas');c.width=c.height=256;
         const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(bmp,0,0);
@@ -2986,7 +3248,7 @@ function showPathForm(){
 }
 function cancelPick(){
   const p=PICK;PICK=null;pickLayer.clearLayers();banner(null);
-  if(p)(p.type==='pt'||p.type==='via'?showRoutes:p.type==='ovl'?()=>showOvlAdjust(p.id):showFix)();
+  if(p)(p.type==='pt'||p.type==='via'?showRoutes:p.type==='wx'?()=>showWeather(null):p.type==='rsdest'?()=>showSafeReturn():p.type==='ovl'?()=>showOvlAdjust(p.id):showFix)();
 }
 async function finishPath(){
   const p=PICK;PICK=null;pickLayer.clearLayers();banner(null);
@@ -3036,7 +3298,9 @@ function onPickClick(e){
   if(PICK.type==='pt'){
     RT[PICK.target]={lat:ll.lat,lon:ll.lon,label:'Punto en el mapa'};RT.res=null;
     PICK=null;banner(null);showRoutes();
-  }else if(PICK.type==='via'){PICK=null;banner(null);addViaAt(ll);}
+  }else if(PICK.type==='wx'){PICK=null;banner(null);showWeather([ll.lat,ll.lon]);}
+  else if(PICK.type==='rsdest'){PICK=null;banner(null);RS.custom={key:'map',label:'Punto elegido',lat:ll.lat,lon:ll.lon,icon:'📍'};RS.key='map';showSafeReturn('map');}
+  else if(PICK.type==='via'){PICK=null;banner(null);addViaAt(ll);}
   else if(PICK.type==='way')pickWayAt(ll);
   else if(PICK.type==='ovl')ovlPick(ll);
   else if(PICK.type==='path'){
@@ -3051,7 +3315,7 @@ function undoPick(){
   PICK.pts.pop();const m=PICK.mk.pop();if(m)pickLayer.removeLayer(m);PICK.line.setLatLngs(PICK.pts);
   banner(`Sendero: ${PICK.pts.length} punto${PICK.pts.length===1?'':'s'}. Tocá el siguiente o "Listo".`,{undo:PICK.pts.length>0,ok:PICK.pts.length>=2});
 }
-map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);else if(GE.on)gateTap(e);else if(TR.on)traceTap(e);else if(NP.on)nodeTap(e);else onMapTap(e);});
+map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);else if(GE.on)gateTap(e);else if(TR.on)traceTap(e);else if(NP.on)nodeTap(e);else if(MS.on)measTap(e);else onMapTap(e);});
 $('#bCancel').onclick=()=>{if(draw)cancelDraw();else if(PICK)cancelPick();};
 $('#bUndo').onclick=undoPick;
 $('#bOk').onclick=()=>{if(PICK&&PICK.type==='path')finishPath();};
@@ -3059,7 +3323,7 @@ $('#bOk').onclick=()=>{if(PICK&&PICK.type==='path')finishPath();};
 /* ---------- Guía paso a paso ---------- */
 const NAV={on:false,N:null,mode:'foot',dest:null,lastRecalc:0,busy:false,prev:null,endT:null};
 async function collectHz(g){
-  const hz=(g.hz||[]).slice();
+  const hz=((g&&g.hz)||[]).slice();
   for(const w of await DB.all('kv','wpt:'))if(w.type==='lomo'||w.type==='pozo'||w.type==='peligro')hz.push({lat:w.lat,lon:w.lon,k:w.type});
   return hz;
 }
@@ -3072,7 +3336,7 @@ function navSay(t){if(!S.voice)return;beep(880,.12);say(t);}
 async function startNav(){
   const r=RT.res&&RT.res[RT.sel];if(!r||r.err)return;
   unlockAudio();
-  const g=await ensureGraph();
+  const g=r.fixed?null:await ensureGraph();
   Object.assign(NAV,{mode:RT.sel,dest:RT.to,lastRecalc:0,busy:false,prev:null});
   NAV.N=navInit(r,NAV.mode,await collectHz(g));
   NAV.on=true;
@@ -3109,6 +3373,10 @@ function navOnFix(f){
   if(res.arrived&&!NAV.endT)NAV.endT=setTimeout(()=>{NAV.endT=null;endNav();},9000);
 }
 async function navRecalc(f){
+  if(NAV.N&&NAV.N.route.fixed){            /* volviendo por la huella: no se recalcula con calles, se te guía de nuevo hacia la línea */
+    if(Date.now()-NAV.lastRecalc>20000){NAV.lastRecalc=Date.now();navSay('Te alejaste de tu huella. Volvé hacia la línea marcada.');}
+    return;
+  }
   if(NAV.busy||Date.now()-NAV.lastRecalc<12000)return;
   NAV.busy=true;NAV.lastRecalc=Date.now();
   navSay('Recalculando');
@@ -3438,7 +3706,7 @@ const blobB64=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(String(
 async function exportFull(){
   toast('Preparando la copia…',3000);
   const kv=[];
-  for(const k of await DB.keys('kv'))if(k!=='rec:current'&&!/^(net|netidx|ctr):/.test(k))kv.push({k,v:await DB.get('kv',k)});
+  for(const k of await DB.keys('kv'))if(k!=='rec:current'&&!/^(net|netidx|ctr|wx):/.test(k))kv.push({k,v:await DB.get('kv',k)});
   const photos=[];
   for(const o of OVL){const b=await DB.get('tiles','ovl/'+o.id);if(b)photos.push({id:o.id,b64:await blobB64(b)});}
   const nets=(await netIndex()).filter(n=>!n.pending).map(n=>({id:n.id,bb:n.bb,date:n.date,ways:n.ways,hz:n.hz,z:n.z,regional:n.regional}));
@@ -3737,9 +4005,9 @@ $('#gDel').onclick=async()=>{
 };
 
 /* ---------- Áreas (polígonos): bosques, agua, parques, edificios y zonas cerradas ---------- */
-const AREA_UI={bosque:['🌲','Bosque'],agua:['💧','Agua o lago'],parque:['🌳','Parque'],pastizal:['🌾','Campo o pastizal'],playa:['🏖️','Playa'],nieve:['❄️','Nieve o glaciar'],edificio:['🏢','Edificio'],urbano:['🏘️','Zona urbana'],cerrada:['⛔','Zona cerrada'],otro:['⬛','Otro']};
-const AREA_COL={bosque:'#ADD19E',agua:'#AAD3DF',parque:'#C8FACC',pastizal:'#CDEBB0',playa:'#FFF1BA',nieve:'#F2F7FA',edificio:'#D9D0C9',urbano:'#E6E3DD',cerrada:'#F4B6B0',otro:'#E0DCD2'};
-const AREA_COLN={bosque:'#233A2A',agua:'#1B3A4B',parque:'#24402E',pastizal:'#2D4230',playa:'#4A4630',nieve:'#2E3D47',edificio:'#3A3A3F',urbano:'#25323A',cerrada:'#4A2A2A',otro:'#2C363C'};
+const AREA_UI={bosque:['🌲','Bosque'],agua:['💧','Agua o lago'],parque:['🌳','Parque'],pastizal:['🌾','Campo o pastizal'],playa:['🏖️','Playa'],nieve:['❄️','Nieve o glaciar'],edificio:['🏢','Edificio'],urbano:['🏘️','Zona urbana'],cerrada:['⛔','Zona cerrada'],otro:['⬛','Otro'],medida:['📐','Medición']};
+const AREA_COL={bosque:'#ADD19E',agua:'#AAD3DF',parque:'#C8FACC',pastizal:'#CDEBB0',playa:'#FFF1BA',nieve:'#F2F7FA',edificio:'#D9D0C9',urbano:'#E6E3DD',cerrada:'#F4B6B0',otro:'#E0DCD2',medida:'#F7C6B8'};
+const AREA_COLN={bosque:'#233A2A',agua:'#1B3A4B',parque:'#24402E',pastizal:'#2D4230',playa:'#4A4630',nieve:'#2E3D47',edificio:'#3A3A3F',urbano:'#25323A',cerrada:'#4A2A2A',otro:'#2C363C',medida:'#5A3A30'};
 const areaRestricted=e=>{const r=e.props&&e.props.restrict;return !!(r&&(r.foot||r.bike||r.car));};
 function areaLine(e){
   const q=e.props||{},a=[],r=q.restrict||{};
@@ -3901,11 +4169,161 @@ $('#npOk').onclick=nodeSave;
 $('#npCancel').onclick=()=>{NP.pt=null;drawNodeTool();};
 $('#npX').onclick=()=>{closeNodeTool();showFix();};
 
+/* ---------- Medir distancias y superficies (al estilo Google Earth) ---------- */
+const MS={on:false,mode:'dist',pts:[],rel:false,relRes:null,relKey:'',netOK:false};
+const measPts=L.layerGroup().addTo(map),measLines=L.layerGroup().addTo(map);
+function openMeasure(){
+  if(TR.on||GE.on||CAP.on||NP.on||draw||PICK){toast('Cerrá primero la otra herramienta',4000);return;}
+  closeSheet();hidePin();
+  MS.on=true;MS.pts=[];MS.rel=!!S.measRel;MS.relRes=null;MS.netOK=false;
+  $('#meas').hidden=false;setFollow(false);
+  drawMeasure();
+}
+function closeMeasure(){
+  MS.on=false;MS.pts=[];clearTimeout(relTimer);relTok++;
+  $('#meas').hidden=true;measPts.clearLayers();measLines.clearLayers();
+}
+function measTap(e){
+  if(!MS.on)return;
+  MS.pts.push([e.latlng.lat,e.latlng.lng]);
+  drawMeasure();
+}
+function drawMeasure(){
+  measPts.clearLayers();
+  MS.pts.forEach((p,i)=>{
+    const m=L.marker(p,{draggable:true,zIndexOffset:1500,icon:L.divIcon({html:`<div class="mpt${i===0?' first':''}"></div>`,className:'',iconSize:[24,24],iconAnchor:[12,12]})});
+    m.on('drag',ev=>{const ll=ev.target.getLatLng();MS.pts[i]=[ll.lat,ll.lng];drawMeasureLines();});
+    m.on('dragend',()=>drawMeasure());
+    m.addTo(measPts);
+  });
+  drawMeasureLines();
+  scheduleRelief();
+}
+/* líneas, etiquetas por tramo y resultados (se redibujan mientras se arrastra un punto) */
+function drawMeasureLines(){
+  measLines.clearLayers();
+  const pts=MS.pts,area=MS.mode==='area';
+  if(pts.length>=2){
+    if(area&&pts.length>=3)L.polygon(pts,{color:'#F04A1C',weight:3,fillColor:'#F04A1C',fillOpacity:.22,interactive:false}).addTo(measLines);
+    else{
+      L.polyline(pts,{color:'#fff',weight:8,opacity:.85,interactive:false}).addTo(measLines);
+      L.polyline(pts,{color:'#F04A1C',weight:4,interactive:false}).addTo(measLines);
+    }
+    const n=area&&pts.length>=3?pts.length:pts.length-1;
+    for(let i=0;i<n;i++){
+      const a=pts[i],b=pts[(i+1)%pts.length],pa=map.latLngToContainerPoint(a),pb=map.latLngToContainerPoint(b);
+      if(Math.hypot(pa.x-pb.x,pa.y-pb.y)<70)continue;
+      L.marker([(a[0]+b[0])/2,(a[1]+b[1])/2],{interactive:false,icon:L.divIcon({html:`<div class="mlab">${fmtLen(hav(a,b))}</div>`,className:'',iconSize:[0,0]})}).addTo(measLines);
+    }
+  }
+  updMeasUi();
+}
+function measText(){
+  const pts=MS.pts,area=MS.mode==='area';
+  if(area){
+    if(pts.length<3)return null;
+    return `Superficie: ${fmtArea(polyArea(pts))}\nPerímetro: ${fmtLen(polyLen(pts,true))}\nPuntos: ${pts.length}`;
+  }
+  if(pts.length<2)return null;
+  return `Distancia: ${fmtLen(polyLen(pts,false))}\nÚltimo tramo: ${fmtLen(hav(pts[pts.length-2],pts[pts.length-1]))}\nPuntos: ${pts.length}`;
+}
+function updMeasUi(){
+  const pts=MS.pts,area=MS.mode==='area';
+  document.querySelectorAll('#msMode button').forEach(b=>b.classList.toggle('on',b.dataset.m===MS.mode));
+  let h='';
+  if(area&&pts.length>=3){
+    h=`<div class="mbig">${fmtArea(polyArea(pts))}</div><div class="mut">Perímetro ${fmtLen(polyLen(pts,true))} · ${pts.length} puntos</div>`;
+    if(selfIntersects(pts))h+='<div class="mwarn">⚠️ Los lados se cruzan: la superficie no es confiable.</div>';
+  }else if(!area&&pts.length>=2){
+    h=`<div class="mbig">${fmtLen(polyLen(pts,false))}</div><div class="mut">Último tramo ${fmtLen(hav(pts[pts.length-2],pts[pts.length-1]))} · ${pts.length} puntos</div>`;
+  }else h=`<div class="mut">${area?'Marcá al menos 3 puntos para ver la superficie.':'Marcá al menos 2 puntos para ver la distancia.'}</div>`;
+  $('#msOut').innerHTML=h;
+  $('#msHint').textContent=pts.length?'Arrastrá un punto para moverlo.':'Tocá el mapa para marcar puntos.';
+  $('#msRel').classList.toggle('on',MS.rel);
+  $('#msRel').textContent=area?'⛰️ Superficie real del terreno':'⛰️ Con relieve: desnivel y perfil';
+  $('#msUndo').disabled=!pts.length;$('#msClr').disabled=!pts.length;
+  $('#msSave').disabled=pts.length<(area?3:2);
+}
+async function measSave(){
+  const pts=MS.pts,area=MS.mode==='area';
+  if(pts.length<(area?3:2))return;
+  const when=new Date().toLocaleDateString('es-AR');
+  let txt=measText().replace(/\n/g,' · ');
+  if(MS.rel&&MS.relRes&&MS.relKey===JSON.stringify(pts)){const r=MS.relRes;txt+=area?` · En relieve: ${fmtArea(r.relief)}, altura media ${r.mean} m`:` · En relieve: ${fmtLen(r.relief)} (↑${r.gain} m ↓${r.loss} m)`;}
+  const base={id:uid(),kind:'medida',name:(area?'Superficie ':'Distancia ')+when,pts:pts.map(p=>[+p[0].toFixed(7),+p[1].toFixed(7)]),props:{note:txt},created:Date.now()};
+  const e=area?Object.assign(base,{type:'area'}):Object.assign(base,{type:'path',oneway:0});
+  await DB.put('kv','edit:'+e.id,e);
+  vecInvalidate();await drawEdits();
+  toast('Guardado en Más → Correcciones',3500);
+}
+document.querySelectorAll('#msMode button').forEach(b=>b.onclick=()=>{MS.mode=b.dataset.m;drawMeasure();});
+$('#msUndo').onclick=()=>{MS.pts.pop();drawMeasure();};
+$('#msClr').onclick=()=>{MS.pts=[];drawMeasure();};
+$('#msMe').onclick=()=>{if(!lastFix){toast('Todavía no hay señal de GPS');return;}MS.pts.push([lastFix.lat,lastFix.lon]);drawMeasure();};
+$('#msSave').onclick=measSave;
+$('#msX').onclick=closeMeasure;
+map.on('zoomend',()=>{if(MS.on)drawMeasureLines();});
+
+
+/* ----- con relieve: largo real sobre el terreno, desnivel, perfil y superficie real ----- */
+let relTimer=0,relTok=0;
+function scheduleRelief(){
+  clearTimeout(relTimer);relTok++;
+  const pts=MS.pts,area=MS.mode==='area',out=$('#msRelOut'),prof=$('#msProf');
+  MS.relRes=null;
+  if(!MS.rel||pts.length<(area?3:2)){out.innerHTML='';prof.innerHTML='';return;}
+  out.innerHTML='<div class="mut">Calculando con el relieve…</div>';
+  relTimer=setTimeout(runRelief,450);
+}
+/* altura de la zona: se baja una vez y queda guardada */
+async function demForMeasure(pts){
+  let a=90,b=-90,c=180,d=-180;
+  for(const p of pts){if(p[0]<a)a=p[0];if(p[0]>b)b=p[0];if(p[1]<c)c=p[1];if(p[1]>d)d=p[1];}
+  const mg=.004,bb={n:b+mg,s:a-mg,w:c-mg,e:d+mg};
+  let z=13;while(z>10&&demTiles(bb,z).length>48)z--;
+  const list=demTiles(bb,z);
+  if(list.length>150)throw new Error('Es demasiado grande para medir con relieve (más de unos 150 km).');
+  let falta=0;
+  for(const t of list)if(!(await DB.has('tiles',`dem/${z}/${t.x}/${t.y}`)))falta++;
+  if(falta){
+    if(!MS.netOK){
+      if(S.dataMode==='never')throw new Error('Esta zona no tiene la altura guardada y elegiste no usar internet.');
+      if(!(await netAllowed('bajar la altura del terreno')))throw new Error('Sin permiso para bajar la altura de esta zona.');
+      MS.netOK=true;
+    }
+  }
+  const dem=await fetchDem(bb,z);
+  return {dem,z};
+}
+async function runRelief(){
+  const tok=relTok,pts=MS.pts.map(p=>p.slice()),area=MS.mode==='area',out=$('#msRelOut'),prof=$('#msProf');
+  try{
+    const {dem,z}=await demForMeasure(pts);
+    if(tok!==relTok||!MS.on)return;
+    const sample=(la,lo)=>sampleDem(dem,z,la,lo);
+    const r=area?terrainArea(pts,sample):reliefProfile(pts,sample);
+    if(r.error){out.innerHTML=`<div class="mwarn">⚠️ ${esc(r.error)}</div>`;prof.innerHTML='';return;}
+    MS.relRes=r;MS.relKey=JSON.stringify(pts);
+    out.innerHTML=area
+      ?`<div class="mrel"><b>⛰️ Superficie real: ${fmtArea(r.relief)}</b> <span class="mut">(plano ${fmtArea(r.flat)}, +${((r.factor-1)*100).toFixed(1)} %)</span></div><div class="mut">Altura media ${r.mean} m (de ${r.min} a ${r.max}) · pendiente media ${r.avgSlope.toFixed(0)} %</div>`
+      :`<div class="mrel"><b>⛰️ En relieve: ${fmtLen(r.relief)}</b> <span class="mut">(plano ${fmtLen(r.flat)})</span></div><div>↑ ${r.gain} m · ↓ ${r.loss} m · de ${r.start} a ${r.end} m de altura</div><div class="mut">Mín ${r.min} · máx ${r.max} m · pendiente media ${r.avgSlope.toFixed(0)} % · máx ${r.maxSlope.toFixed(0)} %</div>`;
+    prof.innerHTML=area?'':profSvg(r);
+  }catch(e){
+    if(tok===relTok){out.innerHTML=`<div class="mwarn">⚠️ ${esc(e.message||String(e))}</div>`;prof.innerHTML='';}
+  }
+}
+function profSvg(r){
+  const W=300,H=70,mn=r.min,mx=r.max,span=Math.max(1,mx-mn),pf=r.profile;
+  const xy=pf.map(([d,e])=>[d/r.flat*W,H-6-(e-mn)/span*(H-14)]);
+  const line=xy.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  return `<div class="mprof"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${line} L${W} ${H} L0 ${H} Z" fill="rgba(240,74,28,.22)"/><path d="${line}" fill="none" stroke="#F04A1C" stroke-width="2" vector-effect="non-scaling-stroke"/></svg><span class="a">${mx} m</span><span class="b">${mn} m</span><span class="c">${fmtLen(r.flat)}</span></div>`;
+}
+$('#msRel').onclick=()=>{MS.rel=!MS.rel;S.measRel=MS.rel;saveS();updMeasUi();scheduleRelief();};
 /* ---------- Calcar: dibujar senderos, calles y escaleras sobre la imagen (quedan en el mapa y son ruteables) ---------- */
 const TR={on:false,pts:[],snapped:[],strokes:[],mode:'taps',shape:'line',kind:'sendero',akind:'bosque',oneway:0,props:{},aprops:{},snap:true,saved:0,drawing:false,pid:null};
 const LINE_QUICK=['sendero','escalera','calle','camino','nivel'],AREA_QUICK=['bosque','agua','parque','cerrada','edificio','otro'];
 const traceLayer=L.layerGroup().addTo(map);
-const VKIND={sendero:'path',escalera:'steps',peatonal:'footway',ciclovia:'cycleway',calle:'residential',camino:'track',servicio:'service',principal:'secondary',ruta:'primary',ferry:'ferry',nivel:'contour_minor'};
+const VKIND={medida:'measure',sendero:'path',escalera:'steps',peatonal:'footway',ciclovia:'cycleway',calle:'residential',camino:'track',servicio:'service',principal:'secondary',ruta:'primary',ferry:'ferry',nivel:'contour_minor'};
 const mppNow=()=>40075016.686*Math.cos(map.getCenter().lat*rad)/(256*Math.pow(2,map.getZoom()));
 /* Imán: pega el punto a la calle o sendero más cercano (a ~14 px), así el trazo queda conectado */
 function traceSnap(ll){
@@ -4329,6 +4747,250 @@ async function saveIncoming(){
 }
 window.addEventListener('rumboOpen',checkIntent);
 
+/* ---------- Clima (Open-Meteo), radar de lluvia (Rain Viewer) y Retorno seguro ---------- */
+async function fetchJson(url){
+  try{const r=await fetch(url);if(!r.ok)throw new Error('http '+r.status);return await r.json();}
+  catch(e){
+    if(!isNative())throw e;
+    const r=await plugin('CapacitorHttp').get({url,responseType:'json'});
+    return r.data;
+  }
+}
+const ago=ms=>{const m=Math.max(0,Math.round((Date.now()-ms)/60000));return m<1?'recién':m<60?`hace ${m} min`:`hace ${Math.floor(m/60)} h ${m%60} min`;};
+
+/* ===== Clima ===== */
+const WXK='wx:last';
+async function wxGet(lat,lon,o){
+  o=o||{};
+  const prev=await DB.get('kv',WXK),near=prev&&hav([prev.lat,prev.lon],[lat,lon])<8000;
+  if(near&&!o.force&&Date.now()-prev.t<10*60000)return {sum:wxSummary(prev.data),t:prev.t,stale:false};
+  if(netBlocked()&&!o.force){
+    if(near)return {sum:wxSummary(prev.data),t:prev.t,stale:true,blocked:true};
+    throw new Error('Sin datos móviles: no puedo consultar el clima');
+  }
+  try{
+    const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_gusts_10m,wind_direction_10m&hourly=temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m,wind_gusts_10m&forecast_days=2&timezone=auto&wind_speed_unit=kmh`;
+    const data=await fetchJson(url);
+    if(!data||!data.current||!data.hourly)throw new Error('respuesta inesperada');
+    await DB.put('kv',WXK,{t:Date.now(),lat,lon,data});
+    return {sum:wxSummary(data),t:Date.now(),stale:false};
+  }catch(e){
+    if(near)return {sum:wxSummary(prev.data),t:prev.t,stale:true,err:e.message};
+    throw new Error('No pude consultar el clima ('+(e.message||e)+')');
+  }
+}
+function wxAlertsHtml(sum){
+  return sum.alerts.map(a=>`<div class="wxal ${a.lvl}">${a.lvl==='danger'?'🚨':'⚠️'} ${esc(a.txt)}</div>`).join('');
+}
+function wxNowHtml(sum){
+  const c=sum.cur,[ic,txt]=wxCode(c.weather_code),n=v=>v==null?'–':Math.round(v);
+  return `<div class="wxnow"><span class="wxi">${ic}</span><b>${n(c.temperature_2m)}°</b> <small>sensación ${n(c.apparent_temperature)}°</small><br>${txt} · 💨 ${n(c.wind_speed_10m)} km/h${c.wind_direction_10m!=null?' del '+compassWord(c.wind_direction_10m):''} (ráfagas ${n(c.wind_gusts_10m)})</div>`;
+}
+async function showWeather(pt){
+  const here=pt||(lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng]);
+  const mine=!pt&&!!lastFix;
+  openSheet('Clima',`<div class="chips"><button data-act="wxme" class="${mine?'on':''}">📍 Mi posición</button><button data-act="wxctr">🗺️ Centro del mapa</button><button data-act="wxpick">🎯 Elegir punto</button></div>
+    <div id="wxBody"><p class="mut">Consultando el pronóstico…</p></div>
+    <label class="chk"><input type="checkbox" id="wxrv" ${RV.on?'checked':''}> 🌧️ Radar de lluvia sobre el mapa (últimas 2 h)</label>
+    <p class="mut small">Pronóstico: Open-Meteo.com · Radar: Weather data by Rain Viewer. El pronóstico es una guía: en la montaña cambia más rápido y por zona.</p>`,
+    (a)=>{
+      if(a==='wxme'){if(!lastFix){toast('Todavía sin GPS');return;}showWeather(null);}
+      else if(a==='wxctr')showWeather([map.getCenter().lat,map.getCenter().lng]);
+      else if(a==='wxpick'){PICK={type:'wx'};closeSheet();banner('Tocá el mapa donde querés ver el clima');}
+      else if(a==='wxref')fill(true);
+    },
+    t=>{if(t.id==='wxrv')setRadar(t.checked);});
+  const fill=async(force)=>{
+    const box=$('#wxBody');if(!box)return;
+    try{
+      const w=await wxGet(here[0],here[1],{force});
+      if(!$('#wxBody'))return;
+      const s=w.sum;
+      box.innerHTML=wxNowHtml(s)+wxAlertsHtml(s)+
+        `<div class="wxh">${s.rows.map(r=>{const[ic]=wxCode(r.code);return `<div class="wxr"><span>${r.time}</span><span>${ic}</span><span>${Math.round(r.temp)}°</span><span>${r.pp==null?'–':Math.round(r.pp)+'%'}${r.mm>0?' · '+r.mm.toFixed(1)+' mm':''}</span><span>${Math.round(r.wind)}/${Math.round(r.gust==null?r.wind:r.gust)}</span></div>`;}).join('')}</div>
+        <p class="mut small">Hora · tiempo · temp · lluvia · viento/ráfagas (km/h). Actualizado ${ago(w.t)}${w.stale?' — <b>dato guardado</b>'+(w.blocked?' (sin datos móviles)':''):''}.</p>
+        <div class="row"><button class="btn sm" data-act="wxref">🔄 Actualizar</button></div>`;
+    }catch(e){if($('#wxBody'))$('#wxBody').innerHTML=`<div class="wxal warn">⚠️ ${esc(e.message||String(e))}</div><div class="row"><button class="btn sm" data-act="wxref">Reintentar</button></div>`;}
+  };
+  fill(false);
+}
+
+/* ===== Radar de lluvia ===== */
+const RV={on:false,frames:[],idx:0,host:'',layer:null,cov:null,url:'',timer:0,showCov:false};
+async function rvLoad(){
+  const j=await fetchJson('https://api.rainviewer.com/public/weather-maps.json');
+  RV.host=j.host||'https://tilecache.rainviewer.com';
+  RV.frames=(j.radar&&j.radar.past)||[];
+  if(!RV.frames.length)throw new Error('no hay imágenes de radar');
+  RV.idx=RV.frames.length-1;
+}
+function rvDraw(){
+  if(RV.layer){map.removeLayer(RV.layer);RV.layer=null;}
+  if(RV.cov){map.removeLayer(RV.cov);RV.cov=null;}
+  if(!RV.on||!RV.frames.length){$('#rvbar').hidden=true;return;}
+  const f=RV.frames[RV.idx];
+  RV.url=`${RV.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`;
+  RV.layer=new CachedTiles(RV.url,{lid:'rv',offline:false,maxNativeZoom:7,maxZoom:21,opacity:.65,attribution:'Weather data by <a href="https://www.rainviewer.com">Rain Viewer</a>'});
+  RV.layer.addTo(map);
+  if(RV.showCov){
+    RV.cov=new CachedTiles(RV.host+'/v2/coverage/0/256/{z}/{x}/{y}/0/0_0.png',{lid:'rvc',offline:false,maxNativeZoom:7,maxZoom:21,opacity:.45});
+    RV.cov.addTo(map);
+  }
+  $('#rvbar').hidden=false;
+  const m=Math.round((Date.now()/1000-f.time)/60);
+  $('#rvT').textContent=(m<1?'ahora':`hace ${m} min`)+` (${RV.idx+1}/${RV.frames.length})`;
+  $('#rvCov').classList.toggle('on',RV.showCov);
+}
+async function setRadar(on,quiet){
+  if(on){
+    if(netBlocked()){if(!quiet)toast('El radar necesita internet y elegiste no usar datos móviles',5000);RV.on=false;S.radarOn=false;saveS();const c=$('#wxrv');if(c)c.checked=false;return;}
+    try{await rvLoad();}catch(e){if(!quiet)toast('No pude cargar el radar: '+(e.message||e),5000);RV.on=false;S.radarOn=false;saveS();const c=$('#wxrv');if(c)c.checked=false;return;}
+    RV.on=true;S.radarOn=true;saveS();rvDraw();
+    clearInterval(RV.timer);
+    RV.timer=setInterval(async()=>{if(!RV.on||netBlocked())return;try{await rvLoad();rvDraw();}catch(e){}},10*60000);
+    if(!quiet)toast('Radar de las últimas 2 horas. Si el mapa no se pinta, tu zona puede no tener radar (🗺️ muestra la cobertura).',7000);
+  }else{
+    RV.on=false;S.radarOn=false;saveS();clearInterval(RV.timer);rvDraw();
+  }
+  const c=$('#wxrv');if(c)c.checked=RV.on;
+  const m=$('#rvon');if(m)m.checked=RV.on;
+}
+$('#rvPrev').onclick=()=>{if(RV.idx>0){RV.idx--;rvDraw();}};
+$('#rvNext').onclick=()=>{if(RV.idx<RV.frames.length-1){RV.idx++;rvDraw();}};
+$('#rvCov').onclick=()=>{RV.showCov=!RV.showCov;rvDraw();};
+$('#rvX').onclick=()=>setRadar(false);
+
+/* ===== Retorno seguro ===== */
+const RS={key:null,d:null,here:null,fast:null,tok:0,custom:null,speed:1.1};
+const actMode=()=>{const a=REC.state!=='idle'?REC.act:S.act;return a==='bike'?'bike':a==='car'?'car':'foot';};
+async function returnSources(){
+  const out=[];
+  if(REC.state!=='idle'&&REC.pts.length>=2)out.push({key:'rec',label:'Inicio de esta salida',pts:REC.pts});
+  else{
+    const ts=(await DB.all('kv','track:')).sort((a,b)=>(b.t1||0)-(a.t1||0)),t=ts[0];
+    if(t&&t.pts&&t.pts.length>=2&&Date.now()-(t.t1||0)<24*3600000)out.push({key:'trk:'+t.id,label:'Inicio de la última salida',pts:t.pts});
+  }
+  return out;
+}
+async function returnDests(srcs,here){
+  const out=srcs.map(s=>({key:'src:'+s.key,label:s.label,lat:s.pts[0][0],lon:s.pts[0][1],icon:'🏁',src:s}));
+  const kinds=new Set(['estac','refugio','acceso','camp']);
+  (await DB.all('kv','wpt:')).filter(x=>kinds.has(x.type)).map(x=>({key:'w:'+x.id,label:x.name,lat:x.lat,lon:x.lon,icon:WT[x.type][0]}))
+    .sort((a,b)=>hav(here,[a.lat,a.lon])-hav(here,[b.lat,b.lon])).slice(0,3).forEach(x=>out.push(x));
+  if(RS.custom)out.push(RS.custom);
+  return out;
+}
+function sunLine(here){
+  const now=Date.now(),s=sunInfo(here[0],here[1],now);
+  if(s.polar==='dia')return '☀️ Hay luz todo el día';
+  if(s.polar==='noche')return '🌙 Es de noche todo el día';
+  if(s.day)return `🌅 Atardece a las ${hhmm(s.next.t)} (en ${fmtDur((s.next.t-now)/1000)})`;
+  return `🌙 Es de noche${s.prev?` (se puso a las ${hhmm(s.prev.t)})`:''}${s.next?`, amanece a las ${hhmm(s.next.t)}`:''}`;
+}
+async function showSafeReturn(key){
+  if(!lastFix){toast('Todavía no hay señal de GPS: sin tu posición no puedo trazar el regreso',5000);return;}
+  const here=[lastFix.lat,lastFix.lon],srcs=await returnSources(),dests=await returnDests(srcs,here);
+  if(key)RS.key=key;
+  const d=dests.find(x=>x.key===RS.key)||dests[0];
+  const pickBtn='<button data-act="rspick">📍 Otro punto</button>';
+  if(!d){
+    openSheet('Retorno seguro',`<p>No tengo un punto de partida guardado. Elegí en el mapa a dónde querés volver.</p><div class="chips">${pickBtn}</div>`,a=>{if(a==='rspick')rsPick();});
+    return;
+  }
+  RS.key=d.key;RS.d=d;RS.here=here;RS.fast=null;const tok=++RS.tok;
+  const straight=hav(here,[d.lat,d.lon]),brg=bearingTo(here,[d.lat,d.lon]);
+  openSheet('Retorno seguro',`<p class="mut">¿Cambió el clima o estás cansado? Elegí a dónde y cómo volver. Arranca la guía al instante.</p>
+    <div class="chips">${dests.map(x=>`<button data-act="rsd" data-k="${esc(x.key)}" class="${x.key===d.key?'on':''}">${x.icon} ${esc(x.label)} · ${fmtD(hav(here,[x.lat,x.lon]))}</button>`).join('')}${pickBtn}</div>
+    <div class="card"><b>A ${fmtD(straight)} en línea recta</b> hacia el ${compassWord(brg)} (${Math.round(brg)}°)<br>${sunLine(here)}</div>
+    <div id="rsWx" class="card mut">Consultando el clima…</div>
+    <div id="rsOpts"><div class="card mut">Calculando los caminos de vuelta…</div></div>
+    <div class="row"><button class="btn" data-act="rsshare">📤 Compartir mi ubicación</button><button class="btn" data-act="wx">☁️ Clima completo</button></div>
+    <p class="mut small">Emergencias en Argentina: <b>911</b>. Si no podés seguir, quedate donde estás, abrigate y avisá tu ubicación.</p>`,
+    (a,dd)=>{
+      if(a==='rsd')showSafeReturn(dd.k);
+      else if(a==='rspick')rsPick();
+      else if(a==='rsgo')startBack(dd.m);
+      else if(a==='rsshare')shareLocation();
+      else if(a==='wx')showWeather(null);
+    });
+  /* clima */
+  wxGet(here[0],here[1]).then(w=>{
+    if(tok!==RS.tok||!$('#rsWx'))return;
+    const s=w.sum,rain=s.rainInHours>=0?`Lluvia desde las ${s.rows[s.rainInHours].time}`:'Sin lluvia prevista en las próximas 12 h';
+    $('#rsWx').className='card';
+    $('#rsWx').innerHTML=wxNowHtml(s)+wxAlertsHtml(s)+`<small class="mut">${rain} · ${ago(w.t)}${w.stale?' (dato guardado)':''}</small>`;
+  }).catch(e=>{if(tok===RS.tok&&$('#rsWx'))$('#rsWx').innerHTML='Sin conexión: no pude consultar el clima.';});
+  /* caminos */
+  const mode=actMode(),si=sunInfo(here[0],here[1],Date.now());
+  /* si ya es de noche, cualquier llegada es de noche; si es de día, mide contra el próximo atardecer */
+  const night=(eta)=>!si.polar&&(si.day?(si.next&&eta>si.next.t):true)?'<br><b style="color:#C0392B">⚠️ Llegarías de noche</b>':'';
+  let html='';
+  if(d.src){
+    const st=calcStats(d.src.pts),spd=st.avg>0.4?st.avg*0.9:1.1;RS.speed=spd;
+    const r=backtrackRoute(d.src.pts,here,{speed:spd,mode});
+    if(r.error)html+=`<div class="card mut">↩︎ Por la huella: ${esc(r.error)}</div>`;
+    else{
+      const eta=Date.now()+r.time*1000;
+      html+=`<div class="card"><b>↩︎ Por mi huella</b> (lo que ya recorrí)<br>${fmtD(r.dist)} · ${fmtDur(r.time)} · llegás a las <b>${hhmm(eta)}</b>${night(eta)}${r.offTrack>60?`<br><small class="mut">Estás a ${fmtD(r.offTrack)} de la huella: primero hay que acercarse.</small>`:''}<div class="row" style="margin-top:6px"><button class="btn primary" data-act="rsgo" data-m="back">Guiarme por mi huella</button></div></div>`;
+    }
+  }
+  $('#rsOpts').innerHTML=html+'<div id="rsFast" class="card mut">⚡ Buscando el camino más rápido por calles y senderos…</div>';
+  try{
+    const g=await ensureGraph({center:here});
+    if(tok!==RS.tok||!$('#rsFast'))return;
+    if(!g)$('#rsFast').innerHTML='⚡ Para el camino más rápido hacen falta las calles de la zona bajadas (Mapas → Elegir zona).';
+    else{
+      const f=findRoute(g,mode,{lat:here[0],lon:here[1]},{lat:d.lat,lon:d.lon},'fast');
+      if(f.err)$('#rsFast').innerHTML='⚡ No encontré un camino por calles o senderos hasta ahí.';
+      else{
+        RS.fast=f;const eta=Date.now()+f.time*1000;
+        $('#rsFast').className='card';
+        $('#rsFast').innerHTML=`<b>⚡ Más rápido</b> (calles y senderos)<br>${fmtD(f.dist)} · ${fmtDur(f.time)} · llegás a las <b>${hhmm(eta)}</b>${night(eta)}<div class="row" style="margin-top:6px"><button class="btn primary" data-act="rsgo" data-m="fast">Guiarme por el camino rápido</button></div>`;
+      }
+    }
+  }catch(e){if($('#rsFast'))$('#rsFast').innerHTML='⚡ No pude calcular el camino rápido.';}
+}
+function rsPick(){PICK={type:'rsdest'};closeSheet();banner('Tocá el mapa a dónde querés volver');}
+async function startBack(kind){
+  const d=RS.d,here=RS.here,mode=actMode();
+  let r=null;
+  if(kind==='back'&&d.src)r=backtrackRoute(d.src.pts,here,{speed:RS.speed,mode});
+  else if(kind==='fast')r=RS.fast;
+  if(!r||r.error||r.err){toast('No pude armar ese camino',4000);return;}
+  RT.res={};RT.res[mode]=r;RT.sel=mode;RT.cands=[];
+  RT.to={lat:d.lat,lon:d.lon,label:d.label};RT.from=null;RT.calcFrom={lat:here[0],lon:here[1]};
+  await startNav();
+  vib();
+}
+async function shareLocation(){
+  const f=lastFix;if(!f){toast('Todavía sin GPS');return;}
+  const la=f.lat.toFixed(5),lo=f.lon.toFixed(5);
+  const txt=`Estoy en ${la}, ${lo} (±${Math.round(f.acc||0)} m) — ${new Date().toLocaleString('es-AR')}\nhttps://www.openstreetmap.org/?mlat=${la}&mlon=${lo}#map=17/${la}/${lo}`;
+  try{
+    if(isNative())await plugin('Share').share({title:'Mi ubicación',text:txt,dialogTitle:'Compartir mi ubicación'});
+    else if(navigator.share)await navigator.share({text:txt});
+    else{await navigator.clipboard.writeText(txt);toast('Ubicación copiada');}
+  }catch(e){}
+}
+$('#hBack').onclick=()=>showSafeReturn();
+
+/* ===== Aviso si empeora el clima mientras grabo ===== */
+let wxWatchT=0;const wxSeen={};
+setInterval(async()=>{
+  if(S.wxWatch===false||REC.state!=='rec'||!lastFix||netBlocked()||navigator.onLine===false)return;
+  if(Date.now()-wxWatchT<20*60000)return;
+  wxWatchT=Date.now();
+  try{
+    const w=await wxGet(lastFix.lat,lastFix.lon,{force:true});
+    for(const a of w.sum.alerts){
+      const grave=a.lvl==='danger'||a.id==='rain';
+      if(!grave||Date.now()-(wxSeen[a.id]||0)<60*60000)continue;
+      wxSeen[a.id]=Date.now();
+      toast(`⚠️ ${a.txt}. Si querés volver, tocá "↩︎ Retorno".`,12000);navSay('Atención. '+a.txt);vib();
+    }
+  }catch(e){}
+},60000);
+
 /* ---------- Ver el último nivel disponible cuando el mapa no tiene más detalle ---------- */
 /* Esri devuelve una imagen gris con "Map data not yet available" donde no hay más zoom. Acá se la detecta y, en lugar de mostrarla,
    se agranda la tesela del nivel anterior (aunque se vea con menos resolución). */
@@ -4514,11 +5176,11 @@ const VSTY={
   bridleway:{z:14,w:1.3,c:'#7B6A3A',dash:[6,4]},path:{z:13,w:1.5,c:'#C75B4A',dash:[4,3],lab:17},
   footway:{z:14,w:1.4,c:'#C75B4A',dash:[3,3],lab:17},steps:{z:15,w:2,c:'#C75B4A',dash:[1.5,2]},
   cycleway:{z:12,w:1.6,c:'#3A5BD9',dash:[5,3],lab:16},ferry:{z:0,w:2,c:'#5A7FD6',dash:[8,6],lab:11},
-  contour_minor:{z:13,w:.7,c:'#C9A87F',lab:99},contour_major:{z:12,w:1.2,c:'#B38B5E',lab:15}
+  contour_minor:{z:13,w:.7,c:'#C9A87F',lab:99},contour_major:{z:12,w:1.2,c:'#B38B5E',lab:15},measure:{z:0,w:2.5,c:'#F04A1C',dash:[2,4],lab:99}
 };
 /* Colores de noche: fondo oscuro y calles apagadas */
 const VNIGHT={bg:'#14212A',txt:'#C4D3DA',halo:'#0B151B',
-  c:{motorway:'#A8624E',trunk:'#A8705A',primary:'#9C7A45',secondary:'#8C8350',tertiary:'#5F7380',unclassified:'#5F7380',road:'#556A76',residential:'#556A76',living_street:'#4C606B',service:'#445662',pedestrian:'#4C606B',track:'#8A6A3A',bridleway:'#6B5E36',path:'#B0645A',footway:'#B0645A',steps:'#B0645A',cycleway:'#5C7BE0',ferry:'#6C8FE0',contour_minor:'#5E4F3B',contour_major:'#8A7255'},
+  c:{motorway:'#A8624E',trunk:'#A8705A',primary:'#9C7A45',secondary:'#8C8350',tertiary:'#5F7380',unclassified:'#5F7380',road:'#556A76',residential:'#556A76',living_street:'#4C606B',service:'#445662',pedestrian:'#4C606B',track:'#8A6A3A',bridleway:'#6B5E36',path:'#B0645A',footway:'#B0645A',steps:'#B0645A',cycleway:'#5C7BE0',ferry:'#6C8FE0',contour_minor:'#5E4F3B',contour_major:'#8A7255',measure:'#FF8A5C'},
   cs:'#0B151B'};
 const VEC={ready:false,dirty:true,building:null,ways:[],chunks:[],cells:new Map(),big:[],areas:[],cs:0.01,count:0};
 const vkey=(i,j)=>i*100000+j;
@@ -4845,8 +5507,11 @@ function showMoreMenu(){
     <button class="btn big" data-act="fix">🛠️<br>Correcciones</button>
     <button class="btn big" data-act="ovl">🛩️<br>Fotos de dron</button>
     <button class="btn big" data-act="maps">🗂️<br>Mis mapas</button>
+    <button class="btn big" data-act="meas">📏<br>Medir</button>
+    <button class="btn big" data-act="back">🆘<br>Retorno seguro</button>
+    <button class="btn big" data-act="wx">☁️<br>Clima</button>
     <button class="btn big" data-act="set">⚙️<br>Ajustes</button></div>`,
-    a=>{if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
+    a=>{if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
 }
 function showMore(){
   const chips=(id,cur,opts)=>`<div class="chips">${opts.map(([k,n])=>`<button data-act="${id}" data-k="${k}" class="${k===cur?'on':''}">${n}</button>`).join('')}</div>`;
@@ -4866,6 +5531,7 @@ function showMore(){
     <h3>Datos móviles</h3>
     ${chips('dm',S.dataMode,[['allow','📶 Usar siempre'],['wifi','📡 Solo con Wi‑Fi'],['never','📴 Nunca: solo lo guardado']])}
     <p class="mut">Con <b>Solo con Wi‑Fi</b>, si estás con datos móviles el mapa no baja imágenes nuevas y las descargas te piden confirmación. Con <b>Nunca</b>, no se usa internet para mapas aunque haya Wi‑Fi. Siempre se ven los mapas que ya tengas guardados. Conexión detectada ahora: <b id="conn"></b>.</p>
+    <label class="chk"><input type="checkbox" id="s18" ${S.wxWatch!==false?'checked':''}> Avisarme si el clima empeora mientras grabo (consulta el pronóstico cada 20 min)</label>
     <h3>GPS</h3>
     <label for="s1">Precisión máxima aceptada (m)</label><input class="in" id="s1" type="number" min="5" max="150" value="${S.maxAcc}">
     <p class="mut">Los puntos con peor precisión se descartan. Bajo el follaje conviene subirla a 40 o 50.</p>
@@ -4933,6 +5599,7 @@ function showMore(){
       else if(t.id==='s8'){S.carF=+t.value;dropGraph();}
       else if(t.id==='s9')S.routeMode=t.value;
       else if(t.id==='s17'){S.smooth=t.checked;saveS();}
+      else if(t.id==='s18'){S.wxWatch=t.checked;saveS();}
       else if(t.id==='s15'){
         if(t.checked&&!canRotatePlugin()){t.checked=false;toast('Esta versión no trae el módulo para rotar el mapa.',5000);return;}
         S.fingerRotate=t.checked;saveS();
@@ -4983,6 +5650,7 @@ $('#fAct').onclick=()=>{
   applyNight();applyNavOp();updNetPill();if(map.options&&map.options.rotate){oriCalib();oriStart();}
   startWatch(false);
   setTimeout(checkIntent,700);
+  if(S.radarOn)setTimeout(()=>setRadar(true,true),1800);
   drawEdits();
   const rc=await DB.get('kv','rec:current');
   if(rc&&rc.pts&&rc.pts.length>1)offerRecover(rc);
