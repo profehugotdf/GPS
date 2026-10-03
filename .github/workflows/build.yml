@@ -63,6 +63,194 @@ jobs:
           open(p,'w').write(s)
           PY
 
+      - name: Abrir archivos GPX con Rumbo (aparece en "Abrir por...")
+        run: |
+          D=android/app/src/main/java/com/profehugo/rumbo
+          ls "$D"
+          cp "$D/MainActivity.java" "$D/MainActivity.java.orig"
+          cat > "$D/RumboOpenPlugin.java" <<'JAVA'
+          package com.profehugo.rumbo;
+
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+
+          /* Entrega a la web el archivo (GPX) con el que se abrió Rumbo desde otra app. */
+          @CapacitorPlugin(name = "RumboOpen")
+          public class RumboOpenPlugin extends Plugin {
+              static String fileName = null;
+              static String fileText = null;
+              static String fileErr = null;
+
+              static synchronized void put(String name, String text, String err) {
+                  fileName = name;
+                  fileText = text;
+                  fileErr = err;
+              }
+
+              @PluginMethod
+              public void take(PluginCall call) {
+                  JSObject r = new JSObject();
+                  synchronized (RumboOpenPlugin.class) {
+                      if (fileText != null || fileErr != null) {
+                          r.put("has", true);
+                          r.put("name", fileName == null ? "archivo" : fileName);
+                          if (fileText != null) r.put("text", fileText);
+                          if (fileErr != null) r.put("err", fileErr);
+                          fileName = null;
+                          fileText = null;
+                          fileErr = null;
+                      } else {
+                          r.put("has", false);
+                      }
+                  }
+                  call.resolve(r);
+              }
+          }
+          JAVA
+          cat > "$D/MainActivity.java" <<'JAVA'
+          package com.profehugo.rumbo;
+
+          import android.content.Intent;
+          import android.database.Cursor;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.provider.OpenableColumns;
+
+          import com.getcapacitor.BridgeActivity;
+
+          import java.io.ByteArrayOutputStream;
+          import java.io.InputStream;
+
+          public class MainActivity extends BridgeActivity {
+
+              private static final int MAX_BYTES = 15 * 1024 * 1024;
+
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(RumboOpenPlugin.class);
+                  super.onCreate(savedInstanceState);
+                  grab(getIntent());
+              }
+
+              @Override
+              protected void onNewIntent(Intent intent) {
+                  super.onNewIntent(intent);
+                  setIntent(intent);
+                  if (grab(intent) && getBridge() != null) {
+                      getBridge().triggerWindowJSEvent("rumboOpen");
+                  }
+              }
+
+              /* Si la app se abrió con un archivo (Abrir con… o Compartir), lo lee y lo deja listo para la web. */
+              private boolean grab(Intent it) {
+                  if (it == null || it.getBooleanExtra("rumbo_handled", false)) return false;
+                  String act = it.getAction();
+                  Uri uri = null;
+                  if (Intent.ACTION_VIEW.equals(act)) {
+                      uri = it.getData();
+                  } else if (Intent.ACTION_SEND.equals(act)) {
+                      uri = (Uri) it.getParcelableExtra(Intent.EXTRA_STREAM);
+                  }
+                  if (uri == null) return false;
+                  it.putExtra("rumbo_handled", true);
+                  String name = displayName(uri);
+                  try {
+                      InputStream in = getContentResolver().openInputStream(uri);
+                      if (in == null) throw new Exception("no se pudo abrir");
+                      ByteArrayOutputStream out = new ByteArrayOutputStream();
+                      byte[] buf = new byte[65536];
+                      int n;
+                      long total = 0;
+                      while ((n = in.read(buf)) > 0) {
+                          total += n;
+                          if (total > MAX_BYTES) {
+                              in.close();
+                              throw new Exception("el archivo es demasiado grande");
+                          }
+                          out.write(buf, 0, n);
+                      }
+                      in.close();
+                      RumboOpenPlugin.put(name, out.toString("UTF-8"), null);
+                  } catch (Exception e) {
+                      RumboOpenPlugin.put(name, null, String.valueOf(e.getMessage()));
+                  }
+                  return true;
+              }
+
+              private String displayName(Uri uri) {
+                  String name = null;
+                  try {
+                      Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+                      if (c != null) {
+                          if (c.moveToFirst()) name = c.getString(0);
+                          c.close();
+                      }
+                  } catch (Exception e) {
+                      name = null;
+                  }
+                  if (name == null) name = uri.getLastPathSegment();
+                  return name == null ? "archivo" : name;
+              }
+          }
+          JAVA
+          python3 - <<'PY'
+          p='android/app/src/main/AndroidManifest.xml'
+          s=open(p).read()
+          filters=r'''
+              <!-- RumboGpx: Rumbo aparece en "Abrir por..." para archivos .gpx -->
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="content" />
+                  <data android:scheme="file" />
+                  <data android:mimeType="application/gpx+xml" />
+                  <data android:mimeType="application/gpx" />
+                  <data android:mimeType="application/x-gpx+xml" />
+                  <data android:mimeType="application/x-gpx" />
+                  <data android:mimeType="text/gpx" />
+              </intent-filter>
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="content" />
+                  <data android:scheme="file" />
+                  <data android:mimeType="*/*" />
+                  <data android:host="*" />
+                  <data android:pathPattern=".*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\..*\\..*\\.gpx" />
+              </intent-filter>
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="content" />
+                  <data android:scheme="file" />
+                  <data android:host="*" />
+                  <data android:pathPattern=".*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\..*\\..*\\.gpx" />
+              </intent-filter>
+              <intent-filter>
+                  <action android:name="android.intent.action.SEND" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <data android:mimeType="application/gpx+xml" />
+                  <data android:mimeType="application/gpx" />
+              </intent-filter>
+          '''
+          i=s.index('</activity>')
+          s=s[:i]+filters+'    '+s[i:]
+          open(p,'w').write(s)
+          print(s)
+          PY
+
       - name: Firma fija (para poder actualizar sin desinstalar)
         env:
           KS: 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
@@ -106,9 +294,11 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Reintentar sin voz del sistema (solo si falló la compilación)
+      - name: Reintentar sin voz del sistema ni apertura de GPX (solo si falló la compilación)
         if: steps.build.outcome == 'failure'
         run: |
+          D=android/app/src/main/java/com/profehugo/rumbo
+          cp "$D/MainActivity.java.orig" "$D/MainActivity.java" && rm -f "$D/RumboOpenPlugin.java" || true
           npm uninstall --legacy-peer-deps @capacitor-community/text-to-speech
           npx cap sync android
           cd android && ./gradlew assembleDebug --no-daemon
