@@ -1842,6 +1842,27 @@ function projSeg(a,b,p){
   let t=L2>0?(px*bx+py*by)/L2:0;t=Math.max(0,Math.min(1,t));
   return {t,pt:[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t],d:Math.hypot(px-t*bx,py-t*by)};
 }
+/* Arma una ruta "fija" (se guía siguiendo la línea, sin calles) a partir de una lista de puntos [lat,lon] */
+function routeFromLine(raw,o){
+  o=o||{};
+  const back=raw.filter((p,i)=>i===0||hav(raw[i-1],p)>0.5);
+  if(back.length<2)back.push(raw[raw.length-1]);
+  const coords=simplifyDP(back,o.tol||5);
+  const cd=[0];for(let i=1;i<coords.length;i++)cd.push(cd[i-1]+hav(coords[i-1],coords[i]));
+  const dist=cd[cd.length-1],speed=o.speed>0.3?o.speed:1.1;
+  const steps=[{text:o.startText||'Seguí la línea del recorrido',dist:0,at:0,ico:o.startIco||'🧭',kind:'start'}];
+  for(let k=1;k<coords.length-1;k++){
+    const l1=cd[k]-cd[k-1],l2=cd[k+1]-cd[k];
+    if(l1<12||l2<12)continue;
+    const turn=((bearingTo(coords[k],coords[k+1])-bearingTo(coords[k-1],coords[k])+540)%360)-180,ab=Math.abs(turn);
+    if(ab<40)continue;
+    const right=turn>0;
+    steps.push({text:(ab>=135?'Giro muy cerrado a la ':'Girá a la ')+(right?'derecha':'izquierda'),dist:l2,at:cd[k],ico:ab>=135?'↩️':right?'➡️':'⬅️',kind:'turn'});
+  }
+  steps.push({text:o.endText||'Llegaste al final del recorrido',dist:0,at:dist,ico:'🏁',kind:'end'});
+  for(let i=0;i<steps.length-1;i++)steps[i].dist=steps[i+1].at-steps[i].at;
+  return {mode:o.mode||'foot',pref:'fast',dist,time:dist/speed,avgKmh:null,avgStops:0,coords,eids:[],elen:[],stairs:0,steps,up:0,down:0,hasZ:false,ferry:null,fixed:true,back:!!o.back,offTrack:o.offTrack||0,from:o.fromKm||0};
+}
 /* Ruta de regreso por la huella: desde tu posición hacia atrás por los puntos grabados hasta el inicio */
 function backtrackRoute(track,cur,o){
   o=o||{};
@@ -1851,23 +1872,23 @@ function backtrackRoute(track,cur,o){
   for(let i=1;i<P.length;i++){const pr=projSeg(P[i-1],P[i],cur);if(pr.d<best.d)best={d:pr.d,i:i-1,pt:pr.pt};}
   const raw=[cur,best.pt];
   for(let i=best.i;i>=0;i--)raw.push(P[i]);
-  const back=raw.filter((p,i)=>i===0||hav(raw[i-1],p)>0.5);
-  if(back.length<2)back.push(P[0]);
-  const coords=simplifyDP(back,o.tol||5);
-  const cd=[0];for(let i=1;i<coords.length;i++)cd.push(cd[i-1]+hav(coords[i-1],coords[i]));
-  const dist=cd[cd.length-1],speed=o.speed>0.3?o.speed:1.1;
-  const steps=[{text:'Volvé por tu huella hacia el inicio',dist:0,at:0,ico:'↩️',kind:'start'}];
-  for(let k=1;k<coords.length-1;k++){
-    const l1=cd[k]-cd[k-1],l2=cd[k+1]-cd[k];
-    if(l1<12||l2<12)continue;
-    const turn=((bearingTo(coords[k],coords[k+1])-bearingTo(coords[k-1],coords[k])+540)%360)-180,ab=Math.abs(turn);
-    if(ab<40)continue;
-    const right=turn>0;
-    steps.push({text:(ab>=135?'Giro muy cerrado a la ':'Girá a la ')+(right?'derecha':'izquierda'),dist:l2,at:cd[k],ico:ab>=135?'↩️':right?'➡️':'⬅️',kind:'turn'});
-  }
-  steps.push({text:'Llegaste al punto de partida',dist:0,at:dist,ico:'🏁',kind:'end'});
-  for(let i=0;i<steps.length-1;i++)steps[i].dist=steps[i+1].at-steps[i].at;
-  return {mode:o.mode||'foot',pref:'fast',dist,time:dist/speed,avgKmh:null,avgStops:0,coords,eids:[],elen:[],stairs:0,steps,up:0,down:0,hasZ:false,ferry:null,fixed:true,back:true,offTrack:best.d};
+  return routeFromLine(raw,Object.assign({},o,{startText:'Volvé por tu huella hacia el inicio',startIco:'↩️',endText:'Llegaste al punto de partida',back:true,offTrack:best.d}));
+}
+/* Seguir un recorrido ya hecho (de Garmin, de otro GPX o grabado) de inicio a fin.
+   Si estás a menos de 150 m de la línea, arranca desde el punto más cercano; si no, desde el comienzo. */
+function followTrackRoute(track,cur,o){
+  o=o||{};
+  const P=track.map(p=>[p[0],p[1]]);
+  if(P.length<2)return {error:'El recorrido tiene muy pocos puntos'};
+  let best={d:Infinity,i:0,pt:P[0]};
+  for(let i=1;i<P.length;i++){const pr=projSeg(P[i-1],P[i],cur);if(pr.d<best.d)best={d:pr.d,i:i-1,pt:pr.pt};}
+  const dStart=hav(cur,P[0]);
+  if(dStart<=40)best={d:dStart,i:0,pt:P[0]};          /* parado en la largada: se empieza del principio aunque sea un circuito */
+  const near=best.d<=150;
+  const raw=near?[cur,best.pt]:[];
+  for(let i=near?best.i+1:0;i<P.length;i++)raw.push(P[i]);
+  let skipped=0;if(near)for(let i=1;i<=best.i;i++)skipped+=hav(P[i-1],P[i]);
+  return routeFromLine(raw,Object.assign({},o,{startText:near&&skipped>100?'Seguí el recorrido desde donde estás':'Seguí el recorrido desde el inicio',endText:'Llegaste al final del recorrido',offTrack:best.d,fromKm:skipped}));
 }
 
 
@@ -2514,6 +2535,14 @@ function parseGPX(txt){
     }
     if(pts.length>1)tracks.push({name:tx(trk,'name')||'Track importado',pts});
   }
+  for(const rte of d.getElementsByTagName('rte')){
+    const pts=[];
+    for(const p of rte.getElementsByTagName('rtept')){
+      const lat=+p.getAttribute('lat'),lon=+p.getAttribute('lon');if(isNaN(lat)||isNaN(lon))continue;
+      const ele=tx(p,'ele');pts.push([lat,lon,0,0,ele!=null&&ele!==''?Math.round(+ele):null,0]);
+    }
+    if(pts.length>1)tracks.push({name:tx(rte,'name')||'Ruta importada',pts});
+  }
   return {tracks,wpts};
 }
 async function importFile(){
@@ -2596,6 +2625,8 @@ async function showTrackDetail(id){
       <button class="btn primary" data-act="map">Ver en el mapa</button>
       <button class="btn" data-act="gpx">Compartir GPX</button>
       <button class="btn" data-act="anal">Medir con un circuito</button>
+      <button class="btn primary" data-act="follow">🧭 Guiarme por este recorrido</button>
+      <button class="btn" data-act="followrev">↩︎ Hacerlo al revés</button>
       <button class="btn" data-act="topath">Usar como sendero en la red</button>
       <button class="btn danger" data-act="del">Borrar</button>
     </div>`,
@@ -2604,6 +2635,8 @@ async function showTrackDetail(id){
       else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);showTrackDetail(id);}
       else if(a==='gpx')shareFile((tr.name.replace(/[^\w\-]+/g,'_')||'track')+'.gpx',toGPX([tr],[],esc),'application/gpx+xml');
       else if(a==='anal')showAnalPick(id);
+      else if(a==='follow')startFollow(tr,false);
+      else if(a==='followrev')startFollow(tr,true);
       else if(a==='topath')showTrackToPath(id);
       else if(a==='del'&&armed(el)){await removeRunsOfTrack(id);await DB.del('kv','track:'+id);toast('Borrado');showTracks();}
     },
@@ -3374,7 +3407,7 @@ function navOnFix(f){
 }
 async function navRecalc(f){
   if(NAV.N&&NAV.N.route.fixed){            /* volviendo por la huella: no se recalcula con calles, se te guía de nuevo hacia la línea */
-    if(Date.now()-NAV.lastRecalc>20000){NAV.lastRecalc=Date.now();navSay('Te alejaste de tu huella. Volvé hacia la línea marcada.');}
+    if(Date.now()-NAV.lastRecalc>20000){NAV.lastRecalc=Date.now();navSay('Te alejaste de la línea. Volvé hacia la línea marcada.');}
     return;
   }
   if(NAV.busy||Date.now()-NAV.lastRecalc<12000)return;
@@ -4724,8 +4757,16 @@ function showIncoming(){
   openSheet('Archivo recibido',`<p><b>📄 ${esc(INC.name)}</b></p>${rows}
     ${g.wpts.length?`<p class="mut">${g.wpts.length} punto${g.wpts.length>1?'s':''} marcado${g.wpts.length>1?'s':''}</p>`:''}
     <p class="mut">Ya lo ves en el mapa. Si lo guardás, queda en Recorridos.</p>
-    <div class="row"><button class="btn primary" data-act="save">💾 Guardar en Recorridos</button><button class="btn" data-act="look">Solo mirarlo</button></div>`,
-    async a=>{if(a==='save')await saveIncoming();else if(a==='look')closeSheet();});
+    <div class="row"><button class="btn primary" data-act="follow">🧭 Guiarme por este recorrido</button></div>
+    <div class="row" style="margin-top:6px"><button class="btn" data-act="save">💾 Guardar en Recorridos</button><button class="btn" data-act="look">Solo mirarlo</button></div>`,
+    async a=>{
+      if(a==='save')await saveIncoming();
+      else if(a==='look')closeSheet();
+      else if(a==='follow'){
+        const t=INC.g.tracks.slice().sort((x,y)=>y.pts.length-x.pts.length)[0];
+        await startFollow({name:t.name,pts:t.pts,stats:calcStats(t.pts)},false);
+      }
+    });
 }
 async function saveIncoming(){
   const g=INC.g,have=await DB.all('kv','track:');
@@ -4747,6 +4788,21 @@ async function saveIncoming(){
 }
 window.addEventListener('rumboOpen',checkIntent);
 
+
+/* Guía paso a paso siguiendo un recorrido (ruta fija, sin calles): de inicio a fin o al revés */
+async function startFollow(tr,rev){
+  if(!lastFix){toast('Todavía no hay señal de GPS: sin tu posición no puedo guiarte',5000);return;}
+  const here=[lastFix.lat,lastFix.lon],pts=rev?tr.pts.slice().reverse():tr.pts;
+  const st=tr.stats||calcStats(tr.pts),mode=tr.act==='bike'?'bike':tr.act==='car'?'car':'foot';
+  const spd=st&&st.avg>0.3&&isFinite(st.avg)?st.avg*0.95:(mode==='foot'?1.2:mode==='bike'?4.5:12);
+  const r=followTrackRoute(pts,here,{speed:spd,mode});
+  if(r.error){toast(r.error,4000);return;}
+  const end=pts[pts.length-1];
+  RT.res={};RT.res[mode]=r;RT.sel=mode;RT.cands=[];
+  RT.to={lat:end[0],lon:end[1],label:(rev?'Inicio de ':'Final de ')+tr.name};RT.from=null;RT.calcFrom={lat:here[0],lon:here[1]};
+  if(r.offTrack>150)toast(`Estás a ${fmtD(r.offTrack)} del recorrido: andá hasta ${rev?'su final':'su comienzo'} y te voy guiando por la línea.`,9000);
+  await startNav();
+}
 /* ---------- Clima (Open-Meteo), radar de lluvia (Rain Viewer) y Retorno seguro ---------- */
 async function fetchJson(url){
   try{const r=await fetch(url);if(!r.ok)throw new Error('http '+r.status);return await r.json();}
