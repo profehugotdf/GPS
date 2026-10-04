@@ -2662,6 +2662,52 @@ async function showAnalPick(id){
     });
 }
 
+
+/* ---------- Usar un recorrido como sendero de la red (las rutas pueden pasar por él) ---------- */
+async function showTrackToPath(id){
+  const tr=await DB.get('kv','track:'+id);if(!tr){showTracks();return;}
+  await toPathForm(tr,{kind:'sendero',name:tr.name,tol:5});
+}
+function toPathPts(tr,tol){
+  const ll=tr.pts.map(p=>[p[0],p[1]]);
+  let sp=simplifyDP(ll,tol);
+  if(sp.length>2500)sp=simplifyDP(ll,tol*3);
+  return sp;
+}
+async function toPathForm(tr,st){
+  const sp=toPathPts(tr,st.tol),len=polyLen(sp,false);
+  const KINDS=['sendero','camino','calle','ciclovia','peatonal'];
+  openSheet('Usar como sendero en la red',`
+    <p class="mut">Convierte este recorrido en un camino de tu red: el calculador de rutas va a poder pasar por él. Los extremos se pegan solos a las calles que estén cerca.</p>
+    <label>Tipo de camino</label>
+    <div class="chips">${KINDS.map(k=>`<button data-act="tpk" data-k="${k}" class="${k===st.kind?'on':''}">${KIND_UI[k][0]} ${KIND_UI[k][1].split(' ')[0]}</button>`).join('')}</div>
+    <label for="tpn">Nombre</label><input class="in" id="tpn" value="${esc(st.name)}">
+    <p class="mut">${tr.pts.length} puntos del recorrido → ${sp.length} en la red · ${fmtD(len)}. Las pausas se ignoran: el camino queda continuo.</p>
+    <div class="row" style="margin-top:10px"><button class="btn primary" data-act="ok">Agregar a la red</button><button class="btn" data-act="back">Volver</button></div>`,
+    async(a,d)=>{
+      if(a==='tpk'){st.kind=d.k;toPathForm(tr,st);}
+      else if(a==='back')showTrackDetail(tr.id);
+      else if(a==='ok')await toPathSave(tr,st,sp);
+    },
+    t=>{if(t.id==='tpn')st.name=t.value.trim();});
+}
+async function toPathSave(tr,st,sp){
+  const e={type:'path',id:uid(),kind:st.kind,name:st.name||tr.name,oneway:0,pts:sp.map(p=>[+p[0].toFixed(7),+p[1].toFixed(7)]),props:{note:'Desde el recorrido '+tr.name},created:Date.now()};
+  await DB.put('kv','edit:'+e.id,e);
+  dropGraph();vecInvalidate();await drawEdits();
+  let msg='Agregado a la red';
+  try{
+    const g=await ensureGraph(),w=g&&g.W.find(x=>x.id==='u:'+e.id);
+    if(!g)msg='Agregado. Cuando bajes las calles de la zona, las rutas van a poder usarlo.';
+    else if(w){
+      const a=g.adj[w.nodes[0]].length>1,b=g.adj[w.nodes[w.nodes.length-1]].length>1;
+      msg=a&&b?'Agregado y conectado en los dos extremos ✔':(a||b)?'Agregado, pero un extremo no quedó pegado a ninguna calle':'Agregado, pero no quedó pegado a ninguna calle: las rutas lo usan si empezás o terminás sobre él';
+    }
+  }catch(er){}
+  closeSheet();
+  map.fitBounds(L.latLngBounds(e.pts),{padding:[50,50]});
+  toast(msg,6500);
+}
 /* ---------- Puertas, circuitos y récords ---------- */
 const gateLayer=L.layerGroup().addTo(map);
 let editingCirc=null,draw=null;
