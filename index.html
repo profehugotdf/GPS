@@ -296,6 +296,35 @@ body.night .wxal.warn{background:#4A3B10;color:#FFE08A}body.night .wxal.danger{b
 .wxh{margin-top:8px}.wxr{display:grid;grid-template-columns:48px 28px 40px 1fr 70px;gap:4px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px}
 .wxr span:last-child{text-align:right}
 .small{font-size:12px}
+
+#tgt{position:fixed;left:12px;top:calc(var(--top) + 56px);z-index:906;display:flex;align-items:center;gap:10px;max-width:calc(100% - 24px);background:rgba(14,42,54,.88);color:#fff;border-radius:18px;padding:6px 14px 6px 8px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+#tgt[hidden]{display:none}
+#tgtArrow{font-size:26px;line-height:1;transition:transform .4s linear;color:#FF8A5C}
+#tgtD{font:800 22px system-ui;line-height:1.1}
+#tgtSub{font:600 12px system-ui;opacity:.85;line-height:1.2}
+#tgtM{font:700 14px system-ui;margin-top:2px;font-variant-numeric:tabular-nums;color:#FFD9C9}
+#tgtD{font-variant-numeric:tabular-nums}
+.tgtm{font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+
+#vedit{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
+#vedit[hidden]{display:none}
+#evInfo{font:700 15px system-ui;margin-top:4px}
+#evHint{display:block;color:var(--mut);font-size:12.5px;margin-top:2px}
+#vedit .nvb{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+#vedit .nvb button{flex:1 1 30%;min-height:40px;border:0;border-radius:12px;background:var(--ink);color:#fff;font:700 14px system-ui}
+#vedit .nvb button[disabled]{opacity:.4}
+#vedit .nvb #evOk{background:#2E7D5B}
+body.night #vedit .nvb button{background:#E4EDEF;color:#0E2A36}
+.evv{width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid #0E2A36;box-sizing:border-box;box-shadow:0 0 3px rgba(0,0,0,.5)}
+.evv.sel{background:#F04A1C;border-color:#fff;transform:scale(1.25)}
+.evm{width:14px;height:14px;margin:2px;border-radius:50%;background:rgba(255,255,255,.55);border:2px solid #0E2A36;box-sizing:border-box}
+
+#trace .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+#trace .chips::-webkit-scrollbar{display:none}
+#trace .chips button{flex:0 0 auto;white-space:nowrap}
+#trace .caph span{display:inline-flex;gap:6px}
+#trace.min>:not(.caph):not(.nvb){display:none}
+#trace.min #trMin{transform:rotate(180deg)}
 </style>
 </head>
 <body>
@@ -326,6 +355,11 @@ body.night .wxal.warn{background:#4A3B10;color:#FFE08A}body.night .wxal.danger{b
   <small id="msHint"></small>
   <div class="nvb"><button id="msUndo">↶ Deshacer</button><button id="msMe">＋ Mi posición</button><button id="msClr">🗑️ Borrar</button><button id="msSave">💾 Guardar</button></div>
 </div>
+<div id="vedit" hidden>
+  <div class="caph"><b id="evTtl">✏️ Editar puntos</b><button id="evX" aria-label="Cerrar">✕</button></div>
+  <div id="evInfo"></div><small id="evHint"></small>
+  <div class="nvb"><button id="evUndo">↶ Deshacer</button><button id="evDel">🗑️ Borrar punto</button><button id="evSimp">🧹 Simplificar</button><button id="evRev">⇄ Invertir</button><button id="evOk">✓ Guardar</button></div>
+</div>
 <div id="nodep" hidden>
   <div class="caph"><b id="npTtl">🚫 Giros prohibidos y barreras</b><button id="npX" aria-label="Cerrar">✕</button></div>
   <small id="npHint">Tocá una esquina (para un giro) o un punto de la calle (para una barrera).</small>
@@ -344,7 +378,7 @@ body.night .wxal.warn{background:#4A3B10;color:#FFE08A}body.night .wxal.danger{b
   </div>
 </div>
 <div id="trace" hidden>
-  <div class="caph"><b id="trTtl">✍️ Calcar</b><button id="trX" aria-label="Cerrar">✕</button></div>
+  <div class="caph"><b id="trTtl">✍️ Calcar</b><span><button id="trMin" aria-label="Achicar">▾</button><button id="trX" aria-label="Cerrar">✕</button></span></div>
   <div class="chips" id="trShape"><button data-s="line">〰️ Línea</button><button data-s="area">⬛ Área</button></div>
   <div class="chips" id="trKind"></div>
   <input class="in" id="trName" placeholder="Nombre (opcional)">
@@ -387,11 +421,12 @@ body.night .wxal.warn{background:#4A3B10;color:#FFE08A}body.night .wxal.danger{b
   <div id="capprog" hidden><div class="bar"><i id="dlbar"></i></div><small id="dlt"></small></div>
   <small id="capmsg"></small>
 </div>
-<div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinFrom">Ⓐ Salir de acá</button><button id="pinVia" hidden>↦ Pasar por</button><button id="pinSave">📍 Guardar</button><button id="pinX">✕</button></div></div>
+<div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinTgt">🎯 Seguir distancia</button><button id="pinFrom">Ⓐ Salir de acá</button><button id="pinVia" hidden>↦ Pasar por</button><button id="pinSave">📍 Guardar</button><button id="pinX">✕</button></div></div>
 <div id="banner" hidden><span id="bTxt"></span><span class="row"><button class="btn sm" id="bUndo" hidden>Deshacer</button><button class="btn sm primary" id="bOk" hidden>Listo</button><button class="btn sm" id="bCancel">Cancelar</button></span></div>
 
 <button id="fNorth" hidden aria-label="Norte arriba">N⬆</button>
 <div id="netpill" hidden></div>
+<div id="tgt" hidden><div id="tgtArrow">➤</div><div><div id="tgtD">—</div><div id="tgtSub"></div><div id="tgtM"></div></div></div>
 <div id="fabs">
   <button id="fAct" aria-label="Actividad">🚴</button>
   <button id="fPts" aria-label="Puntos">📍</button>
@@ -622,7 +657,7 @@ function toGPX(tracks,wpts,esc){
 /* ====================== RED DE CALLES Y RUTAS ====================== */
 const MODES=['foot','bike','car'];
 const KIND_TAGS={sendero:{highway:'path'},escalera:{highway:'steps'},peatonal:{highway:'footway'},ciclovia:{highway:'cycleway'},calle:{highway:'residential'},
-  camino:{highway:'track'},servicio:{highway:'service'},principal:{highway:'secondary'},ruta:{highway:'primary'},ferry:{route:'ferry'},nivel:{contour:'elevation'},medida:{measure:'yes'}};
+  camino:{highway:'track'},servicio:{highway:'service'},principal:{highway:'secondary'},ruta:{highway:'primary'},ferry:{route:'ferry'},nivel:{contour:'elevation'},medida:{measure:'yes'},costa:{natural:'coastline'},limite:{boundary:'administrative'},rio:{waterway:'river'}};
 /* "clave=valor" por línea -> pares válidos */
 function parseTagLines(s){
   const out=[];
@@ -639,6 +674,7 @@ function userTags(p){
   if(p.name)t.name=p.name;
   if(q.ref)t.ref=q.ref;
   if(q.ele>0)t.ele=String(Math.round(q.ele));
+  if(p.kind==='limite'&&q.level>0)t.admin_level=String(q.level);
   if(q.maxspeed>0)t.maxspeed=String(Math.round(q.maxspeed));
   if(ac.foot===false)t.foot='no';
   if(ac.bike===false)t.bicycle='no';
@@ -1906,6 +1942,80 @@ function sunInfo(lat,lon,now){
   const prev=[...uniq].reverse().find(e=>e.t<=now),next=uniq.find(e=>e.t>now);
   return {day:!!prev&&prev.k==='rise',prev,next};
 }
+
+
+/* ====================== DIBUJO VECTORIAL: IMPORTAR Y EDITAR ====================== */
+const GEO_NAME=['name','Name','NAME','nombre','Nombre','NOMBRE','nam','NAM','fna','FNA','gna','GNA','NAME_1','NAME_EN','admin','ADMIN'];
+const geoName=p=>{if(!p)return '';for(const k of GEO_NAME)if(p[k]&&typeof p[k]==='string')return p[k].trim();return '';};
+/* GeoJSON → lista de {type:'line'|'area', name, pts:[[lat,lon]…]} (los anillos de polígonos vienen como 'ring') */
+function geoFeatures(gj){
+  const out=[];
+  const ln=(c)=>c.map(p=>[p[1],p[0]]).filter(p=>isFinite(p[0])&&isFinite(p[1]));
+  const add=(g,name,props)=>{
+    if(!g)return;
+    switch(g.type){
+      case 'LineString':{const pts=ln(g.coordinates);if(pts.length>1)out.push({type:'line',name,props,pts});break;}
+      case 'MultiLineString':for(const c of g.coordinates){const pts=ln(c);if(pts.length>1)out.push({type:'line',name,props,pts});}break;
+      case 'Polygon':g.coordinates.forEach((r,i)=>{const pts=ln(r);if(pts.length>3)out.push({type:'ring',hole:i>0,name,props,pts:pts.slice(0,-1)});});break;
+      case 'MultiPolygon':for(const poly of g.coordinates)poly.forEach((r,i)=>{const pts=ln(r);if(pts.length>3)out.push({type:'ring',hole:i>0,name,props,pts:pts.slice(0,-1)});});break;
+      case 'GeometryCollection':for(const x of g.geometries||[])add(x,name,props);break;
+      default:break;
+    }
+  };
+  const walk=(x)=>{
+    if(!x)return;
+    if(x.type==='FeatureCollection')(x.features||[]).forEach(walk);
+    else if(x.type==='Feature')add(x.geometry,geoName(x.properties),x.properties||{});
+    else add(x,'',{});
+  };
+  walk(gj);
+  return out;
+}
+/* Respuesta de Overpass (costas y límites con geometría) → líneas con tipo y nivel; los tramos compartidos entre provincias se guardan una sola vez */
+function osmLinework(j){
+  const coast=new Map(),border=new Map();
+  const toPts=g=>g.filter(q=>q&&q.lat!=null).map(q=>[q.lat,q.lon]);
+  for(const el of j.elements||[]){
+    if(el.type==='way'&&el.geometry&&el.tags&&el.tags.natural==='coastline'){
+      const pts=toPts(el.geometry);if(pts.length>1)coast.set(el.id,{kind:'costa',name:'',pts});
+    }else if(el.type==='relation'&&el.members){
+      const lvl=+(el.tags&&el.tags.admin_level)||4,nm=(el.tags&&el.tags.name)||'';
+      for(const m of el.members){
+        if(m.type!=='way'||!m.geometry)continue;
+        const pts=toPts(m.geometry);if(pts.length<2)continue;
+        const cur=border.get(m.ref);
+        if(!cur)border.set(m.ref,{kind:'limite',level:lvl,names:nm?[nm]:[],pts});
+        else{cur.level=Math.min(cur.level,lvl);if(nm&&!cur.names.includes(nm)&&cur.names.length<2)cur.names.push(nm);}
+      }
+    }
+  }
+  const lines=[];
+  for(const v of coast.values())lines.push({type:'line',kind:'costa',name:v.name,pts:v.pts});
+  for(const v of border.values())lines.push({type:'line',kind:'limite',level:v.level,name:v.names.join(' / '),pts:v.pts});
+  return lines;
+}
+/* Simplifica todas las líneas con una tolerancia (m) y las limita a un máximo de puntos totales */
+function simplifyAll(lines,tol,maxPts){
+  let t=tol;
+  for(let k=0;k<6;k++){
+    const res=lines.map(l=>Object.assign({},l,{pts:simplifyDP(l.pts,t)})).filter(l=>l.pts.length>1&&polyLen(l.pts,false)>=Math.max(10,t*2));
+    const n=res.reduce((a,l)=>a+l.pts.length,0);
+    if(n<=maxPts||k===5)return {lines:res,tol:t,points:n};
+    t*=2;
+  }
+}
+/* operaciones del editor de puntos */
+function vInsert(pts,i,closed){            /* inserta un punto en el medio del tramo i → i+1 */
+  const n=pts.length,j=(i+1)%n;
+  if(!closed&&i>=n-1)return pts.slice();
+  const m=[(pts[i][0]+pts[j][0])/2,(pts[i][1]+pts[j][1])/2];
+  const r=pts.slice();r.splice(i+1,0,m);return r;
+}
+function vDelete(pts,i,closed){
+  const min=closed?3:2;
+  if(pts.length<=min)return pts.slice();
+  const r=pts.slice();r.splice(i,1);return r;
+}
 /*</pure>*/
 
 /* ---------- Utilidades ---------- */
@@ -2858,8 +2968,8 @@ async function onDrawClick(e){
 
 /* ---------- Red de calles y rutas ---------- */
 const MI={foot:'🚶',bike:'🚴',car:'🚗'},MC={foot:'#1E6BFF',bike:'#2E7D5B',car:'#F04A1C'},MN={foot:'A pie',bike:'En bici',car:'En auto'};
-const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],calle:['🏘️','Calle'],ciclovia:['🚲','Ciclovía'],peatonal:['🚶','Paso peatonal'],camino:['🛤️','Camino de ripio o tierra'],medida:['📏','Medición'],servicio:['🅿️','Calle de servicio'],principal:['🚗','Calle principal'],ruta:['🛣️','Ruta'],ferry:['⛴️','Ferry'],nivel:['〰️','Curva de nivel']};
-const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',camino:'#8E5B2B',medida:'#F04A1C',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E'};
+const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],calle:['🏘️','Calle'],ciclovia:['🚲','Ciclovía'],peatonal:['🚶','Paso peatonal'],camino:['🛤️','Camino de ripio o tierra'],medida:['📏','Medición'],costa:['🌊','Costa'],limite:['🚩','Límite'],rio:['🏞️','Río o arroyo'],servicio:['🅿️','Calle de servicio'],principal:['🚗','Calle principal'],ruta:['🛣️','Ruta'],ferry:['⛴️','Ferry'],nivel:['〰️','Curva de nivel']};
+const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',camino:'#8E5B2B',medida:'#F04A1C',costa:'#1F5F8B',limite:'#9B3FA0',rio:'#4A90D9',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E'};
 const routeLayer=L.layerGroup().addTo(map),editLayer=L.layerGroup().addTo(map),pickLayer=L.layerGroup().addTo(map);
 const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente']];
 const CAND_COL=['#1E6BFF','#F04A1C','#2E7D5B','#9B59B6','#E0A100'];
@@ -3244,7 +3354,7 @@ async function drawEdits(){
     L.polyline(e.pts,{color:KCOL[e.kind]||'#B0157A',weight:4,dashArray:'6 6',interactive:false}).addTo(editLayer);
     /* franja ancha e invisible: tocar un trazo abre sus propiedades */
     L.polyline(e.pts,{color:'#000',weight:22,opacity:.001}).on('click',ev=>{
-      if(TR.on||GE.on||CAP.on||PICK||draw||REC.state!=='idle'||NAV.on||sheet.classList.contains('open'))return;
+      if(TR.on||GE.on||CAP.on||PICK||draw||EV.on||MS.on||REC.state!=='idle'||NAV.on||sheet.classList.contains('open'))return;
       if(ev&&ev.originalEvent)ev.originalEvent._owned=true;
       showEditPath(e.id);
     }).addTo(editLayer);
@@ -3253,7 +3363,7 @@ async function drawEdits(){
     const cl=areaRestricted(e);
     L.polygon(e.pts,{color:cl?'#D0392B':'#6B7B85',weight:2,dashArray:'6 4',fillColor:AREA_COL[e.kind]||'#E0DCD2',fillOpacity:.3,interactive:false}).addTo(editLayer);
     L.polyline(e.pts.concat([e.pts[0]]),{color:'#000',weight:22,opacity:.001}).on('click',ev=>{
-      if(TR.on||GE.on||CAP.on||NP.on||PICK||draw||REC.state!=='idle'||NAV.on||sheet.classList.contains('open'))return;
+      if(TR.on||GE.on||CAP.on||NP.on||PICK||draw||EV.on||MS.on||REC.state!=='idle'||NAV.on||sheet.classList.contains('open'))return;
       if(ev&&ev.originalEvent)ev.originalEvent._owned=true;
       showEditArea(e.id);
     }).addTo(editLayer);
@@ -3277,11 +3387,15 @@ async function showFix(){
   let h=`<p class="mut">Red de calles: ${nets.length?`${nW} tramos en ${nets.length} zona${nets.length>1?'s':''}`:'todavía no descargaste ninguna'}.</p>
     <div class="row"><button class="btn primary" data-act="cap">📐 Elegir la zona en el mapa</button></div>
     <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar 25 × 25 km centrados':'Bajar 25 × 25 km centrados'}</button>${nets.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button><button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div><p id="netmsg" class="mut"></p>`;
-  if(nets.length)h+=`<h3>Corregir el mapa</h3>
-    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">✍️<br>Calcar sobre la imagen</button><button class="btn big" data-act="pickway">↔️<br>Sentido o cierre de una calle</button><button class="btn big" data-act="nodes">🚫<br>Giros prohibidos y barreras</button></div>`;
-  if(edits.length)h+=`<h3>Tus correcciones (${edits.length})</h3>`+edits.map(e=>{
+  h+=`<h3>Dibujo vectorial (costas, límites, ríos…)</h3>
+    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">✍️<br>Calcar o dibujar</button><button class="btn big" data-act="geoimp">📥<br>Importar GeoJSON</button><button class="btn big" data-act="osmcl">🌊<br>Costas y límites de OpenStreetMap</button><button class="btn big" data-act="meas">📏<br>Medir</button></div>`;
+  if(nets.length)h+=`<h3>Corregir las calles</h3>
+    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="pickway">↔️<br>Sentido o cierre de una calle</button><button class="btn big" data-act="nodes">🚫<br>Giros prohibidos y barreras</button></div>`;
+  const gs=groupsOf(edits),singles=edits.filter(e=>!e.group);
+  if(gs.length)h+=`<h3>Importado</h3>`+groupHtml(gs);
+  if(singles.length)h+=`<h3>Tus correcciones (${singles.length})</h3>`+singles.map(e=>{
     const t=editTitle(e);
-    return `<div class="item"><div><b>${t}</b><br><small class="mut">${fmtDate(e.created)}${e.type==='path'?propsLine(e):e.type==='area'?areaLine(e):e.type==='turn'?` · ${e.kind==='only'?'solo hacia ahí':'prohibido'} · ${e.modes.car?'autos':''}${e.modes.car&&e.modes.bike?' y ':''}${e.modes.bike?'bicis':''}`:e.type==='barrier'?` · corta ${['foot','bike','car'].filter(m=>e.modes[m]).map(m=>({foot:'peatones',bike:'bicis',car:'autos'})[m]).join(', ')}`:''}</small></div><div class="row"><button class="btn sm" data-act="eview" data-id="${e.id}">Ver</button>${e.type==='path'?`<button class="btn sm" data-act="etr" data-id="${e.id}">Editar</button>`:e.type==='area'?`<button class="btn sm" data-act="ear" data-id="${e.id}">Editar</button>`:''}<button class="btn sm danger" data-act="edel" data-id="${e.id}">Quitar</button></div></div>`;
+    return `<div class="item"><div><b>${t}</b><br><small class="mut">${fmtDate(e.created)}${e.type==='path'?propsLine(e):e.type==='area'?areaLine(e):e.type==='turn'?` · ${e.kind==='only'?'solo hacia ahí':'prohibido'} · ${e.modes.car?'autos':''}${e.modes.car&&e.modes.bike?' y ':''}${e.modes.bike?'bicis':''}`:e.type==='barrier'?` · corta ${['foot','bike','car'].filter(m=>e.modes[m]).map(m=>({foot:'peatones',bike:'bicis',car:'autos'})[m]).join(', ')}`:''}</small></div><div class="row"><button class="btn sm" data-act="eview" data-id="${e.id}">Ver</button>${e.type==='path'||e.type==='area'?`<button class="btn sm" data-act="${e.type==='path'?'etr':'ear'}" data-id="${e.id}">Datos</button><button class="btn sm" data-act="evx" data-id="${e.id}">Puntos</button>`:''}<button class="btn sm danger" data-act="edel" data-id="${e.id}">Quitar</button></div></div>`;
   }).join('');
   if(edits.some(x=>x.type==='path'||x.type==='area'||x.type==='turn'||x.type==='barrier'))h+=`<h3>Exportar lo calcado</h3><p class="mut">Para usarlo en otros programas (OsmAnd, QGIS, JOSM…).</p><div class="row"><button class="btn" data-act="expg">GeoJSON</button><button class="btn" data-act="expx">GPX</button></div>`;
   openSheet('Correcciones',h,async(a,d,el)=>{
@@ -3293,6 +3407,12 @@ async function showFix(){
     else if(a==='etr')showEditPath(d.id);
     else if(a==='ear')showEditArea(d.id);
     else if(a==='nodes')openNodeTool();
+    else if(a==='geoimp')pickGeoFile();
+    else if(a==='osmcl')osmCoastLimits();
+    else if(a==='meas')openMeasure();
+    else if(a==='evx')openVEdit(d.id);
+    else if(a==='gview'){const it=edits.filter(x=>x.group&&x.group.id===d.id);closeSheet();setFollow(false);map.fitBounds(L.latLngBounds(it.flatMap(x=>x.pts)),{padding:[40,40]});}
+    else if(a==='gdel'){if(armed(el)){for(const x of edits.filter(x=>x.group&&x.group.id===d.id))await DB.del('kv','edit:'+x.id);vecInvalidate();await drawEdits();toast('Quitado');showFix();}}
     else if(a==='expg')exportTraced('geojson');
     else if(a==='expx')exportTraced('gpx');
     else if(a==='pickway'){PICK={type:'way'};closeSheet();banner('Tocá la calle que querés corregir');}
@@ -3394,7 +3514,7 @@ function undoPick(){
   PICK.pts.pop();const m=PICK.mk.pop();if(m)pickLayer.removeLayer(m);PICK.line.setLatLngs(PICK.pts);
   banner(`Sendero: ${PICK.pts.length} punto${PICK.pts.length===1?'':'s'}. Tocá el siguiente o "Listo".`,{undo:PICK.pts.length>0,ok:PICK.pts.length>=2});
 }
-map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);else if(GE.on)gateTap(e);else if(TR.on)traceTap(e);else if(NP.on)nodeTap(e);else if(MS.on)measTap(e);else onMapTap(e);});
+map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);else if(GE.on)gateTap(e);else if(TR.on)traceTap(e);else if(NP.on)nodeTap(e);else if(MS.on)measTap(e);else if(EV.on)evTap(e);else onMapTap(e);});
 $('#bCancel').onclick=()=>{if(draw)cancelDraw();else if(PICK)cancelPick();};
 $('#bUndo').onclick=undoPick;
 $('#bOk').onclick=()=>{if(PICK&&PICK.type==='path')finishPath();};
@@ -3759,6 +3879,11 @@ async function goToPin(){
 }
 $('#pinGo').onclick=goToPin;
 $('#pinX').onclick=hidePin;
+$('#pinTgt').onclick=()=>{
+  if(!PIN)return;
+  const l=PIN.label||'Punto elegido';
+  setTarget(PIN.lat,PIN.lon,l);hidePin();toast('Siguiendo la distancia en línea recta',3000);
+};
 $('#pinFrom').onclick=async()=>{
   if(!PIN)return;
   RT.from={lat:PIN.lat,lon:PIN.lon,label:PIN.label};RT.res=null;RT.cands=[];
@@ -4106,8 +4231,9 @@ function areaForm(st,title,onSave,onBack){
     <label for="az">Se ve en el mapa de calles desde el zoom (vacío = automático)</label><input class="in" id="az" type="number" min="5" max="19" value="${q.minz||''}">
     <label for="anote">Notas</label><textarea class="in" id="anote" rows="2">${esc(q.note||'')}</textarea>
     <label for="atags">Otras etiquetas (una por línea, clave=valor)</label><textarea class="in" id="atags" rows="2">${esc(q.tags||'')}</textarea>
-    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Guardar</button><button class="btn" data-act="back">Volver</button></div>`,
-    (a,d)=>{
+    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Guardar</button><button class="btn" data-act="back">Volver</button></div>${st.extraHtml||''}`,
+    (a,d,el)=>{
+      if(st.extraAct&&st.extraAct(a,d,el))return;
       if(a==='ak'){
         st.akind=d.k;
         if(d.k==='cerrada'&&!(r.foot||r.bike||r.car)){r.foot=r.bike=r.car=true;}
@@ -4135,6 +4261,15 @@ function areaForm(st,title,onSave,onBack){
 async function showEditArea(id){
   const e=await DB.get('kv','edit:'+id);if(!e){showFix();return;}
   const st={akind:e.kind,name:e.name||'',props:JSON.parse(JSON.stringify(e.props||{}))};
+  st.extraHtml=`<div class="row" style="margin-top:8px"><button class="btn" data-act="evx">✏️ Editar puntos</button><button class="btn danger" data-act="xdel">🗑️ Quitar</button></div>`;
+  st.extraAct=(a,d,el)=>{      /* devuelve true si ya se ocupó de la acción (síncrono; el trabajo pesado va aparte) */
+    if(a==='evx'){openVEdit(id);return true;}
+    if(a==='xdel'){
+      if(armed(el))(async()=>{await DB.del('kv','edit:'+id);dropGraph();vecInvalidate();await drawEdits();closeSheet();toast('Quitado');})();
+      return true;
+    }
+    return false;
+  };
   areaForm(st,'Propiedades del área',async s=>{
     e.kind=s.akind;e.name=s.name;e.props=s.props;
     await DB.put('kv','edit:'+id,e);dropGraph();vecInvalidate();await drawEdits();toast('Área guardada');showFix();
@@ -4398,15 +4533,326 @@ function profSvg(r){
   return `<div class="mprof"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${line} L${W} ${H} L0 ${H} Z" fill="rgba(240,74,28,.22)"/><path d="${line}" fill="none" stroke="#F04A1C" stroke-width="2" vector-effect="non-scaling-stroke"/></svg><span class="a">${mx} m</span><span class="b">${mn} m</span><span class="c">${fmtLen(r.flat)}</span></div>`;
 }
 $('#msRel').onclick=()=>{MS.rel=!MS.rel;S.measRel=MS.rel;saveS();updMeasUi();scheduleRelief();};
+/* ---------- Distancia en línea recta en vivo hacia un objetivo ---------- */
+const TGT={on:false,lat:0,lon:0,label:'',hist:[],armed:true,timer:0,alertAt:30};
+const tgtLine=L.polyline([],{color:'#F04A1C',weight:3,dashArray:'3 8',opacity:.9,interactive:false}).addTo(map);
+let tgtMk=null;
+function setTarget(lat,lon,label){
+  TGT.on=true;TGT.lat=lat;TGT.lon=lon;TGT.label=label||'Objetivo';TGT.hist=[];TGT.armed=true;
+  S.tgt={lat,lon,label:TGT.label};saveS();
+  if(tgtMk)map.removeLayer(tgtMk);
+  tgtMk=L.marker([lat,lon],{interactive:false,zIndexOffset:900,icon:L.divIcon({html:'<div class="tgtm">🎯</div>',className:'',iconSize:[30,30],iconAnchor:[15,26]})}).addTo(map);
+  $('#tgt').hidden=false;
+  clearInterval(TGT.timer);TGT.timer=setInterval(updTarget,1000);
+  updTarget();
+}
+function clearTarget(){
+  TGT.on=false;clearInterval(TGT.timer);TGT.hist=[];
+  S.tgt=null;saveS();
+  if(tgtMk){map.removeLayer(tgtMk);tgtMk=null;}
+  tgtLine.setLatLngs([]);$('#tgt').hidden=true;
+}
+function updTarget(){
+  if(!TGT.on)return;
+  const sub=$('#tgtSub'),arrow=$('#tgtArrow');
+  if(!lastFix){$('#tgtD').textContent='—';sub.textContent=TGT.label+' · esperando GPS';tgtLine.setLatLngs([]);return;}
+  const here=[lastFix.lat,lastFix.lon],there=[TGT.lat,TGT.lon];
+  /* altitud (mediana de las últimas lecturas, para que el ruido del GPS no la haga saltar) y velocidad */
+  const als=fixHist.slice(-5).map(f=>f.alt).filter(v=>v!=null&&isFinite(v)).sort((a,b)=>a-b);
+  const alt=als.length?als[Math.floor(als.length/2)]:null;
+  let spd=lastFix.speed;
+  if(spd==null&&fixHist.length>=2){
+    const a=fixHist[Math.max(0,fixHist.length-4)],b=fixHist[fixHist.length-1],dt=(b.t-a.t)/1000;
+    if(dt>0.5)spd=hav([a.lat,a.lon],[b.lat,b.lon])/dt;
+  }
+  const fresh=Date.now()-lastFixWall<8000;
+  const kmh=spd!=null&&fresh?spd*3.6:null;
+  const pace=kmh!=null&&kmh>=1&&kmh<16?` (${Math.floor(60/kmh)}:${String(Math.round((60/kmh%1)*60)%60).padStart(2,'0')} /km)`:'';
+  $('#tgtM').textContent=fresh
+    ?`⛰️ ${alt!=null?Math.round(alt)+' m':'—'}  ·  ⚡ ${kmh!=null?kmh.toFixed(1)+' km/h'+pace:'—'}`
+    :'Sin lectura de GPS reciente';
+  const d=hav(here,there),brg=bearingTo(here,there);
+  tgtLine.setLatLngs([here,there]);
+  $('#tgtD').textContent=fmtLen(d);
+  /* velocidad de acercamiento: cuánto se achica la distancia por segundo en los últimos ~30 s */
+  const now=Date.now();TGT.hist.push([now,d]);
+  while(TGT.hist.length&&now-TGT.hist[0][0]>30000)TGT.hist.shift();
+  let eta='';
+  if(TGT.hist.length>=8){
+    const a=TGT.hist[0],b=TGT.hist[TGT.hist.length-1],v=(a[1]-b[1])/((b[0]-a[0])/1000);
+    if(v>0.3&&d>TGT.alertAt)eta=` · ${(v*3.6).toFixed(1)} km/h → ${fmtDur(d/v)} en línea recta`;
+  }
+  sub.textContent=`${TGT.label} · ${compassWord(brg)} ${Math.round(brg)}°${eta}`;
+  arrow.style.transform=`rotate(${Math.round(brg-getB())}deg)`;
+  if(d<=TGT.alertAt&&TGT.armed){
+    TGT.armed=false;
+    try{navigator.vibrate&&navigator.vibrate([200,100,200]);}catch(e){}
+    try{navSay&&navSay('Llegaste al objetivo');}catch(e){}
+    toast('🎯 Llegaste al objetivo',5000);
+  }else if(d>TGT.alertAt*2)TGT.armed=true;
+}
+function tgtMenu(){
+  openSheet('Objetivo',`<p><b>${esc(TGT.label)}</b><br><small class="mut">${TGT.lat.toFixed(5)}, ${TGT.lon.toFixed(5)}</small></p>
+    <label for="tga">Avisar al estar a menos de (m)</label><input class="in" id="tga" type="number" min="5" max="2000" value="${TGT.alertAt}">
+    <div class="row" style="margin-top:10px"><button class="btn primary" data-act="route">🧭 Calcular ruta hasta acá</button><button class="btn" data-act="see">Ver en el mapa</button></div>
+    <div class="row" style="margin-top:6px"><button class="btn danger" data-act="off">Dejar de seguir</button></div>`,
+    (a)=>{
+      if(a==='off'){clearTarget();closeSheet();}
+      else if(a==='see'){closeSheet();setFollow(false);map.fitBounds(L.latLngBounds([[lastFix?lastFix.lat:TGT.lat,lastFix?lastFix.lon:TGT.lon],[TGT.lat,TGT.lon]]),{padding:[60,100]});}
+      else if(a==='route'){closeSheet();RT.to={lat:TGT.lat,lon:TGT.lon,label:TGT.label};RT.res=null;ensureGraph().then(g=>{if(g)calcRoutes(g);else showRoutes();});}
+    },
+    t=>{if(t.id==='tga'){TGT.alertAt=Math.max(5,Math.min(2000,+t.value||30));S.tgtAlert=TGT.alertAt;saveS();}});
+}
+$('#tgt').onclick=tgtMenu;
+function restoreTarget(){
+  if(S.tgtAlert)TGT.alertAt=S.tgtAlert;
+  if(S.tgt&&isFinite(S.tgt.lat))setTarget(S.tgt.lat,S.tgt.lon,S.tgt.label);
+}
+
+/* ---------- Importar GeoJSON y bajar costas y límites de OpenStreetMap ---------- */
+const GEO_CAP={feats:400,pts:40000};
+let GI=null;
+function pickGeoFile(){
+  const inp=document.createElement('input');inp.type='file';inp.accept='.geojson,.json,application/geo+json,application/json';
+  inp.onchange=async()=>{
+    const f=inp.files&&inp.files[0];if(!f)return;
+    if(f.size>80e6){toast('El archivo es muy grande (más de 80 MB). Probá con uno más chico o recortado.',7000);return;}
+    let gj;try{gj=JSON.parse(await f.text());}catch(e){toast('Ese archivo no es un GeoJSON válido',6000);return;}
+    const feats=geoFeatures(gj);
+    if(!feats.length){toast('No encontré líneas ni polígonos en ese archivo',6000);return;}
+    startGeoImport(feats,f.name.replace(/\.(geo)?json$/i,''),'archivo');
+  };
+  inp.click();
+}
+function startGeoImport(feats,name,src){
+  const rings=feats.filter(x=>x.type==='ring'),lines=feats.filter(x=>x.type==='line'),pts=feats.reduce((a,x)=>a+x.pts.length,0);
+  GI={feats,name,src,kind:'costa',level:4,mode:rings.length&&!lines.length?'lines':'lines',areaKind:'otro',tol:pts>150000?100:pts>30000?50:20,counts:{lines:lines.length,rings:rings.filter(r=>!r.hole).length,holes:rings.filter(r=>r.hole).length,pts}};
+  showGeoImport();
+}
+function showGeoImport(){
+  const g=GI,c=g.counts,chip=(act,k,cur,txt)=>`<button data-act="${act}" data-k="${k}" class="${String(k)===String(cur)?'on':''}">${txt}</button>`;
+  openSheet('Importar vectores',`<p><b>📄 ${esc(g.name)}</b><br><small class="mut">${c.lines} línea${c.lines===1?'':'s'} · ${c.rings} polígono${c.rings===1?'':'s'}${c.holes?` (con ${c.holes} hueco${c.holes>1?'s':''})`:''} · ${miles(c.pts)} puntos</small></p>
+    ${c.lines||(c.rings&&g.mode==='lines')?`<label>Las líneas son</label><div class="chips">${chip('gk','costa',g.kind,'🌊 Costa')}${chip('gk','limite',g.kind,'🚩 Límite')}${chip('gk','rio',g.kind,'🏞️ Río')}</div>`:''}
+    ${g.kind==='limite'&&(c.lines||g.mode==='lines')?`<label>Qué límite es</label><div class="chips">${[[2,'País'],[4,'Provincia'],[6,'Departamento'],[8,'Municipio']].map(([v,n])=>chip('gl',v,g.level,n)).join('')}</div>`:''}
+    ${c.rings?`<label>Los polígonos se importan como</label><div class="chips">${chip('gm','lines',g.mode,'Solo el contorno (líneas)')}${chip('gm','areas',g.mode,'Áreas rellenas')}</div>`:''}
+    ${c.rings&&g.mode==='areas'?`<label>Tipo de área</label><div class="chips">${['agua','bosque','parque','nieve','playa','otro'].map(k=>chip('ga',k,g.areaKind,AREA_UI[k][0]+' '+AREA_UI[k][1].split(' ')[0])).join('')}</div>`:''}
+    <label>Detalle (se quita lo que no cambia la forma a más de…)</label>
+    <div class="chips">${[[5,'5 m'],[20,'20 m'],[50,'50 m'],[100,'100 m'],[500,'500 m']].map(([v,n])=>chip('gt',v,g.tol,n)).join('')}</div>
+    <p class="mut">Se importan hasta ${GEO_CAP.feats} elementos y ${miles(GEO_CAP.pts)} puntos; si hay más, el detalle baja solo. Todo queda agrupado y lo podés editar punto por punto.</p>
+    <div class="row" style="margin-top:10px"><button class="btn primary" data-act="go">📥 Importar</button><button class="btn" data-act="no">Cancelar</button></div>`,
+    async(a,d)=>{
+      if(a==='gk'){g.kind=d.k;showGeoImport();}
+      else if(a==='gl'){g.level=+d.k;showGeoImport();}
+      else if(a==='gm'){g.mode=d.k;showGeoImport();}
+      else if(a==='ga'){g.areaKind=d.k;showGeoImport();}
+      else if(a==='gt'){g.tol=+d.k;showGeoImport();}
+      else if(a==='no'){GI=null;showFix();}
+      else if(a==='go')await runGeoImport();
+    });
+}
+/* convierte la lista a trazos y áreas guardados, todos del mismo grupo */
+async function runGeoImport(){
+  const g=GI;
+  let items=[];
+  for(const f of g.feats){
+    if(f.type==='line')items.push({kind:g.kind,level:g.level,name:f.name,pts:f.pts,t:'path'});
+    else if(f.type==='ring'){
+      if(g.mode==='areas'){if(!f.hole)items.push({kind:g.areaKind,name:f.name,pts:f.pts,t:'area'});}
+      else items.push({kind:g.kind,level:g.level,name:f.name,pts:f.pts.concat([f.pts[0]]),t:'path'});
+    }
+  }
+  await saveGeoItems(items,g.tol,g.name,g.src,'');
+  GI=null;
+}
+async function saveGeoItems(items,tol,gname,src,attr){
+  const tmp=items.map(i=>Object.assign({},i,{type:'line'}));
+  const sa=simplifyAll(tmp,tol,GEO_CAP.pts);
+  let list=sa.lines;
+  if(list.length>GEO_CAP.feats){list.sort((a,b)=>polyLen(b.pts,false)-polyLen(a.pts,false));list=list.slice(0,GEO_CAP.feats);}
+  if(!list.length){toast('Con ese detalle no quedó nada: probá uno más fino',6000);showGeoImport&&GI&&showGeoImport();return;}
+  const gid=uid(),now=Date.now(),group={id:gid,name:gname,src,attr};
+  let n=0;
+  for(const it of list){
+    const base={id:uid(),kind:it.kind,name:it.name||'',pts:it.pts.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]),props:{},group,created:now};
+    let e;
+    if(it.t==='area')e=Object.assign(base,{type:'area'});
+    else{e=Object.assign(base,{type:'path',oneway:0});if(it.kind==='limite')e.props.level=it.level||4;}
+    await DB.put('kv','edit:'+e.id,e);n++;
+  }
+  vecInvalidate();await drawEdits();
+  const all=list.flatMap(l=>l.pts);
+  closeSheet();
+  if(all.length){setFollow(false);map.fitBounds(L.latLngBounds(all),{padding:[40,40]});}
+  toast(`Importado: ${n} elemento${n===1?'':'s'}, ${miles(sa.points)} puntos (detalle ${sa.tol} m)${n<items.length?' · se descartaron los más cortos':''}`,7000);
+}
+/* costas y límites de OpenStreetMap en la zona que se ve */
+async function osmCoastLimits(){
+  const b=map.getBounds(),bb={s:b.getSouth(),w:b.getWest(),n:b.getNorth(),e:b.getEast()};
+  if(bb.n-bb.s>6||bb.e-bb.w>8){toast('La zona es demasiado grande. Acercá el mapa a unos 600 km de ancho como máximo.',7000);return;}
+  if(!(await netAllowed('bajar costas y límites')))return;
+  closeSheet();toast('Bajando costas y límites de OpenStreetMap…',60000);
+  const bx=`${bb.s.toFixed(4)},${bb.w.toFixed(4)},${bb.n.toFixed(4)},${bb.e.toFixed(4)}`;
+  const q=`[out:json][timeout:90];(way["natural"="coastline"](${bx});rel["boundary"="administrative"]["admin_level"~"^(2|4)$"](${bx}););out geom(${bx});`;
+  let j=null,last;
+  for(const url of OVERPASS){
+    try{
+      const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),100000);
+      const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});
+      clearTimeout(to);if(!r.ok)throw new Error('HTTP '+r.status);
+      j=await r.json();break;
+    }catch(e){last=e;}
+  }
+  if(!j){toast('No se pudo bajar: '+((last&&last.message)||'sin respuesta')+'. Probá de nuevo o con una zona más chica.',8000);return;}
+  const lines=osmLinework(j);
+  if(!lines.length){toast('No hay costas ni límites en esta zona',6000);return;}
+  const c=lines.filter(l=>l.kind==='costa').length,l2=lines.filter(l=>l.kind==='limite'&&l.level===2).length,l4=lines.filter(l=>l.kind==='limite'&&l.level!==2).length;
+  const pts=lines.reduce((a,l)=>a+l.pts.length,0);
+  let tol=pts>150000?100:pts>40000?50:20;
+  const show=()=>openSheet('Costas y límites de OpenStreetMap',`<p>Encontré <b>${c}</b> tramos de costa, <b>${l2}</b> de límite entre países y <b>${l4}</b> de límite entre provincias (${miles(pts)} puntos).</p>
+    <label>Detalle</label><div class="chips">${[[5,'5 m'],[20,'20 m'],[50,'50 m'],[100,'100 m'],[500,'500 m']].map(([v,n])=>`<button data-act="t" data-v="${v}" class="${v===tol?'on':''}">${n}</button>`).join('')}</div>
+    <p class="mut">Datos © colaboradores de OpenStreetMap (licencia ODbL). Se guardan agrupados y los podés editar punto por punto.</p>
+    <div class="row" style="margin-top:10px"><button class="btn primary" data-act="go">📥 Importar</button><button class="btn" data-act="no">Cancelar</button></div>`,
+    async(a,d)=>{
+      if(a==='t'){tol=+d.v;show();}
+      else if(a==='no')showFix();
+      else if(a==='go')await saveGeoItems(lines.map(l=>Object.assign({t:'path'},l)),tol,'Costas y límites (OSM)','osm','© OpenStreetMap');
+    });
+  show();
+}
+/* grupos de elementos importados, en la lista de correcciones */
+function groupsOf(edits){
+  const m=new Map();
+  for(const e of edits)if(e.group){
+    let g=m.get(e.group.id);if(!g){g={group:e.group,items:[],created:e.created};m.set(e.group.id,g);}
+    g.items.push(e);
+  }
+  return [...m.values()].sort((a,b)=>b.created-a.created);
+}
+function groupHtml(gs){
+  return gs.map(g=>{
+    const k={};for(const e of g.items)k[e.kind]=(k[e.kind]||0)+1;
+    const det=Object.entries(k).map(([kk,n])=>`${n} ${(KIND_UI[kk]||AREA_UI[kk]||['','elementos'])[1].toLowerCase()}`).join(', ');
+    return `<div class="item"><div><b>📦 ${esc(g.group.name)}</b><br><small class="mut">${fmtDate(g.created)} · ${det}${g.group.attr?' · '+esc(g.group.attr):''}</small></div><div class="row"><button class="btn sm" data-act="gview" data-id="${g.group.id}">Ver</button><button class="btn sm danger" data-act="gdel" data-id="${g.group.id}">Quitar todo</button></div></div>`;
+  }).join('');
+}
+/* ---------- Editor de puntos de un trazo o un área (mover, agregar, borrar, simplificar) ---------- */
+const EV={on:false,id:null,e:null,pts:[],closed:false,sel:-1,undo:[],dirty:false};
+const evLayer=L.layerGroup().addTo(map),evLine=L.layerGroup().addTo(map);
+const EV_MAX=400;
+async function openVEdit(id){
+  if(TR.on||GE.on||CAP.on||NP.on||MS.on||draw||PICK){toast('Cerrá primero la otra herramienta',4000);return;}
+  const e=await DB.get('kv','edit:'+id);
+  if(!e||!e.pts){showFix();return;}
+  EV.on=true;EV.id=id;EV.e=e;EV.closed=e.type==='area';EV.pts=e.pts.map(p=>[p[0],p[1]]);EV.sel=-1;EV.undo=[];EV.dirty=false;
+  closeSheet();hidePin();setFollow(false);
+  $('#vedit').hidden=false;
+  map.fitBounds(L.latLngBounds(EV.pts),{padding:[40,160],maxZoom:19});
+  evDraw();
+}
+function closeVEdit(){
+  EV.on=false;EV.e=null;EV.pts=[];$('#vedit').hidden=true;evLayer.clearLayers();evLine.clearLayers();
+}
+function evPush(){EV.undo.push(JSON.stringify(EV.pts));if(EV.undo.length>60)EV.undo.shift();EV.dirty=true;}
+function evUndo(){
+  if(!EV.undo.length)return;
+  EV.pts=JSON.parse(EV.undo.pop());EV.sel=-1;evDraw();
+}
+function evInView(){
+  const b=map.getBounds(),dn=(b.getNorth()-b.getSouth())*.15,de=(b.getEast()-b.getWest())*.15;
+  const n=b.getNorth()+dn,s=b.getSouth()-dn,e=b.getEast()+de,w=b.getWest()-de,idx=[];
+  EV.pts.forEach((p,i)=>{if(p[0]<=n&&p[0]>=s&&p[1]<=e&&p[1]>=w)idx.push(i);});
+  return idx;
+}
+function evColor(){return EV.e.type==='area'?'#2E7D5B':(KCOL[EV.e.kind]||'#B0157A');}
+function evDrawLine(){
+  evLine.clearLayers();
+  const c=evColor();
+  if(EV.closed)L.polygon(EV.pts,{color:c,weight:3,fillColor:c,fillOpacity:.12,interactive:false}).addTo(evLine);
+  else{
+    L.polyline(EV.pts,{color:'#fff',weight:7,opacity:.85,interactive:false}).addTo(evLine);
+    L.polyline(EV.pts,{color:c,weight:3.5,interactive:false}).addTo(evLine);
+  }
+  updEvUi();
+}
+function evDraw(){
+  evLayer.clearLayers();evDrawLine();
+  const idx=evInView();
+  if(idx.length>EV_MAX){$('#evHint').textContent=`Hay ${idx.length} puntos a la vista: acercá el mapa para editarlos.`;return;}
+  $('#evHint').textContent='Arrastrá un punto para moverlo. Tocá uno para elegirlo y borrarlo. Los círculos chicos agregan puntos.';
+  const n=EV.pts.length;
+  for(const i of idx){
+    const sel=i===EV.sel;
+    const m=L.marker(EV.pts[i],{draggable:true,zIndexOffset:sel?1800:1500,icon:L.divIcon({html:`<div class="evv${sel?' sel':''}"></div>`,className:'',iconSize:[26,26],iconAnchor:[13,13]})});
+    m.on('click',()=>{EV.sel=EV.sel===i?-1:i;evDraw();});
+    m.on('dragstart',()=>evPush());
+    m.on('drag',ev=>{const ll=ev.target.getLatLng();EV.pts[i]=[ll.lat,ll.lng];evDrawLine();});
+    m.on('dragend',()=>evDraw());
+    m.addTo(evLayer);
+  }
+  if(idx.length<=150){
+    const last=EV.closed?n:n-1;
+    for(let i=0;i<last;i++){
+      const a=EV.pts[i],b=EV.pts[(i+1)%n];
+      if(!idx.includes(i)&&!idx.includes((i+1)%n))continue;
+      const mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];
+      const m=L.marker(mid,{draggable:true,zIndexOffset:1200,icon:L.divIcon({html:'<div class="evm"></div>',className:'',iconSize:[18,18],iconAnchor:[9,9]})});
+      let at=-1;
+      m.on('click',()=>{evPush();EV.pts=vInsert(EV.pts,i,EV.closed);EV.sel=i+1;evDraw();});
+      m.on('dragstart',()=>{evPush();EV.pts=vInsert(EV.pts,i,EV.closed);at=i+1;});
+      m.on('drag',ev=>{if(at<0)return;const ll=ev.target.getLatLng();EV.pts[at]=[ll.lat,ll.lng];evDrawLine();});
+      m.on('dragend',()=>{EV.sel=at;evDraw();});
+      m.addTo(evLayer);
+    }
+  }
+}
+function updEvUi(){
+  const pts=EV.pts;
+  const len=EV.closed?polyLen(pts,true):polyLen(pts,false);
+  $('#evInfo').textContent=`${pts.length} puntos · ${EV.closed?'perímetro':'largo'} ${fmtLen(len)}${EV.closed&&pts.length>=3?' · superficie '+fmtArea(polyArea(pts)):''}`;
+  $('#evTtl').textContent='✏️ '+(EV.e?(EV.e.name||(EV.e.type==='area'?'Área':'Trazo')):'');
+  $('#evUndo').disabled=!EV.undo.length;
+  $('#evDel').disabled=EV.sel<0||pts.length<=(EV.closed?3:2);
+}
+function evDelete(){
+  if(EV.sel<0)return;
+  evPush();EV.pts=vDelete(EV.pts,EV.sel,EV.closed);EV.sel=-1;evDraw();
+}
+function evSimplify(){
+  const tol=Math.max(1,2*mppNow()),before=EV.pts.length;
+  evPush();
+  let s=simplifyDP(EV.pts,tol);
+  if(EV.closed&&s.length<3)s=EV.pts.slice(0,3);
+  EV.pts=s;EV.sel=-1;evDraw();
+  toast(`${before} → ${s.length} puntos (tolerancia ${tol.toFixed(1)} m)`,3500);
+}
+function evReverse(){evPush();EV.pts.reverse();EV.sel=-1;evDraw();}
+async function evSave(){
+  const e=EV.e;
+  e.pts=EV.pts.map(p=>[+p[0].toFixed(7),+p[1].toFixed(7)]);
+  await DB.put('kv','edit:'+e.id,e);
+  if(!NOROUTE.has(e.kind)||e.type==='area')dropGraph();
+  vecInvalidate();closeVEdit();await drawEdits();
+  toast('Puntos guardados',3000);
+}
+function evTap(){if(EV.sel>=0){EV.sel=-1;evDraw();}}
+$('#evUndo').onclick=evUndo;$('#evDel').onclick=evDelete;$('#evSimp').onclick=evSimplify;$('#evRev').onclick=evReverse;
+$('#evOk').onclick=evSave;
+$('#evX').onclick=()=>{
+  if(EV.dirty&&!confirm('¿Descartar los cambios de los puntos?'))return;
+  closeVEdit();
+};
+map.on('moveend',()=>{if(EV.on)evDraw();});
+
 /* ---------- Calcar: dibujar senderos, calles y escaleras sobre la imagen (quedan en el mapa y son ruteables) ---------- */
 const TR={on:false,pts:[],snapped:[],strokes:[],mode:'taps',shape:'line',kind:'sendero',akind:'bosque',oneway:0,props:{},aprops:{},snap:true,saved:0,drawing:false,pid:null};
-const LINE_QUICK=['sendero','escalera','calle','camino','nivel'],AREA_QUICK=['bosque','agua','parque','cerrada','edificio','otro'];
+const NOROUTE=new Set(['nivel','medida','costa','limite','rio']);
+const LINE_QUICK=['sendero','escalera','calle','camino','costa','limite','rio','nivel'],AREA_QUICK=['bosque','agua','parque','cerrada','edificio','otro'];
 const traceLayer=L.layerGroup().addTo(map);
-const VKIND={medida:'measure',sendero:'path',escalera:'steps',peatonal:'footway',ciclovia:'cycleway',calle:'residential',camino:'track',servicio:'service',principal:'secondary',ruta:'primary',ferry:'ferry',nivel:'contour_minor'};
+const VKIND={costa:'coast',limite:'border',rio:'river',medida:'measure',sendero:'path',escalera:'steps',peatonal:'footway',ciclovia:'cycleway',calle:'residential',camino:'track',servicio:'service',principal:'secondary',ruta:'primary',ferry:'ferry',nivel:'contour_minor'};
 const mppNow=()=>40075016.686*Math.cos(map.getCenter().lat*rad)/(256*Math.pow(2,map.getZoom()));
 /* Imán: pega el punto a la calle o sendero más cercano (a ~14 px), así el trazo queda conectado */
 function traceSnap(ll){
-  if(!TR.snap||!G||TR.shape==='area')return null;
+  if(!TR.snap||!G||TR.shape==='area'||NOROUTE.has(TR.kind))return null;
   const r=Math.max(5,(TR.kind==='ferry'?60:14)*mppNow()),ok=e=>G.W[e.w].hw!=='connector';
   /* si lo que se calca es para autos, el imán prefiere una calle por la que pase un auto */
   const carKind=['calle','camino','servicio','principal','ruta','ferry'].includes(TR.kind)&&!(TR.props&&TR.props.access&&TR.props.access.car===false);
@@ -4446,7 +4892,7 @@ function updTrace(){
   document.querySelectorAll('#trOw button').forEach(b=>b.classList.toggle('on',+b.dataset.v===TR.oneway));
   document.querySelectorAll('#trMode button[data-m]').forEach(b=>b.classList.toggle('on',b.dataset.m===TR.mode));
   $('#trSnap').classList.toggle('on',TR.snap);
-  $('#trOw').hidden=area;$('#trSnap').hidden=area;
+  $('#trOw').hidden=area||NOROUTE.has(TR.kind);$('#trSnap').hidden=area||NOROUTE.has(TR.kind);
   $('#trTtl').textContent='✍️ Calcar · '+(area?AREA_UI[TR.akind][1]:KIND_UI[TR.kind][1]);
   const conn=TR.snapped.filter(Boolean).length;
   $('#trInfo').textContent=(TR.mode==='taps'?'Tocá puntos sobre la imagen, uno tras otro.':'Pasá el dedo siguiendo el contorno (con dos dedos movés o acercás el mapa).')+
@@ -4490,7 +4936,7 @@ async function traceSave(){
   dropGraph();vecInvalidate();
   let msg='Guardado';
   if(area)msg=areaRestricted(e)?'Área guardada: las rutas la van a evitar':'Área guardada';
-  else if(TR.kind!=='nivel')try{
+  else if(!NOROUTE.has(TR.kind))try{
     const g=await ensureGraph(),w=g&&g.W.find(x=>x.id==='u:'+e.id);
     if(w){const a=g.adj[w.nodes[0]].length>1,b=g.adj[w.nodes[w.nodes.length-1]].length>1;
       msg=a&&b?'Guardado y conectado en los dos extremos ✔':(a||b)?'Guardado, pero un extremo no quedó pegado a ninguna calle':'Guardado, pero no quedó conectado: acercá los extremos a una calle y activá el imán';}
@@ -4508,6 +4954,9 @@ function endFree(){
   const el=$('#map'),ptrs=new Set();
   const pos=e=>{const p=map.mouseEventToLatLng(e);return [p.lat,p.lng];};
   el.addEventListener('pointerdown',e=>{
+    if(e.pointerType==='pen'&&!S.penSeen){S.penSeen=true;saveS();}
+    /* con S Pen: el lápiz dibuja y los dedos solo mueven el mapa (también si apoyás la mano) */
+    if(TR.on&&TR.mode==='free'&&S.penSeen&&S.penMode!==false&&e.pointerType==='touch')return;
     ptrs.add(e.pointerId);
     if(!TR.on||TR.mode!=='free')return;
     if(ptrs.size>1){ // segundo dedo: es un gesto de mapa, no un trazo
@@ -4578,6 +5027,8 @@ async function exportTraced(fmt){
   }else shareFile('rumbo-calcado.gpx',toGPX(eds.map(e=>({name:e.name||KIND_UI[e.kind][1],pts:e.pts.map(p=>[p[0],p[1],0,0,null,0]),desc:Object.entries(userTags(e)).map(([k,v])=>k+'='+v).join('; ')+(e.props&&e.props.note?' | '+e.props.note:'')})).concat(areas.map(e=>({name:(AREA_UI[e.kind]?AREA_UI[e.kind][1]:e.kind)+(e.name?' '+e.name:''),pts:e.pts.concat([e.pts[0]]).map(p=>[p[0],p[1],0,0,null,0]),desc:'área'}))),nodes.map(e=>({lat:e.lat,lon:e.lon,t:e.created,name:e.name,type:e.type==='turn'?'restriccion de giro':'barrera'})),esc),'application/gpx+xml');
 }
 
+
+$('#trMin').onclick=()=>{$('#trace').classList.toggle('min');};
 /* ---------- Propiedades de trazos y puntos (como en un editor de mapas) ---------- */
 const SURFACES=[['','Sin dato'],['asphalt','Asfalto'],['concrete','Hormigón'],['paving_stones','Adoquín'],['gravel','Ripio'],['compacted','Tierra compactada'],['dirt','Tierra'],['grass','Césped'],['sand','Arena']];
 const SURF_NAME=Object.fromEntries(SURFACES);
@@ -4603,14 +5054,15 @@ function propsLine(e){
 }
 function propsForm(st,title,onSave,onBack){
   st.props=cleanProps(st.props);
-  const nivel=st.kind==='nivel';
+  const nivel=['nivel','medida','costa','limite','rio'].includes(st.kind);
+  const LVL=[[2,'País'],[4,'Provincia'],[6,'Departamento'],[8,'Municipio']];
   const q=st.props,ac=q.access,chk=(id,v,txt)=>`<label class="chk"><input type="checkbox" id="${id}" ${v?'checked':''}> ${txt}</label>`;
   const html=`
     <label>Tipo</label>
     <div class="chips">${Object.entries(KIND_UI).map(([k,[ic,n]])=>`<button data-act="pk" data-k="${k}" class="${k===st.kind?'on':''}">${ic} ${n}</button>`).join('')}</div>
     <label for="pn">Nombre (etiqueta en el mapa)</label><input class="in" id="pn" value="${esc(st.name||'')}">
     <label for="pr">Número de ruta (opcional)</label><input class="in" id="pr" value="${esc(q.ref||'')}" placeholder="ej. RN3">
-    ${nivel?`<label for="pe">Altitud de la curva (m)</label><input class="in" id="pe" type="number" min="0" max="9000" value="${q.ele||''}">`:`    ${st.kind==='ferry'?`<label for="pd">Duración del cruce (min)</label><input class="in" id="pd" type="number" min="1" max="1440" value="${q.duration||''}" placeholder="ej. 30">`:`<label for="pv">Velocidad máxima (km/h, vacío = la típica del tipo)</label><input class="in" id="pv" type="number" min="5" max="130" value="${q.maxspeed||''}">`}
+    ${nivel?(st.kind==='nivel'?`<label for="pe">Altitud de la curva (m)</label><input class="in" id="pe" type="number" min="0" max="9000" value="${q.ele||''}">`:st.kind==='limite'?`<label>Qué límite es</label><div class="chips">${LVL.map(([v,n])=>`<button data-act="plv" data-v="${v}" class="${v===(q.level||4)?'on':''}">${n}</button>`).join('')}</div>`:''):`    ${st.kind==='ferry'?`<label for="pd">Duración del cruce (min)</label><input class="in" id="pd" type="number" min="1" max="1440" value="${q.duration||''}" placeholder="ej. 30">`:`<label for="pv">Velocidad máxima (km/h, vacío = la típica del tipo)</label><input class="in" id="pv" type="number" min="5" max="130" value="${q.maxspeed||''}">`}
     <label>Sentido</label>
     <div class="chips">${[[0,'⇄ Ambos'],[1,'➤ Como se dibujó'],[-1,'◀ Al revés']].map(([v,n])=>`<button data-act="po" data-v="${v}" class="${v===(st.oneway||0)?'on':''}">${n}</button>`).join('')}</div>
     ${chk('pb',q.bikeBoth,'Las bicis pueden ir en los dos sentidos')}
@@ -4624,10 +5076,12 @@ function propsForm(st,title,onSave,onBack){
     <label for="pz">Se ve en el mapa de calles desde el zoom (vacío = automático)</label><input class="in" id="pz" type="number" min="5" max="19" value="${q.minz||''}">
     <label for="pnote">Notas</label><textarea class="in" id="pnote" rows="2">${esc(q.note||'')}</textarea>
     <label for="ptags">Otras etiquetas (una por línea, clave=valor)</label><textarea class="in" id="ptags" rows="2" placeholder="lit=yes">${esc(q.tags||'')}</textarea>
-    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Guardar</button><button class="btn" data-act="back">Volver</button></div>`;
+    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Guardar</button><button class="btn" data-act="back">Volver</button></div>${st.extraHtml||''}`;
   openSheet(title,html,
-    (a,d)=>{
+    (a,d,el)=>{
+      if(st.extraAct&&st.extraAct(a,d,el))return;
       if(a==='pk'){st.kind=d.k;propsForm(st,title,onSave,onBack);}
+      else if(a==='plv'){st.props.level=+d.v;sBody.querySelectorAll('[data-act=plv]').forEach(b=>b.classList.toggle('on',+b.dataset.v===st.props.level));}
       else if(a==='po'){st.oneway=+d.v;sBody.querySelectorAll('[data-act=po]').forEach(b=>b.classList.toggle('on',+b.dataset.v===st.oneway));}
       else if(a==='ok'){
         const o=cleanProps(st.props);
@@ -4664,6 +5118,15 @@ function propsForm(st,title,onSave,onBack){
 async function showEditPath(id){
   const e=await DB.get('kv','edit:'+id);if(!e){showFix();return;}
   const st={kind:e.kind,name:e.name||'',oneway:e.oneway||0,props:JSON.parse(JSON.stringify(e.props||{}))};
+  st.extraHtml=`<div class="row" style="margin-top:8px"><button class="btn" data-act="evx">✏️ Editar puntos</button><button class="btn danger" data-act="xdel">🗑️ Quitar</button></div>`;
+  st.extraAct=(a,d,el)=>{      /* devuelve true si ya se ocupó de la acción (síncrono; el trabajo pesado va aparte) */
+    if(a==='evx'){openVEdit(id);return true;}
+    if(a==='xdel'){
+      if(armed(el))(async()=>{await DB.del('kv','edit:'+id);dropGraph();vecInvalidate();await drawEdits();closeSheet();toast('Quitado');})();
+      return true;
+    }
+    return false;
+  };
   propsForm(st,'Propiedades del trazo',async s=>{
     e.kind=s.kind;e.name=s.name;e.oneway=s.oneway;e.props=s.props;
     await DB.put('kv','edit:'+id,e);dropGraph();vecInvalidate();await drawEdits();toast('Propiedades guardadas');showFix();
@@ -4689,7 +5152,7 @@ async function showWptEdit(id){
     <label for="wad">Dirección</label><input class="in" id="wad" value="${esc(q.addr||'')}">
     <label for="who">Horario</label><input class="in" id="who" value="${esc(q.hours||'')}" placeholder="ej. lun a vie 9 a 18">
     <label for="wtg">Otras etiquetas (clave=valor, una por línea)</label><textarea class="in" id="wtg" rows="2">${esc(q.tags||'')}</textarea>
-    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Listo</button><button class="btn" data-act="go">Ir al mapa</button><button class="btn" data-act="dest">🧭 Ir hasta acá</button><button class="btn danger" data-act="del">Borrar</button></div>`,
+    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Listo</button><button class="btn" data-act="go">Ir al mapa</button><button class="btn" data-act="dest">🧭 Ir hasta acá</button><button class="btn" data-act="tgt">🎯 Seguir distancia</button><button class="btn danger" data-act="del">Borrar</button></div>`,
     async(a,d,el)=>{
       const save=async()=>{
         w.name=$('#wn').value.trim()||w.name;
@@ -4698,6 +5161,7 @@ async function showWptEdit(id){
       };
       if(a==='type'){w.type=d.k;await save();showWptEdit(id);}
       else if(a==='ok'){await save();showPoints();}
+      else if(a==='tgt'){await save();closeSheet();setTarget(w.lat,w.lon,w.name);toast('Siguiendo la distancia en línea recta',3000);}
       else if(a==='go'){await save();closeSheet();setFollow(false);map.setView([w.lat,w.lon],Math.max(map.getZoom(),17));}
       else if(a==='dest'){
         await save();
@@ -5267,7 +5731,7 @@ function toggleOverlay(id,on){
   saveS();applyOverlays();
 }
 /* ---------- Calles descargadas dibujadas como mapa (sin imágenes, funciona sin conexión) ---------- */
-const VORDER=['contour_minor','contour_major','service','track','bridleway','path','footway','steps','cycleway','pedestrian','living_street','residential','road','unclassified','tertiary','secondary','primary','trunk','motorway','ferry'];
+const VORDER=['contour_minor','contour_major','service','track','bridleway','path','footway','steps','cycleway','pedestrian','living_street','residential','road','unclassified','tertiary','secondary','primary','trunk','motorway','ferry','river','coast','border'];
 const VSTY={
   motorway:{z:0,w:5,c:'#E27B63',cs:'#B8604C',lab:10},trunk:{z:0,w:5,c:'#F2A183',cs:'#C27F63',lab:11},
   primary:{z:0,w:4.5,c:'#F9C27E',cs:'#C79A5E',lab:12},secondary:{z:8,w:4,c:'#F7E48A',cs:'#C4B567',lab:13},
@@ -5278,11 +5742,11 @@ const VSTY={
   bridleway:{z:14,w:1.3,c:'#7B6A3A',dash:[6,4]},path:{z:13,w:1.5,c:'#C75B4A',dash:[4,3],lab:17},
   footway:{z:14,w:1.4,c:'#C75B4A',dash:[3,3],lab:17},steps:{z:15,w:2,c:'#C75B4A',dash:[1.5,2]},
   cycleway:{z:12,w:1.6,c:'#3A5BD9',dash:[5,3],lab:16},ferry:{z:0,w:2,c:'#5A7FD6',dash:[8,6],lab:11},
-  contour_minor:{z:13,w:.7,c:'#C9A87F',lab:99},contour_major:{z:12,w:1.2,c:'#B38B5E',lab:15},measure:{z:0,w:2.5,c:'#F04A1C',dash:[2,4],lab:99}
+  contour_minor:{z:13,w:.7,c:'#C9A87F',lab:99},contour_major:{z:12,w:1.2,c:'#B38B5E',lab:15},measure:{z:0,w:2.5,c:'#F04A1C',dash:[2,4],lab:99},coast:{z:0,w:1.9,c:'#1F5F8B',lab:13},border:{z:0,w:1.9,c:'#9B3FA0',dash:[10,3,2,3],lab:12},river:{z:6,w:1.6,c:'#4A90D9',lab:14}
 };
 /* Colores de noche: fondo oscuro y calles apagadas */
 const VNIGHT={bg:'#14212A',txt:'#C4D3DA',halo:'#0B151B',
-  c:{motorway:'#A8624E',trunk:'#A8705A',primary:'#9C7A45',secondary:'#8C8350',tertiary:'#5F7380',unclassified:'#5F7380',road:'#556A76',residential:'#556A76',living_street:'#4C606B',service:'#445662',pedestrian:'#4C606B',track:'#8A6A3A',bridleway:'#6B5E36',path:'#B0645A',footway:'#B0645A',steps:'#B0645A',cycleway:'#5C7BE0',ferry:'#6C8FE0',contour_minor:'#5E4F3B',contour_major:'#8A7255',measure:'#FF8A5C'},
+  c:{motorway:'#A8624E',trunk:'#A8705A',primary:'#9C7A45',secondary:'#8C8350',tertiary:'#5F7380',unclassified:'#5F7380',road:'#556A76',residential:'#556A76',living_street:'#4C606B',service:'#445662',pedestrian:'#4C606B',track:'#8A6A3A',bridleway:'#6B5E36',path:'#B0645A',footway:'#B0645A',steps:'#B0645A',cycleway:'#5C7BE0',ferry:'#6C8FE0',contour_minor:'#5E4F3B',contour_major:'#8A7255',measure:'#FF8A5C',coast:'#6FB4E0',border:'#C77BD0',river:'#7DB8F0'},
   cs:'#0B151B'};
 const VEC={ready:false,dirty:true,building:null,ways:[],chunks:[],cells:new Map(),big:[],areas:[],cs:0.01,count:0};
 const vkey=(i,j)=>i*100000+j;
@@ -5628,6 +6092,7 @@ function showMore(){
     <label class="chk"><input type="checkbox" id="s15" ${S.fingerRotate!==false?'checked':''}> Rotar el mapa con dos dedos (reinicia el mapa al cambiar)</label>
     <label for="s16">Opacidad del fondo de la tarjeta de guía: <b id="s16v">${Math.round(S.navOp*100)} %</b></label>
     <input type="range" id="s16" min="0" max="90" value="${Math.round(S.navOp*100)}">
+    <label class="chk"><input type="checkbox" id="s18" ${S.penMode!==false?'checked':''}> ✒️ Con S Pen en Calcar a mano alzada: el lápiz dibuja y los dedos mueven el mapa</label>
     <label class="chk"><input type="checkbox" id="s17" ${S.smooth!==false?'checked':''}> Movimiento fluido: el punto y el mapa se deslizan entre una lectura del GPS y la siguiente</label>
     <p class="mut">Casi no gasta procesador (lo hace la placa de video). El punto va hasta 1 segundo detrás de tu posición real.</p>
     <h3>Datos móviles</h3>
@@ -5701,6 +6166,7 @@ function showMore(){
       else if(t.id==='s8'){S.carF=+t.value;dropGraph();}
       else if(t.id==='s9')S.routeMode=t.value;
       else if(t.id==='s17'){S.smooth=t.checked;saveS();}
+      else if(t.id==='s18'){S.penMode=t.checked;saveS();}
       else if(t.id==='s18'){S.wxWatch=t.checked;saveS();}
       else if(t.id==='s15'){
         if(t.checked&&!canRotatePlugin()){t.checked=false;toast('Esta versión no trae el módulo para rotar el mapa.',5000);return;}
@@ -5752,6 +6218,7 @@ $('#fAct').onclick=()=>{
   applyNight();applyNavOp();updNetPill();if(map.options&&map.options.rotate){oriCalib();oriStart();}
   startWatch(false);
   setTimeout(checkIntent,700);
+  restoreTarget();
   if(S.radarOn)setTimeout(()=>setRadar(true,true),1800);
   drawEdits();
   const rc=await DB.get('kv','rec:current');
