@@ -804,19 +804,24 @@ class Heap{
 }
 
 class Graph{
-  constructor(cfg){this.cfg=cfg;this.lat=[];this.lon=[];this.ids=[];this.adj=[];this.cnt=[];this.E=[];this.W=[];this.idx=new Map();this.grid=new Map();this.seen=new Set();this.cs=0.0006;this.names=null;this.z=[];this.hasZ=false;}
+  constructor(cfg){this.cfg=cfg;this.lat=[];this.lon=[];this.ids=[];this.adj=[];this.cnt=[];this.E=[];this.W=[];this.idx=new Map();this.grid=new Map();this.grid2=new Map();this.seen=new Set();this.cs=0.0006;this.cs2=0.02;this.names=null;this.z=[];this.hasZ=false;}
   node(id,lat,lon){
     let i=this.idx.get(id);
     if(i===undefined){i=this.lat.length;this.idx.set(id,i);this.lat.push(lat);this.lon.push(lon);this.ids.push(id);this.adj.push([]);this.cnt.push(0);this.z.push(NaN);}
     return i;
   }
-  dist(a,b){const k=Math.cos(this.lat[a]*rad);return Math.hypot((this.lat[a]-this.lat[b])*110540,(this.lon[a]-this.lon[b])*111320*k);}
+  dist(a,b){const k=Math.cos((this.lat[a]+this.lat[b])/2*rad);return Math.hypot((this.lat[a]-this.lat[b])*111195,(this.lon[a]-this.lon[b])*111195*k);}
   cell(lat,lon){return [Math.floor(lat/this.cs)+200000,Math.floor(lon/this.cs)+300000];}
   ix(ei){
     const e=this.E[ei],a=e.a,b=e.b;
-    const [i0,j0]=this.cell(Math.min(this.lat[a],this.lat[b]),Math.min(this.lon[a],this.lon[b]));
-    const [i1,j1]=this.cell(Math.max(this.lat[a],this.lat[b]),Math.max(this.lon[a],this.lon[b]));
-    for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const k=i*1000000+j;let l=this.grid.get(k);if(!l){l=[];this.grid.set(k,l);}l.push(ei);}
+    const la0=Math.min(this.lat[a],this.lat[b]),lo0=Math.min(this.lon[a],this.lon[b]),la1=Math.max(this.lat[a],this.lat[b]),lo1=Math.max(this.lon[a],this.lon[b]);
+    const [i0,j0]=this.cell(la0,lo0),[i1,j1]=this.cell(la1,lo1);
+    if((i1-i0+1)*(j1-j0+1)<=16){                       /* tramos cortos: índice fino (celdas de ~67 m) */
+      for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const k=i*1000000+j;let l=this.grid.get(k);if(!l){l=[];this.grid.set(k,l);}l.push(ei);}
+    }else{                                              /* tramos largos (rutas de varios km): índice grueso (~2 km), mucho menos memoria */
+      const c0=[Math.floor(la0/this.cs2)+20000,Math.floor(lo0/this.cs2)+30000],c1=[Math.floor(la1/this.cs2)+20000,Math.floor(lo1/this.cs2)+30000];
+      for(let i=c0[0];i<=c1[0];i++)for(let j=c0[1];j<=c1[1];j++){const k=i*100000+j;let l=this.grid2.get(k);if(!l){l=[];this.grid2.set(k,l);}l.push(ei);}
+    }
   }
   addWay(id,tags,osm,pts,zs){
     if(this.seen.has(id))return -1;
@@ -929,17 +934,34 @@ class Graph{
     return {t,d:Math.hypot(px-qx,py-qy),lat:qy/110540,lon:qx/(111320*k)};
   }
   nearestEdge(lat,lon,maxD,filter){
+    if(maxD>5000)return this._nearestBrute(lat,lon,maxD,filter);
     const k=Math.cos(lat*rad),dl=maxD/110540,dn=maxD/(111320*k);
     const [i0,j0]=this.cell(lat-dl,lon-dn),[i1,j1]=this.cell(lat+dl,lon+dn);
     let best=null;const seen=new Set();
-    for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){
-      const l=this.grid.get(i*1000000+j);if(!l)continue;
-      for(const ei of l){
-        if(seen.has(ei))continue;seen.add(ei);
-        const e=this.E[ei];if(!e.alive||(filter&&!filter(e)))continue;
-        const r=this.proj(lat,lon,e);
-        if(r.d<=maxD&&(!best||r.d<best.d))best={ei,t:r.t,d:r.d,lat:r.lat,lon:r.lon};
-      }
+    const test=ei=>{
+      if(seen.has(ei))return;seen.add(ei);
+      const e=this.E[ei];if(!e.alive||(filter&&!filter(e)))return;
+      const r=this.proj(lat,lon,e);
+      if(r.d<=maxD&&(!best||r.d<best.d))best={ei,t:r.t,d:r.d,lat:r.lat,lon:r.lon};
+    };
+    for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const l=this.grid.get(i*1000000+j);if(l)for(const ei of l)test(ei);}
+    const a0=Math.floor((lat-dl)/this.cs2)+20000,b0=Math.floor((lon-dn)/this.cs2)+30000,a1=Math.floor((lat+dl)/this.cs2)+20000,b1=Math.floor((lon+dn)/this.cs2)+30000;
+    for(let i=a0;i<=a1;i++)for(let j=b0;j<=b1;j++){const l=this.grid2.get(i*100000+j);if(l)for(const ei of l)test(ei);}
+    return best;
+  }
+  /* para radios grandes (varios km) es más barato mirar todos los tramos que recorrer millones de celdas */
+  _nearestBrute(lat,lon,maxD,filter){
+    const k=Math.cos(lat*rad),dl=maxD/110540,dn=maxD/(111320*k);
+    let best=null;
+    for(let ei=0;ei<this.E.length;ei++){
+      const e=this.E[ei];if(!e.alive)continue;
+      const la=this.lat[e.a],lb=this.lat[e.b];
+      if((la>lb?la:lb)<lat-dl||(la<lb?la:lb)>lat+dl)continue;
+      const lo=this.lon[e.a],lp=this.lon[e.b];
+      if((lo>lp?lo:lp)<lon-dn||(lo<lp?lo:lp)>lon+dn)continue;
+      if(filter&&!filter(e))continue;
+      const r=this.proj(lat,lon,e);
+      if(r.d<=maxD&&(!best||r.d<best.d))best={ei,t:r.t,d:r.d,lat:r.lat,lon:r.lon};
     }
     return best;
   }
@@ -1159,17 +1181,23 @@ function makeSteps(G,edges,mode){
 function findRoute(G,mode,from,to,pref){
   pref=pref||'fast';
   const okE=e=>G.pass(e,mode,1)>0||G.pass(e,mode,-1)>0;
+  /* se busca primero muy cerca (500 m) y, si no hay calle, cada vez más lejos: en un viaje largo con solo las rutas principales
+     guardadas, el origen y el destino suelen estar a varios km de la red; ese tramo se une en línea recta y se avisa */
   const snap=p=>{
-    const h=G.nearestEdge(p.lat,p.lon,500,okE);if(!h)return null;
-    const e=G.E[h.ei];let nd;
-    if(h.t<=0.02)nd=e.a;else if(h.t>=0.98)nd=e.b;else nd=G.split(h.ei,h.t,h.lat,h.lon);
-    return {nd,off:h.d};
+    for(const R of [500,3000,15000,60000]){
+      const h=G.nearestEdge(p.lat,p.lon,R,okE);if(!h)continue;
+      const e=G.E[h.ei];let nd;
+      if(h.t<=0.02)nd=e.a;else if(h.t>=0.98)nd=e.b;else nd=G.split(h.ei,h.t,h.lat,h.lon);
+      return {nd,off:h.d};
+    }
+    return null;
   };
   const A=snap(from);if(!A)return {err:'origen'};
   const B=snap(to);if(!B)return {err:'destino'};
   const r=astar(G,mode,A.nd,B.nd,pref);if(!r)return {err:'camino'};
-  const vleg=mode==='car'?3:G.cfg.vFoot/3.6;
-  let dist=A.off+B.off,time=(A.off+B.off)/vleg,stairs=0,up=0,down=0,fDist=0,fTime=0,fNames=[],fUnver=false;
+  const vleg=mode==='car'?3:G.cfg.vFoot/3.6,vfar=mode==='car'?11:mode==='bike'?4:G.cfg.vFoot/3.6;
+  const legT=o=>o<=500?o/vleg:500/vleg+(o-500)/vfar;          /* los tramos largos hasta la red van por una calle o camino de la zona */
+  let dist=A.off+B.off,time=legT(A.off)+legT(B.off),stairs=0,up=0,down=0,fDist=0,fTime=0,fNames=[],fUnver=false;
   const coords=[[from.lat,from.lon],[G.lat[A.nd],G.lon[A.nd]]];
   for(const {ei,d} of r.edges){
     const e=G.E[ei],v=G.pass(e,mode,d),g=G.slope(e,d);
@@ -1193,7 +1221,7 @@ function findRoute(G,mode,from,to,pref){
     avgKmh=G.cfg.avg[mode]*3.6;
     time=(dist-fDist)/G.cfg.avg[mode]*(1+(G.cfg.avgStops||0)/100)+fTime;
   }
-  return {mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,coords,eids:r.edges.map(x=>x.ei),elen:r.edges.map(x=>G.E[x.ei].len),stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
+  return {mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,offFrom:A.off,offTo:B.off,coords,eids:r.edges.map(x=>x.ei),elen:r.edges.map(x=>G.E[x.ei].len),stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
 }
 
 /* ====================== GUÍA PASO A PASO ====================== */
@@ -1399,6 +1427,7 @@ function pointAlong(coords,d){
 function fmtDur(s){
   s=Math.round(s);if(s<60)return s+' s';
   const m=Math.round(s/60);if(m<60)return m+' min';
+  if(m>=1440)return Math.floor(m/1440)+' d '+Math.floor((m%1440)/60)+' h';
   return Math.floor(m/60)+' h '+pad2(m%60)+' min';
 }
 const hhmm=ms=>{const d=new Date(ms);return pad2(d.getHours())+':'+pad2(d.getMinutes());};
@@ -3214,7 +3243,8 @@ function showNetDownload(){
 
 /* Rutas */
 const depMs=()=>{if(!RT.dep)return Date.now();const [h,m]=RT.dep.split(':').map(Number),d=new Date();d.setHours(h,m,0,0);return d.getTime();};
-const errText=r=>!r?'':r.err==='origen'?'No hay calles cerca del origen (a menos de 500 m). Si es un viaje largo, bajá también la zona detallada de esa ciudad.':r.err==='destino'?'No hay calles cerca del destino.':'No hay un camino conectado. Si sabés que existe, agregalo en Correcciones.';
+const errText=r=>!r?'':r.err==='origen'?'No hay ninguna calle ni ruta guardada a menos de 60 km del origen. Bajá las calles o la red regional de esa zona.':r.err==='destino'?'No hay ninguna calle ni ruta guardada a menos de 60 km del destino. Bajá las calles o la red regional de esa zona.':r.err==='lejos'?'Es demasiado lejos para este modo: el cálculo se hace solo para el auto.':'No hay un camino conectado entre esos dos puntos con lo que tenés guardado. Si es un viaje largo, revisá que las redes regionales se toquen entre sí; si sabés que el camino existe, agregalo en Correcciones.';
+const offNote=r=>{const o=[];if(r.offFrom>1000)o.push(`el origen está a ${fmtD(r.offFrom)} de la red guardada`);if(r.offTo>1000)o.push(`el destino está a ${fmtD(r.offTo)}`);return o.length?`<br><small style="color:#C0392B">⚠️ ${o.join(' y ')}: ese tramo va en línea recta. Bajá las calles de la zona para el detalle.</small>`:'';};
 function drawRoute(fit){
   routeLayer.clearLayers();
   const r=RT.res&&RT.res[RT.sel];
@@ -3244,7 +3274,7 @@ function resultsHtml(){
   for(const m of MODES){
     const r=RT.res[m];
     if(!r||r.err){h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${errText(r)}</span></div>`;continue;}
-    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',',')} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+r.time*1000)}</b></div>`;
+    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',',')} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}${offNote(r)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+r.time*1000)}</b></div>`;
   }
   const cmp=RT.alt?`<h3>Comparar para ${MI[RT.sel]}</h3><div class="row">`+PREFS.filter(([k])=>!(RT.sel==='car'&&k==='flat')).map(([k,e])=>{
     const a=RT.alt[k];if(!a||a.err)return '';
@@ -3297,11 +3327,16 @@ async function calcRoutes(g,keep){
   if(!from){toast('Todavía sin GPS: elegí el origen en el mapa o buscá una calle',4500);showRoutes();return;}
   if(!RT.to){toast('Elegí el destino');return;}
   RT.res={};
+  const D=hav([from.lat,from.lon],[RT.to.lat,RT.to.lon]);
+  if(D>100000){toast('Calculando una ruta larga…',60000);await new Promise(r=>setTimeout(r,60));}
   const hz=await collectHz(g);
   for(const m of MODES){
+    /* a pie no se calculan más de 150 km ni en bici más de 600 km: se ahorra tiempo y batería */
+    if((m==='foot'&&D>150000)||(m==='bike'&&D>600000)){RT.res[m]={err:'lejos'};continue;}
     const r=findRoute(g,m,from,RT.to,S.pref);RT.res[m]=r;
     if(!r.err)r.hzs=navInit(r,m,hz).hzs;
   }
+  if(D>100000)toast('Ruta calculada',1800);
   RT.calcFrom=from;
   const ok=m=>RT.res[m]&&!RT.res[m].err;
   RT.sel=keep&&RT.sel&&ok(RT.sel)?RT.sel:(ok(S.routeMode)?S.routeMode:MODES.find(ok)||S.routeMode);
@@ -3339,10 +3374,10 @@ async function showRoutes(){
   const fromL=RT.from?RT.from.label+(gps?` · a ${fmtD(hav([gps.lat,gps.lon],[RT.from.lat,RT.from.lon]))} de tu posición`:''):'Mi posición (donde estás ahora)',toL=RT.to?RT.to.label:'Sin elegir';
   const h=`<p class="mut">✅ Red de calles descargada${g.hasZ?', con altura del terreno':' (sin altura del terreno)'} · <a href="#" data-act="mgr" style="color:inherit">ver qué tengo</a></p>
     <h3>Desde</h3><div class="card"><b>${esc(fromL)}</b></div>
-    <div class="row"><button class="btn sm" data-act="fmine">Mi posición</button><button class="btn sm" data-act="fpick">En el mapa</button></div>
+    <div class="row"><button class="btn sm" data-act="fmine">Mi posición</button><button class="btn sm" data-act="fpick">En el mapa</button><button class="btn sm" data-act="cityf">🌍 Ciudad</button></div>
     <input class="in" id="qf" placeholder="Buscar calle o esquina (ej: San Martín y Roca)" enterkeyhint="search"><div id="rf" class="row"></div>
     <h3>Hasta</h3><div class="card"><b>${esc(toL)}</b></div>
-    <div class="row"><button class="btn sm" data-act="tpick">En el mapa</button><button class="btn sm" data-act="tpts">Un punto guardado</button></div>
+    <div class="row"><button class="btn sm" data-act="tpick">En el mapa</button><button class="btn sm" data-act="cityt">🌍 Ciudad</button><button class="btn sm" data-act="tpts">Un punto guardado</button></div>
     <input class="in" id="qq" placeholder="Buscar calle o esquina" enterkeyhint="search"><div id="rq" class="row"></div>
     <label for="dep">Salida (vacío = ahora)</label><input class="in" id="dep" type="time" value="${esc(RT.dep)}">
     <label>Preferencia</label>
@@ -3360,6 +3395,7 @@ async function showRoutes(){
     else if(a==='fmine'){RT.from=null;RT.res=null;showRoutes();}
     else if(a==='fpick'||a==='tpick'){PICK={type:'pt',target:a==='fpick'?'from':'to'};closeSheet();banner(`Tocá en el mapa el punto de ${a==='fpick'?'partida':'llegada'}`);}
     else if(a==='tpts')showPickWpt();
+    else if(a==='cityf'||a==='cityt')cityPick(a==='cityf'?'from':'to');
     else if(a==='setf'||a==='sett'){const r=RT.sr[a==='setf'?'f':'q'][+d.i];RT[a==='setf'?'from':'to']={lat:r.lat,lon:r.lon,label:r.label};RT.res=null;showRoutes();}
     else if(a==='calc')calcRoutes(g);
     else if(a==='selm'){RT.sel=d.m;computeAlt(g);resetCands();drawRoute(true);showRoutes();}
@@ -4808,6 +4844,45 @@ function groupHtml(gs){
     const det=Object.entries(k).map(([kk,n])=>`${n} ${(KIND_UI[kk]||AREA_UI[kk]||['','elementos'])[1].toLowerCase()}`).join(', ');
     return `<div class="item"><div><b>📦 ${esc(g.group.name)}</b><br><small class="mut">${fmtDate(g.created)} · ${det}${g.group.attr?' · '+esc(g.group.attr):''}</small></div><div class="row"><button class="btn sm" data-act="gview" data-id="${g.group.id}">Ver</button><button class="btn sm danger" data-act="gdel" data-id="${g.group.id}">Quitar todo</button></div></div>`;
   }).join('');
+}
+/* ---------- Buscar una ciudad o un lugar por internet (Nominatim, OpenStreetMap) para elegir el origen o el destino ---------- */
+async function cityQuery(q){
+  if(!(await netAllowed('buscar el lugar')))return null;
+  const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&accept-language=es&q='+encodeURIComponent(q),{headers:{'Accept':'application/json'}});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  return j.map(x=>({lat:+x.lat,lon:+x.lon,full:x.display_name,label:String(x.display_name).split(',').slice(0,2).join(',').trim(),type:x.type||''}));
+}
+function cityPick(target){
+  CITY={target,res:[]};
+  openSheet(target==='from'?'Buscar el origen':'Buscar el destino',`
+    <input class="in" id="cq" placeholder="Ej: San Miguel de Tucumán" enterkeyhint="search" autocomplete="off">
+    <div class="row" style="margin-top:6px"><button class="btn primary" data-act="go">🔎 Buscar</button><button class="btn" data-act="back">Volver</button></div>
+    <div id="cres" style="margin-top:8px"></div>
+    <p class="mut">Se busca por internet en Nominatim (OpenStreetMap), una consulta por vez. Datos © colaboradores de OpenStreetMap.</p>`,
+    async(a,d)=>{
+      if(a==='back')showRoutes();
+      else if(a==='go')await cityRun();
+      else if(a==='pc'){
+        const r=CITY.res[+d.i];
+        RT[CITY.target]={lat:r.lat,lon:r.lon,label:r.label};RT.res=null;RT.cands=[];
+        showRoutes();
+      }
+    },
+    t=>{if(t.id==='cq')CITY.q=t.value.trim();});
+  const inp=$('#cq');if(inp)inp.addEventListener('keydown',e=>{if(e.key==='Enter'){CITY.q=inp.value.trim();cityRun();}});
+}
+let CITY={target:'to',res:[],q:''};
+async function cityRun(){
+  const q=($('#cq')&&$('#cq').value||CITY.q||'').trim(),out=$('#cres');
+  if(q.length<3){out.innerHTML='<p class="mut">Escribí al menos 3 letras.</p>';return;}
+  out.innerHTML='<p class="mut">Buscando…</p>';
+  try{
+    const res=await cityQuery(q);
+    if(res===null){out.innerHTML='';return;}
+    CITY.res=res;
+    out.innerHTML=res.length?res.map((r,i)=>`<button class="btn" data-act="pc" data-i="${i}" style="width:100%;text-align:left;margin-bottom:6px"><b>${esc(r.label)}</b><br><small class="mut">${esc(r.full.split(',').slice(2,5).join(',').trim()||r.type)}</small></button>`).join(''):'<p class="mut">No encontré ese lugar. Probá con otro nombre.</p>';
+  }catch(e){out.innerHTML=`<p class="mwarn">No pude buscar: ${esc(e.message||String(e))}. Revisá la conexión.</p>`;}
 }
 /* ---------- Editor de puntos de un trazo o un área (mover, agregar, seleccionar varios, borrar, simplificar) ---------- */
 const EV={on:false,id:null,e:null,pts:[],closed:false,sels:new Set(),undo:[],dirty:false,lasso:false,lp:[],lpid:null};
