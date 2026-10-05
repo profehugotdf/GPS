@@ -325,6 +325,17 @@ body.night #vedit .nvb button{background:#E4EDEF;color:#0E2A36}
 #trace .caph span{display:inline-flex;gap:6px}
 #trace.min>:not(.caph):not(.nvb){display:none}
 #trace.min #trMin{transform:rotate(180deg)}
+
+#vedit .chips{display:flex;gap:6px;margin-top:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+#vedit .chips::-webkit-scrollbar{display:none}
+#vedit .chips button{flex:0 0 auto;white-space:nowrap;min-height:36px;padding:3px 12px;border-radius:18px;border:2px solid var(--ink);background:transparent;color:var(--ink);font:700 13px system-ui}
+#vedit .chips button.on{background:var(--ink);color:#fff}
+#vedit .chips button[disabled]{opacity:.4}
+#vedit .caph span{display:inline-flex;gap:6px}
+#vedit.min>:not(.caph):not(.nvb){display:none}
+#vedit.min #evMin{transform:rotate(180deg)}
+body.night #vedit .chips button{border-color:#E4EDEF;color:#E4EDEF}
+body.night #vedit .chips button.on{background:#E4EDEF;color:#0E2A36}
 </style>
 </head>
 <body>
@@ -356,9 +367,10 @@ body.night #vedit .nvb button{background:#E4EDEF;color:#0E2A36}
   <div class="nvb"><button id="msUndo">↶ Deshacer</button><button id="msMe">＋ Mi posición</button><button id="msClr">🗑️ Borrar</button><button id="msSave">💾 Guardar</button></div>
 </div>
 <div id="vedit" hidden>
-  <div class="caph"><b id="evTtl">✏️ Editar puntos</b><button id="evX" aria-label="Cerrar">✕</button></div>
+  <div class="caph"><b id="evTtl">✏️ Editar puntos</b><span><button id="evMin" aria-label="Achicar">▾</button><button id="evX" aria-label="Cerrar">✕</button></span></div>
   <div id="evInfo"></div><small id="evHint"></small>
-  <div class="nvb"><button id="evUndo">↶ Deshacer</button><button id="evDel">🗑️ Borrar punto</button><button id="evSimp">🧹 Simplificar</button><button id="evRev">⇄ Invertir</button><button id="evOk">✓ Guardar</button></div>
+  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button></div>
+  <div class="nvb"><button id="evUndo">↶ Deshacer</button><button id="evDel">🗑️ Borrar</button><button id="evSimp">🧹 Simplificar todo</button><button id="evRev">⇄ Invertir</button><button id="evOk">✓ Guardar</button></div>
 </div>
 <div id="nodep" hidden>
   <div class="caph"><b id="npTtl">🚫 Giros prohibidos y barreras</b><button id="npX" aria-label="Cerrar">✕</button></div>
@@ -2015,6 +2027,68 @@ function vDelete(pts,i,closed){
   const min=closed?3:2;
   if(pts.length<=min)return pts.slice();
   const r=pts.slice();r.splice(i,1);return r;
+}
+
+
+/* ---- selección múltiple de puntos (editor de trazos y áreas) ---- */
+/* grupos de puntos seguidos entre los elegidos; en un polígono el grupo puede dar la vuelta por el último y el primero */
+function vRuns(sel,n,closed){
+  const s=new Uint8Array(n);let cnt=0;
+  for(const i of sel)if(i>=0&&i<n&&!s[i]){s[i]=1;cnt++;}
+  if(!cnt)return [];
+  if(closed&&cnt===n)return [Array.from({length:n},(_,i)=>i)];
+  let start=0;
+  if(closed){start=s.findIndex(v=>!v);}
+  const runs=[];let cur=null;
+  for(let j=0;j<n;j++){
+    const i=(start+j)%n;
+    if(s[i]){if(!cur){cur=[];runs.push(cur);}cur.push(i);}else cur=null;
+  }
+  return runs;
+}
+/* borra los elegidos; devuelve null si quedarían menos de 2 puntos (línea) o 3 (polígono) */
+function vDeleteMany(pts,sel,closed){
+  const set=new Set(sel),keep=pts.filter((_,i)=>!set.has(i));
+  return keep.length<(closed?3:2)?null:keep;
+}
+/* simplifica solo los puntos elegidos (o todo si no hay selección). Los vecinos no elegidos quedan como anclas. */
+function vSimplifyRuns(pts,sel,tol,closed){
+  const n=pts.length,set=new Set(sel);
+  if(n<3)return pts.slice();
+  const all=!set.size||(closed&&set.size>=n);
+  const drop=new Set();
+  if(all&&!closed){const k=dpKeep(pts,tol);return pts.filter((_,i)=>k[i]);}
+  if(all){                                   /* anillo entero: se corta en el punto 0 y en el más lejano */
+    let far=1,fd=-1;for(let i=1;i<n;i++){const d=hav(pts[0],pts[i]);if(d>fd){fd=d;far=i;}}
+    const A=pts.slice(0,far+1),B=pts.slice(far).concat([pts[0]]),ka=dpKeep(A,tol),kb=dpKeep(B,tol);
+    const keep=new Uint8Array(n);
+    for(let i=0;i<A.length;i++)if(ka[i])keep[i]=1;
+    for(let i=0;i<B.length-1;i++)if(kb[i])keep[far+i]=1;
+    keep[0]=keep[far]=1;
+    if(keep.reduce((a,b)=>a+b,0)<3){          /* un anillo no puede quedar con menos de 3 puntos */
+      let bi=-1,bd=-1;
+      for(let i=1;i<n;i++){if(i===far)continue;const d=Math.min(hav(pts[0],pts[i]),hav(pts[far],pts[i]));if(d>bd){bd=d;bi=i;}}
+      if(bi>0)keep[bi]=1;
+    }
+    return pts.filter((_,i)=>keep[i]);
+  }
+  for(const run of vRuns(set,n,closed)){
+    const a=run[0],b=run[run.length-1];
+    const li=closed?(a-1+n)%n:Math.max(0,a-1),ri=closed?(b+1)%n:Math.min(n-1,b+1);
+    const idx=[];
+    if(closed||a>0)idx.push(li);
+    for(const i of run)idx.push(i);
+    if(closed||b<n-1)idx.push(ri);
+    const sub=idx.map(i=>pts[i]);
+    if(sub.length<3)continue;
+    const k=dpKeep(sub,tol);
+    idx.forEach((i,j)=>{if(set.has(i)&&!k[j])drop.add(i);});
+    if(!closed){                                /* los extremos de una línea abierta nunca se pierden */
+      drop.delete(0);drop.delete(n-1);
+    }
+  }
+  const out=pts.filter((_,i)=>!drop.has(i));
+  return out.length<(closed?3:2)?pts.slice():out;
 }
 /*</pure>*/
 
@@ -4735,27 +4809,31 @@ function groupHtml(gs){
     return `<div class="item"><div><b>📦 ${esc(g.group.name)}</b><br><small class="mut">${fmtDate(g.created)} · ${det}${g.group.attr?' · '+esc(g.group.attr):''}</small></div><div class="row"><button class="btn sm" data-act="gview" data-id="${g.group.id}">Ver</button><button class="btn sm danger" data-act="gdel" data-id="${g.group.id}">Quitar todo</button></div></div>`;
   }).join('');
 }
-/* ---------- Editor de puntos de un trazo o un área (mover, agregar, borrar, simplificar) ---------- */
-const EV={on:false,id:null,e:null,pts:[],closed:false,sel:-1,undo:[],dirty:false};
-const evLayer=L.layerGroup().addTo(map),evLine=L.layerGroup().addTo(map);
+/* ---------- Editor de puntos de un trazo o un área (mover, agregar, seleccionar varios, borrar, simplificar) ---------- */
+const EV={on:false,id:null,e:null,pts:[],closed:false,sels:new Set(),undo:[],dirty:false,lasso:false,lp:[],lpid:null};
+/* compatibilidad: EV.sel es "el primero de los elegidos" (o -1) */
+Object.defineProperty(EV,'sel',{get(){return EV.sels.size?[...EV.sels][0]:-1;},set(v){EV.sels=new Set(v>=0?[v]:[]);}});
+const evLayer=L.layerGroup().addTo(map),evLine=L.layerGroup().addTo(map),evLasso=L.layerGroup().addTo(map);
 const EV_MAX=400;
 async function openVEdit(id){
   if(TR.on||GE.on||CAP.on||NP.on||MS.on||draw||PICK){toast('Cerrá primero la otra herramienta',4000);return;}
   const e=await DB.get('kv','edit:'+id);
   if(!e||!e.pts){showFix();return;}
-  EV.on=true;EV.id=id;EV.e=e;EV.closed=e.type==='area';EV.pts=e.pts.map(p=>[p[0],p[1]]);EV.sel=-1;EV.undo=[];EV.dirty=false;
+  EV.on=true;EV.id=id;EV.e=e;EV.closed=e.type==='area';EV.pts=e.pts.map(p=>[p[0],p[1]]);EV.sels=new Set();EV.undo=[];EV.dirty=false;EV.lasso=false;
   closeSheet();hidePin();setFollow(false);
-  $('#vedit').hidden=false;
-  map.fitBounds(L.latLngBounds(EV.pts),{padding:[40,160],maxZoom:19});
+  $('#vedit').hidden=false;$('#vedit').classList.remove('min');
+  map.fitBounds(L.latLngBounds(EV.pts),{padding:[40,200],maxZoom:19});
   evDraw();
 }
 function closeVEdit(){
-  EV.on=false;EV.e=null;EV.pts=[];$('#vedit').hidden=true;evLayer.clearLayers();evLine.clearLayers();
+  EV.on=false;EV.e=null;EV.pts=[];EV.sels=new Set();EV.lasso=false;
+  $('#vedit').hidden=true;evLayer.clearLayers();evLine.clearLayers();evLasso.clearLayers();
+  try{map.dragging.enable();}catch(e){}
 }
 function evPush(){EV.undo.push(JSON.stringify(EV.pts));if(EV.undo.length>60)EV.undo.shift();EV.dirty=true;}
 function evUndo(){
   if(!EV.undo.length)return;
-  EV.pts=JSON.parse(EV.undo.pop());EV.sel=-1;evDraw();
+  EV.pts=JSON.parse(EV.undo.pop());EV.sels=new Set();evDraw();
 }
 function evInView(){
   const b=map.getBounds(),dn=(b.getNorth()-b.getSouth())*.15,de=(b.getEast()-b.getWest())*.15;
@@ -4777,13 +4855,19 @@ function evDrawLine(){
 function evDraw(){
   evLayer.clearLayers();evDrawLine();
   const idx=evInView();
-  if(idx.length>EV_MAX){$('#evHint').textContent=`Hay ${idx.length} puntos a la vista: acercá el mapa para editarlos.`;return;}
-  $('#evHint').textContent='Arrastrá un punto para moverlo. Tocá uno para elegirlo y borrarlo. Los círculos chicos agregan puntos.';
+  const hint=EV.lasso?'Lazo: rodeá con el dedo o el lápiz los puntos que quieras elegir.':'Arrastrá un punto para moverlo. Tocá puntos para elegir varios. Los círculos chicos agregan puntos.';
+  if(idx.length>EV_MAX){
+    $('#evHint').textContent=`Hay ${idx.length} puntos a la vista: acercá el mapa para moverlos. Con el lazo igual podés elegirlos.`;
+    let k=0;
+    for(const i of EV.sels){if(k++>1500)break;L.circleMarker(EV.pts[i],{radius:4,color:'#fff',weight:1,fillColor:'#F04A1C',fillOpacity:1,interactive:false}).addTo(evLayer);}
+    return;
+  }
+  $('#evHint').textContent=hint;
   const n=EV.pts.length;
   for(const i of idx){
-    const sel=i===EV.sel;
+    const sel=EV.sels.has(i);
     const m=L.marker(EV.pts[i],{draggable:true,zIndexOffset:sel?1800:1500,icon:L.divIcon({html:`<div class="evv${sel?' sel':''}"></div>`,className:'',iconSize:[26,26],iconAnchor:[13,13]})});
-    m.on('click',()=>{EV.sel=EV.sel===i?-1:i;evDraw();});
+    m.on('click',()=>{if(EV.sels.has(i))EV.sels.delete(i);else EV.sels.add(i);evDraw();});
     m.on('dragstart',()=>evPush());
     m.on('drag',ev=>{const ll=ev.target.getLatLng();EV.pts[i]=[ll.lat,ll.lng];evDrawLine();});
     m.on('dragend',()=>evDraw());
@@ -4797,35 +4881,50 @@ function evDraw(){
       const mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];
       const m=L.marker(mid,{draggable:true,zIndexOffset:1200,icon:L.divIcon({html:'<div class="evm"></div>',className:'',iconSize:[18,18],iconAnchor:[9,9]})});
       let at=-1;
-      m.on('click',()=>{evPush();EV.pts=vInsert(EV.pts,i,EV.closed);EV.sel=i+1;evDraw();});
+      m.on('click',()=>{evPush();EV.pts=vInsert(EV.pts,i,EV.closed);EV.sels=new Set([i+1]);evDraw();});
       m.on('dragstart',()=>{evPush();EV.pts=vInsert(EV.pts,i,EV.closed);at=i+1;});
       m.on('drag',ev=>{if(at<0)return;const ll=ev.target.getLatLng();EV.pts[at]=[ll.lat,ll.lng];evDrawLine();});
-      m.on('dragend',()=>{EV.sel=at;evDraw();});
+      m.on('dragend',()=>{EV.sels=new Set([at]);evDraw();});
       m.addTo(evLayer);
     }
   }
 }
 function updEvUi(){
-  const pts=EV.pts;
+  const pts=EV.pts,ns=EV.sels.size;
   const len=EV.closed?polyLen(pts,true):polyLen(pts,false);
-  $('#evInfo').textContent=`${pts.length} puntos · ${EV.closed?'perímetro':'largo'} ${fmtLen(len)}${EV.closed&&pts.length>=3?' · superficie '+fmtArea(polyArea(pts)):''}`;
+  $('#evInfo').textContent=`${pts.length} puntos · ${EV.closed?'perímetro':'largo'} ${fmtLen(len)}${EV.closed&&pts.length>=3?' · superficie '+fmtArea(polyArea(pts)):''}${ns?` · ${ns} elegido${ns>1?'s':''}`:''}`;
   $('#evTtl').textContent='✏️ '+(EV.e?(EV.e.name||(EV.e.type==='area'?'Área':'Trazo')):'');
   $('#evUndo').disabled=!EV.undo.length;
-  $('#evDel').disabled=EV.sel<0||pts.length<=(EV.closed?3:2);
+  $('#evDel').textContent=ns?`🗑️ Borrar (${ns})`:'🗑️ Borrar';
+  $('#evDel').disabled=!ns;
+  $('#evSimp').textContent=ns?`🧹 Simplificar (${ns})`:'🧹 Simplificar todo';
+  $('#evLasso').classList.toggle('on',EV.lasso);
+  $('#evNone').disabled=!ns;
+  $('#evBetween').disabled=ns<2;
 }
 function evDelete(){
-  if(EV.sel<0)return;
-  evPush();EV.pts=vDelete(EV.pts,EV.sel,EV.closed);EV.sel=-1;evDraw();
+  if(!EV.sels.size)return;
+  const r=vDeleteMany(EV.pts,EV.sels,EV.closed);
+  if(!r){toast(`Tiene que quedar al menos ${EV.closed?3:2} puntos`,4000);return;}
+  evPush();EV.pts=r;EV.sels=new Set();evDraw();
 }
 function evSimplify(){
   const tol=Math.max(1,2*mppNow()),before=EV.pts.length;
-  evPush();
-  let s=simplifyDP(EV.pts,tol);
-  if(EV.closed&&s.length<3)s=EV.pts.slice(0,3);
-  EV.pts=s;EV.sel=-1;evDraw();
-  toast(`${before} → ${s.length} puntos (tolerancia ${tol.toFixed(1)} m)`,3500);
+  const r=vSimplifyRuns(EV.pts,EV.sels,tol,EV.closed);
+  if(r.length>=before){toast(`No hay nada para simplificar con tolerancia de ${tol.toFixed(1)} m: alejá el mapa para sacar más puntos`,5000);return;}
+  evPush();EV.pts=r;EV.sels=new Set();evDraw();
+  toast(`${before} → ${r.length} puntos (tolerancia ${tol.toFixed(1)} m)`,3500);
 }
-function evReverse(){evPush();EV.pts.reverse();EV.sel=-1;evDraw();}
+function evReverse(){evPush();EV.pts.reverse();EV.sels=new Set();evDraw();}
+function evAll(){EV.sels=new Set(EV.pts.map((_,i)=>i));evDraw();}
+function evNone(){EV.sels=new Set();evDraw();}
+/* rellena los puntos que hay entre los dos extremos de la selección */
+function evBetween(){
+  if(EV.sels.size<2)return;
+  const a=Math.min(...EV.sels),b=Math.max(...EV.sels);
+  for(let i=a;i<=b;i++)EV.sels.add(i);
+  evDraw();
+}
 async function evSave(){
   const e=EV.e;
   e.pts=EV.pts.map(p=>[+p[0].toFixed(7),+p[1].toFixed(7)]);
@@ -4834,9 +4933,47 @@ async function evSave(){
   vecInvalidate();closeVEdit();await drawEdits();
   toast('Puntos guardados',3000);
 }
-function evTap(){if(EV.sel>=0){EV.sel=-1;evDraw();}}
+function evTap(){if(EV.lasso)return;if(EV.sels.size){EV.sels=new Set();evDraw();}}
+/* lazo: se dibuja con el dedo o el lápiz y se eligen los puntos de adentro (se suman a los ya elegidos) */
+function evLassoDraw(){evLasso.clearLayers();if(EV.lp.length>1)L.polygon(EV.lp,{color:'#F04A1C',weight:2,dashArray:'5 5',fillColor:'#F04A1C',fillOpacity:.12,interactive:false}).addTo(evLasso);}
+function evLassoEnd(){
+  const poly=EV.lp;EV.lp=[];evLasso.clearLayers();
+  if(poly.length<3)return;
+  let n=0;
+  EV.pts.forEach((p,i)=>{if(!EV.sels.has(i)&&pip(p[0],p[1],poly)){EV.sels.add(i);n++;}});
+  evDraw();
+  toast(n?`${n} punto${n>1?'s':''} más`:'No hay puntos ahí adentro',2500);
+}
+(function(){
+  const el=$('#map');
+  const pos=e=>{const p=map.mouseEventToLatLng(e);return [p.lat,p.lng];};
+  el.addEventListener('pointerdown',e=>{
+    if(!EV.on||!EV.lasso)return;
+    if(S.penSeen&&S.penMode!==false&&e.pointerType==='touch')return;   /* con S Pen: el dedo mueve el mapa */
+    EV.lpid=e.pointerId;EV.lp=[pos(e)];
+    try{map.dragging.disable();}catch(er){}
+    e.stopPropagation();
+    try{el.setPointerCapture(e.pointerId);}catch(er){}
+  },true);
+  el.addEventListener('pointermove',e=>{
+    if(!EV.on||!EV.lasso||e.pointerId!==EV.lpid)return;
+    const p=pos(e),l=EV.lp[EV.lp.length-1];
+    if(hav(l,p)<Math.max(.8,3*mppNow()))return;
+    EV.lp.push(p);e.stopPropagation();evLassoDraw();
+  },true);
+  const up=e=>{
+    if(e.pointerId!==EV.lpid)return;
+    EV.lpid=null;
+    try{map.dragging.enable();}catch(er){}
+    evLassoEnd();
+  };
+  el.addEventListener('pointerup',up,true);el.addEventListener('pointercancel',up,true);
+})();
 $('#evUndo').onclick=evUndo;$('#evDel').onclick=evDelete;$('#evSimp').onclick=evSimplify;$('#evRev').onclick=evReverse;
 $('#evOk').onclick=evSave;
+$('#evAll').onclick=evAll;$('#evNone').onclick=evNone;$('#evBetween').onclick=evBetween;
+$('#evLasso').onclick=()=>{EV.lasso=!EV.lasso;EV.lp=[];evLasso.clearLayers();evDraw();};
+$('#evMin').onclick=()=>{$('#vedit').classList.toggle('min');};
 $('#evX').onclick=()=>{
   if(EV.dirty&&!confirm('¿Descartar los cambios de los puntos?'))return;
   closeVEdit();
