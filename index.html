@@ -1704,10 +1704,10 @@ function demContours(tiles,z,x0,y0,nx,ny,interval,f){
 const netPoints=n=>{let s=0;for(const w of n.ways)s+=w.p.length/2;return s;};
 /* Si las redes bajadas son demasiadas para el teléfono, se usan las más cercanas a `center` ([lat,lon]) hasta llenar el presupuesto de puntos.
    Las regionales (rutas principales) entran siempre, y las detalladas van primero para que ganen en caso de repetirse. */
-function pickNets(nets,center,budget){
+function pickNets(nets,center,budget,distFn){
   const reg=nets.filter(n=>n.regional),det=nets.filter(n=>!n.regional);
   let used=reg.reduce((a,n)=>a+netPoints(n),0);
-  const dist=n=>{const b=n.bb,la=Math.max(b.s,Math.min(b.n,center[0])),lo=Math.max(b.w,Math.min(b.e,center[1]));return hav([la,lo],center);};
+  const dist=distFn||(n=>{const b=n.bb,la=Math.max(b.s,Math.min(b.n,center[0])),lo=Math.max(b.w,Math.min(b.e,center[1]));return hav([la,lo],center);});
   const sorted=det.map(n=>({n,d:dist(n),p:netPoints(n)})).sort((a,b)=>a.d-b.d);
   const keep=[];let dropped=0;
   for(const x of sorted){
@@ -2139,6 +2139,32 @@ function demTilesAlong(coords,z,step){
     for(let k=1;k<=n;k++){const t=k/n;add(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t);}
   }
   return [...m.values()];
+}
+
+
+/* ====================== RUTAS LARGAS: RED EN DOS NIVELES ====================== */
+/* Para un viaje largo no hacen falta las calles de cada pueblo del camino: se usan completas solo las zonas cerca del origen
+   y del destino, y de las demás solo las rutas principales (y los ferris). */
+const MAINHW=new Set(['motorway','motorway_link','trunk','trunk_link','primary','primary_link','secondary','secondary_link','tertiary','tertiary_link']);
+const bbDist=(bb,p)=>{const la=Math.max(bb.s,Math.min(bb.n,p[0])),lo=Math.max(bb.w,Math.min(bb.e,p[1]));return hav([la,lo],p);};
+/* distancia aproximada (m) de un punto al segmento a–b, en un plano local */
+function segDist(p,a,b){
+  const k=Math.cos((a[0]+b[0])/2*Math.PI/180),X=q=>[(q[1]-a[1])*111195*k,(q[0]-a[0])*111195];
+  const P=X(p),B=X(b),L2=B[0]*B[0]+B[1]*B[1];
+  const t=L2?Math.max(0,Math.min(1,(P[0]*B[0]+P[1]*B[1])/L2)):0;
+  return Math.hypot(P[0]-t*B[0],P[1]-t*B[1]);
+}
+function longNets(nets,a,b,R){
+  R=R||30000;
+  let full=0,trunk=0;
+  const out=nets.map(n=>{
+    if(n.regional)return n;
+    if(bbDist(n.bb,a)<=R||bbDist(n.bb,b)<=R){full++;return n;}
+    trunk++;
+    const ways=n.ways.filter(w=>{const t=w.t||{};return MAINHW.has(t.highway)||t.route==='ferry'||(t.highway==='unclassified'&&!!t.ref);});
+    return Object.assign({},n,{ways,trunkOnly:true});
+  });
+  return {nets:out,full,trunk};
 }
 /*</pure>*/
 
@@ -3111,23 +3137,43 @@ function netsChanged(){NETC=null;dropGraph();vecInvalidate();}
 const NET_BUDGET=450000;   /* puntos de calles que el grafo puede tener en memoria
 
 /* opt.center: [lat,lon] donde se va a trabajar; si hay demasiadas redes se cargan las cercanas */
+/* cuánta red entra en memoria: si el teléfono informa mucha memoria disponible, se carga más */
+function netBudget(){const m=performance&&performance.memory,lim=m&&m.jsHeapSizeLimit||0;return lim>=3e9?1200000:lim>=1.5e9?800000:NET_BUDGET;}
+/* opt.center: dónde se va a trabajar · opt.route {from,to}: si el viaje es de más de 100 km se arma la red en dos niveles */
 function ensureGraph(opt){
-  const c=opt&&opt.center;
-  if(G&&G.limited&&c&&G.center&&hav(G.center,c)>40000)dropGraph();     /* me fui lejos de lo que está cargado */
+  const c=opt&&opt.center,rt=opt&&opt.route&&opt.route.from&&opt.route.to?opt.route:null;
+  const longWanted=!!(rt&&hav([rt.from.lat,rt.from.lon],[rt.to.lat,rt.to.lon])>100000);
+  if(G){
+    if(longWanted){
+      const same=G.long&&hav(G.rtTo,[rt.to.lat,rt.to.lon])<2000&&((typeof NAV!=='undefined'&&NAV.on)||hav(G.rtFrom,[rt.from.lat,rt.from.lon])<30000);
+      if(!same)dropGraph();
+    }else if(G.long){
+      /* la red de una ruta larga no tiene las calles del medio: para otra cosa lejos de sus extremos se arma la red completa */
+      const p=rt?[rt.from.lat,rt.from.lon]:(c||(typeof lastFix!=='undefined'&&lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng]));
+      const keep=!rt&&(((typeof NAV!=='undefined')&&NAV.on)||hav(G.rtFrom,p)<25000||hav(G.rtTo,p)<25000);
+      if(!keep)dropGraph();
+    }else if(G.limited&&c&&G.center&&hav(G.center,c)>40000)dropGraph();     /* me fui lejos de lo que está cargado */
+  }
   if(G)return Promise.resolve(G);
   if(!GP)GP=(async()=>{
     let nets=await loadNets();
     if(!nets.length){GP=null;return null;}
     const center=c||(typeof lastFix!=='undefined'&&lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng]);
-    const pk=pickNets(nets,center,NET_BUDGET);
+    let pk,info=null;
+    if(longWanted){
+      const A=[rt.from.lat,rt.from.lon],B=[rt.to.lat,rt.to.lon],L=longNets(nets,A,B,30000);
+      const prio=n=>Math.min(bbDist(n.bb,A),bbDist(n.bb,B),1000+segDist([(n.bb.s+n.bb.n)/2,(n.bb.w+n.bb.e)/2],A,B));
+      pk=pickNets(L.nets,A,netBudget(),prio);info={full:L.full,trunk:L.trunk};
+    }else pk=pickNets(nets,center,netBudget());
     nets=pk.nets;
     const edits=await DB.all('kv','edit:');
     const ov=new Map();
     edits.filter(e=>e.type==='ov').forEach(e=>ov.set(`${e.way}:${e.n1}:${e.n2}`,{dir:e.dir,all:!!e.all}));
     await new Promise(r=>setTimeout(r,0));
     G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait,avg:S.timeMode==='avg'?{foot:S.avgFoot/3.6,bike:S.avgBike/3.6,car:S.avgCar/3.6}:null,avgStops:S.avgStops},{turns:edits.filter(e=>e.type==='turn'),barriers:edits.filter(e=>e.type==='barrier'),areas:edits.filter(e=>e.type==='area')});
-    G.limited=pk.limited;G.center=center;
-    if(pk.limited)toast(`Hay muchas zonas bajadas: por memoria se usan las ${pk.nets.length} más cercanas a donde estás (${pk.dropped} quedaron afuera)`,6000);
+    G.limited=pk.limited;G.center=center;G.long=longWanted;
+    if(longWanted){G.rtFrom=[rt.from.lat,rt.from.lon];G.rtTo=[rt.to.lat,rt.to.lon];G.longInfo=info;}
+    if(pk.limited)toast(longWanted?`Ruta larga: por memoria quedaron afuera ${pk.dropped} zonas lejos del recorrido`:`Hay muchas zonas bajadas: por memoria se usan las ${pk.nets.length} más cercanas a donde estás (${pk.dropped} quedaron afuera)`,6000);
     GP=null;return G;
   })();
   return GP;
@@ -3344,7 +3390,7 @@ function computeAlt(g){
   for(const [p] of PREFS)RT.alt[p]=p===S.pref?r:findRoute(g,RT.sel,RT.calcFrom,RT.to,p);
 }
 async function calcRoutes(g,keep){
-  if(RT.to){const f0=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null);if(f0)g=await ensureGraph({center:[(f0.lat+RT.to.lat)/2,(f0.lon+RT.to.lon)/2]})||g;}
+  if(RT.to){const f0=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null);if(f0)g=await ensureGraph({center:[(f0.lat+RT.to.lat)/2,(f0.lon+RT.to.lon)/2],route:{from:f0,to:RT.to}})||g;}
   const from=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon,label:'Mi posición'}:null);
   if(!from){toast('Todavía sin GPS: elegí el origen en el mapa o buscá una calle',4500);showRoutes();return;}
   if(!RT.to){toast('Elegí el destino');return;}
@@ -3367,7 +3413,7 @@ async function calcRoutes(g,keep){
   drawRoute(true);showRoutes();
 }
 async function findAlts(){
-  const g=await ensureGraph();if(!g||!RT.calcFrom||!RT.to)return;
+  const g=await ensureGraph({route:{from:RT.calcFrom,to:RT.to}});if(!g||!RT.calcFrom||!RT.to)return;
   const {alts}=findAlternatives(g,RT.sel,RT.calcFrom,RT.to,S.pref,2);
   RT.cands=RT.cands.filter(c=>!/^Alternativa/.test(c.label));
   if(!alts.length){toast('No encontré otro camino razonable entre esos dos puntos',4500);showRoutes();return;}
@@ -3377,7 +3423,7 @@ async function findAlts(){
 }
 /* camino que pasa por un punto elegido */
 async function addViaAt(ll){
-  const g=await ensureGraph();if(!g||!RT.calcFrom||!RT.to){showRoutes();return;}
+  const g=await ensureGraph({route:{from:RT.calcFrom,to:RT.to}});if(!g||!RT.calcFrom||!RT.to){showRoutes();return;}
   let label='el punto elegido';
   try{const h=g.nearestEdge(ll.lat,ll.lon,60,x=>g.W[x.w].name);if(h)label=g.W[g.E[h.ei].w].name;}catch(er){}
   const via={lat:ll.lat,lon:ll.lon,label};
@@ -5018,6 +5064,7 @@ async function runDiag(){
     const idx=await netIndex();
     dgSet('Redes guardadas',`${idx.length} (${idx.filter(n=>n.regional).length} regionales) · ${miles(idx.reduce((a,n)=>a+(n.ways||0),0))} tramos`);
     dgSet('Memoria al empezar',memTxt());
+    dgSet('Límite de red en memoria',`${miles(netBudget())} puntos`);
     await pause(30);
     NETC=null;let t=performance.now();const nets=await loadNets();
     const pts=nets.reduce((a,n)=>a+n.ways.reduce((b,w)=>b+w.p.length/2,0),0);
@@ -5027,9 +5074,9 @@ async function runDiag(){
     dgSet('Armar el mapa de calles',`${msTxt(performance.now()-t)} · ${miles(VEC.count)} elementos`);
     await pause(30);
     dropGraph();t=performance.now();
-    const g=await ensureGraph({center:[(UHU.lat+TUC.lat)/2,(UHU.lon+TUC.lon)/2]});
+    const g=await ensureGraph({center:[(UHU.lat+TUC.lat)/2,(UHU.lon+TUC.lon)/2],route:{from:UHU,to:TUC}});
     const tg=performance.now()-t;
-    dgSet('Armar la red de rutas',g?`${msTxt(tg)} · ${miles(g.lat.length)} nodos · ${miles(g.E.length)} tramos${g.limited?' · solo las zonas cercanas (límite de memoria)':''}`:'sin redes guardadas',!g);
+    dgSet('Armar la red de rutas',g?`${msTxt(tg)} · ${miles(g.lat.length)} nodos · ${miles(g.E.length)} tramos${g.longInfo?` · ruta larga: ${g.longInfo.full} zonas completas cerca de los extremos y ${g.longInfo.trunk} solo con rutas principales`:''}${g.limited?' · quedaron zonas afuera por memoria':''}`:'sin redes guardadas',!g);
     await pause(30);
     if(g){
       t=performance.now();const r=findRoute(g,'car',UHU,TUC,'fast');const tr=performance.now()-t;
