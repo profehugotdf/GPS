@@ -336,6 +336,10 @@ body.night #vedit .nvb button{background:#E4EDEF;color:#0E2A36}
 #vedit.min #evMin{transform:rotate(180deg)}
 body.night #vedit .chips button{border-color:#E4EDEF;color:#E4EDEF}
 body.night #vedit .chips button.on{background:#E4EDEF;color:#0E2A36}
+
+table.dg{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+table.dg td{padding:5px 4px;border-bottom:1px solid rgba(128,128,128,.25);vertical-align:top}
+table.dg td:first-child{font-weight:700;width:42%}
 </style>
 </head>
 <body>
@@ -2119,6 +2123,23 @@ function vSimplifyRuns(pts,sel,tol,closed){
   const out=pts.filter((_,i)=>!drop.has(i));
   return out.length<(closed?3:2)?pts.slice():out;
 }
+
+
+/* ====================== PERFIL DE DESNIVELES DE UNA RUTA ====================== */
+/* nivel de la altura según el largo: una ruta de miles de km se mira a menor detalle para no bajar cientos de teselas */
+const demZoomForLength=L=>L<=30000?13:L<=150000?12:L<=600000?11:L<=1500000?10:9;
+/* solo las teselas que toca la ruta (no todo el rectángulo que la contiene), con el mismo paso que usa el perfil */
+function demTilesAlong(coords,z,step){
+  const m=new Map();
+  const add=(la,lo)=>{const p=tileXY(la,lo,z),x=Math.floor(p.x),y=Math.floor(p.y),k=x+'/'+y;if(!m.has(k))m.set(k,{x,y});};
+  if(!coords.length)return [];
+  add(coords[0][0],coords[0][1]);
+  for(let i=1;i<coords.length;i++){
+    const a=coords[i-1],b=coords[i],L=hav(a,b),n=Math.max(1,Math.ceil(L/step));
+    for(let k=1;k<=n;k++){const t=k/n;add(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t);}
+  }
+  return [...m.values()];
+}
 /*</pure>*/
 
 /* ---------- Utilidades ---------- */
@@ -2373,6 +2394,7 @@ map.on('dragstart',()=>setFollow(false));
 
 function onFix(f){
   lastFix=f;lastFixWall=Date.now();
+  try{gpsLog(f);}catch(e){}
   fixHist.push(f);if(fixHist.length>6)fixHist.shift();
   const ll=[f.lat,f.lon];
   if(!posMk){
@@ -2389,7 +2411,7 @@ function onFix(f){
 }
 async function startWatch(bg,msg){
   stopWatch();
-  const mk=(lat,lon,acc,alt,speed,brg,t)=>({lat,lon,acc,alt:alt==null||isNaN(alt)?null:alt,speed:speed==null||speed<0?null:speed,brg,t:t||Date.now()});
+  const mk=(lat,lon,acc,alt,speed,brg,t,va)=>({lat,lon,acc,alt:alt==null||isNaN(alt)?null:alt,altAcc:va==null||isNaN(va)?null:va,speed:speed==null||speed<0?null:speed,brg,t:t||Date.now()});
   if(bg&&isNative()){
     const BG=plugin('BackgroundGeolocation');
     const id=await BG.addWatcher({backgroundTitle:'Rumbo',backgroundMessage:msg||'Grabando el recorrido',requestPermissions:true,stale:false,distanceFilter:0},
@@ -2398,12 +2420,12 @@ async function startWatch(bg,msg){
           if(err.code==='NOT_AUTHORIZED'){toast('Falta el permiso de ubicación. Abro los ajustes…',5000);setTimeout(()=>BG.openSettings(),1500);}
           return;
         }
-        onFix(mk(loc.latitude,loc.longitude,loc.accuracy,loc.altitude,loc.speed,loc.bearing,loc.time));
+        onFix(mk(loc.latitude,loc.longitude,loc.accuracy,loc.altitude,loc.speed,loc.bearing,loc.time,loc.altitudeAccuracy));
       });
     watch={type:'bg',id,BG};
   }else if(navigator.geolocation){
     const id=navigator.geolocation.watchPosition(
-      p=>onFix(mk(p.coords.latitude,p.coords.longitude,p.coords.accuracy,p.coords.altitude,p.coords.speed,p.coords.heading,p.timestamp)),
+      p=>onFix(mk(p.coords.latitude,p.coords.longitude,p.coords.accuracy,p.coords.altitude,p.coords.speed,p.coords.heading,p.timestamp,p.coords.altitudeAccuracy)),
       e=>{$('#pill').lastElementChild.textContent='Sin GPS';toast('GPS: '+e.message);},
       {enableHighAccuracy:true,maximumAge:0,timeout:30000});
     watch={type:'web',id};
@@ -3285,7 +3307,7 @@ function resultsHtml(){
   const r=RT.res[RT.sel];
   if(r&&!r.err)h+=`<button class="btn primary" data-act="nav" style="width:100%;margin-top:8px">▶ Guiarme por esta ruta</button>
     ${r.hzs&&r.hzs.length?`<p>⚠️ En el camino: ${hzSummary(r.hzs)}</p>`:''}
-    <div class="row"><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button><button class="btn sm" data-act="rclear">Quitar del mapa</button></div>
+    <div class="row"><button class="btn sm" data-act="rprof">⛰️ Perfil de desniveles</button><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button><button class="btn sm" data-act="rclear">Quitar del mapa</button></div><div id="rprof">${r.profHtml||''}</div>
     <h3>Indicaciones</h3>${r.steps.map(s=>`<div class="item"><div>${s.ico?s.ico+' ':''}${esc(s.text)}</div><small class="mut">${s.dist?fmtD(s.dist):''}</small></div>`).join('')}`;
   return h;
 }
@@ -3405,6 +3427,7 @@ async function showRoutes(){
     else if(a==='viaset'){PICK={type:'via'};closeSheet();banner('Tocá en el mapa por dónde querés pasar');}
     else if(a==='pref'){S.pref=d.p;saveS();if(RT.to&&RT.res)calcRoutes(g,true);else showRoutes();}
     else if(a==='rfit'){closeSheet();drawRoute(true);}
+    else if(a==='rprof')showRouteProfileUI();
     else if(a==='rclear'){routeLayer.clearLayers();RT.res=null;showRoutes();}
     else if(a==='rgpx'){const r=RT.res[RT.sel];shareFile('ruta.gpx',toGPX([{name:'Ruta',pts:r.coords.map(c=>[c[0],c[1],0,0,null,0])}],[],esc),'application/gpx+xml');}
     else if(a==='rsave')showSaveRoute();
@@ -4668,8 +4691,7 @@ function updTarget(){
   if(!lastFix){$('#tgtD').textContent='—';sub.textContent=TGT.label+' · esperando GPS';tgtLine.setLatLngs([]);return;}
   const here=[lastFix.lat,lastFix.lon],there=[TGT.lat,TGT.lon];
   /* altitud (mediana de las últimas lecturas, para que el ruido del GPS no la haga saltar) y velocidad */
-  const als=fixHist.slice(-5).map(f=>f.alt).filter(v=>v!=null&&isFinite(v)).sort((a,b)=>a-b);
-  const alt=als.length?als[Math.floor(als.length/2)]:null;
+  const an=altNow(),alt=an?an.alt:null;
   let spd=lastFix.speed;
   if(spd==null&&fixHist.length>=2){
     const a=fixHist[Math.max(0,fixHist.length-4)],b=fixHist[fixHist.length-1],dt=(b.t-a.t)/1000;
@@ -4679,7 +4701,7 @@ function updTarget(){
   const kmh=spd!=null&&fresh?spd*3.6:null;
   const pace=kmh!=null&&kmh>=1&&kmh<16?` (${Math.floor(60/kmh)}:${String(Math.round((60/kmh%1)*60)%60).padStart(2,'0')} /km)`:'';
   $('#tgtM').textContent=fresh
-    ?`⛰️ ${alt!=null?Math.round(alt)+' m':'—'}  ·  ⚡ ${kmh!=null?kmh.toFixed(1)+' km/h'+pace:'—'}`
+    ?`⛰️ ${alt!=null?(an.doubt?'≈':'')+Math.round(alt)+' m'+(an.va!=null?' ±'+Math.round(an.va):''):'—'}  ·  ⚡ ${kmh!=null?kmh.toFixed(1)+' km/h'+pace:'—'}`
     :'Sin lectura de GPS reciente';
   const d=hav(here,there),brg=bearingTo(here,there);
   tgtLine.setLatLngs([here,there]);
@@ -4884,6 +4906,182 @@ async function cityRun(){
     out.innerHTML=res.length?res.map((r,i)=>`<button class="btn" data-act="pc" data-i="${i}" style="width:100%;text-align:left;margin-bottom:6px"><b>${esc(r.label)}</b><br><small class="mut">${esc(r.full.split(',').slice(2,5).join(',').trim()||r.type)}</small></button>`).join(''):'<p class="mut">No encontré ese lugar. Probá con otro nombre.</p>';
   }catch(e){out.innerHTML=`<p class="mwarn">No pude buscar: ${esc(e.message||String(e))}. Revisá la conexión.</p>`;}
 }
+/* ---------- Diagnóstico de rendimiento, registro del GPS, altitud confiable y perfil de desniveles de una ruta ---------- */
+/* Registro del GPS: las últimas ~15 min de lecturas tal como las da el teléfono (para revisar datos raros, como la altitud en un avión) */
+let GLOG=[],glogT=0;
+function gpsLog(f){
+  GLOG.push({t:f.t,lat:+f.lat.toFixed(6),lon:+f.lon.toFixed(6),acc:f.acc!=null?Math.round(f.acc):null,alt:f.alt!=null?Math.round(f.alt):null,va:f.altAcc!=null?Math.round(f.altAcc):null,kmh:f.speed!=null?+(f.speed*3.6).toFixed(1):null});
+  if(GLOG.length>900)GLOG.shift();
+  if(Date.now()-glogT>30000){glogT=Date.now();DB.put('kv','gpslog',GLOG.slice(-900)).catch(()=>{});}
+}
+async function loadGpsLog(){try{const g=await DB.get('kv','gpslog');if(Array.isArray(g))GLOG=g.concat(GLOG).slice(-900);}catch(e){}}
+/* Altitud que se muestra: mediana de las lecturas de los últimos 15 s (no de lecturas viejas) y con la precisión vertical si el teléfono la informa */
+function altNow(){
+  const lf=lastFix;if(!lf)return null;
+  const rec=fixHist.filter(f=>f.alt!=null&&isFinite(f.alt)&&Math.abs(lf.t-f.t)<=15000);
+  if(!rec.length)return null;
+  const arr=rec.map(f=>f.alt).sort((a,b)=>a-b),alt=arr[Math.floor(arr.length/2)];
+  const va=lf.altAcc!=null&&isFinite(lf.altAcc)?lf.altAcc:null;
+  return {alt,va,doubt:va!=null&&va>50,n:rec.length};
+}
+/* ----- perfil de desniveles de la ruta elegida ----- */
+async function fetchDemList(list,z,prog){
+  const tiles=new Map();let i=0,done=0;
+  const worker=async()=>{
+    while(i<list.length){
+      const t=list[i++];
+      try{
+        const dk=`dem/${z}/${t.x}/${t.y}`;
+        let blob=null;try{blob=await DB.get('tiles',dk);}catch(er){}
+        if(!blob){
+          blob=await getTileBlob(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${t.x}/${t.y}.png`);
+          try{await DB.put('tiles',dk,blob);}catch(er){}
+        }
+        const bmp=await createImageBitmap(blob);
+        const c=document.createElement('canvas');c.width=c.height=256;
+        const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(bmp,0,0);
+        const d=ctx.getImageData(0,0,256,256).data,el=new Float32Array(65536);
+        for(let k=0;k<65536;k++)el[k]=d[k*4]*256+d[k*4+1]+d[k*4+2]/256-32768;
+        tiles.set(t.x+'/'+t.y,el);
+      }catch(e){}
+      done++;if(prog)prog(done,list.length);
+    }
+  };
+  await Promise.all(Array.from({length:4},worker));
+  return tiles;
+}
+async function demMissing(list,z){let n=0;for(const t of list)if(!(await DB.has('tiles',`dem/${z}/${t.x}/${t.y}`)))n++;return n;}
+async function routeProfile(r,out,opts){
+  opts=opts||{};
+  const z=demZoomForLength(r.dist),step=Math.max(15,r.dist/2500),list=demTilesAlong(r.coords,z,step);
+  const falta=await demMissing(list,z);
+  if(falta&&!opts.noAsk){
+    if(S.dataMode==='never'){out.innerHTML='<p class="mwarn">⚠️ Falta la altura de esta zona y elegiste no usar internet (Ajustes → Datos móviles).</p>';return null;}
+    const cel=S.dataMode==='wifi'&&connType()==='cellular';
+    if(!confirm(`Para el perfil hay que bajar ${falta} tesela${falta>1?'s':''} de altura (unos ${Math.max(1,Math.round(falta*0.12))} MB)${cel?', con datos móviles':''}. Quedan guardadas para la próxima. ¿Seguir?`))return null;
+  }
+  const t0=performance.now();
+  out.innerHTML='<p class="mut">Calculando el perfil…</p>';
+  const dem=await fetchDemList(list,z,(d,n)=>{if(falta)out.innerHTML=`<p class="mut">Bajando la altura… ${d} de ${n}</p>`;});
+  const p=reliefProfile(r.coords,(la,lo)=>sampleDem(dem,z,la,lo),{step});
+  const ms=performance.now()-t0;
+  if(p.error){out.innerHTML=`<p class="mwarn">⚠️ ${esc(p.error)}${falta?' (¿sin conexión?)':''}</p>`;return null;}
+  r.prof=p;
+  out.innerHTML=r.profHtml=`<div class="card"><b>⛰️ Perfil de desniveles</b><br>↑ ${miles(p.gain)} m · ↓ ${miles(p.loss)} m · de ${p.start} a ${p.end} m de altura<br><small class="mut">Mín ${p.min} · máx ${p.max} m${step<=100?` · pendiente máx ${p.maxSlope.toFixed(0)} %`:''} · altura con detalle de ~${Math.round(40075000*Math.cos(r.coords[0][0]*Math.PI/180)/Math.pow(2,z)/256)} m, por eso es aproximado</small>${profSvg(p)}</div>`;
+  return {p,ms,z,tiles:list.length,falta};
+}
+/* ----- diagnóstico ----- */
+const DIAG={rows:[],route:null,fps:null,busy:false};
+const UHU={lat:-54.8019,lon:-68.3030,label:'Ushuaia'},TUC={lat:-26.8083,lon:-65.2176,label:'San Miguel de Tucumán'};
+const msTxt=ms=>ms<1000?Math.round(ms)+' ms':(ms/1000).toFixed(1)+' s';
+function memTxt(){
+  const m=performance&&performance.memory;
+  return m&&m.usedJSHeapSize?`${Math.round(m.usedJSHeapSize/1e6)} MB usados de ${Math.round(m.jsHeapSizeLimit/1e6)} MB`:'este WebView no lo informa';
+}
+function diagHtml(){
+  const rows=DIAG.rows.map(([k,v,warn])=>`<tr><td>${esc(k)}</td><td${warn?' style="color:#C0392B;font-weight:700"':''}>${esc(v)}</td></tr>`).join('');
+  return rows?`<table class="dg">${rows}</table>`:'<p class="mut">Tocá "Probar todo". Tarda unos segundos y no usa internet.</p>';
+}
+function showDiag(){
+  const g=GLOG.length,last=g?GLOG[g-1]:null;
+  openSheet('🩺 Diagnóstico',`<p class="mut">Mide en tu teléfono lo más exigente: leer las redes, armar el mapa de calles y la red de rutas, la ruta Ushuaia → Tucumán en auto, su perfil de desniveles y la fluidez del mapa.</p>
+    <div class="row"><button class="btn primary" data-act="run"${DIAG.busy?' disabled':''}>▶ Probar todo</button><button class="btn" data-act="fps">🎞️ Fluidez del mapa</button></div>
+    <div id="dgOut">${diagHtml()}</div>
+    <div class="row" style="margin-top:6px"><button class="btn sm" data-act="prof">⛰️ Perfil de la ruta de prueba (usa internet si falta)</button></div>
+    <div id="dgProf"></div>
+    <h3>Registro del GPS</h3>
+    <p class="mut">${g?`${g} lecturas guardadas (últimos ${fmtDur((last.t-GLOG[0].t)/1000)}). Última: altitud ${last.alt??'—'} m${last.va!=null?' ±'+last.va:''}, ±${last.acc??'—'} m, ${last.kmh??'—'} km/h.`:'Todavía no hay lecturas.'}</p>
+    ${g>3?glogSvg():''}
+    <div class="row"><button class="btn sm" data-act="csv"${g?'':' disabled'}>📤 Compartir el registro (CSV)</button><button class="btn sm" data-act="copy">📋 Copiar resultados</button></div>`,
+    async(a)=>{
+      if(a==='run')await runDiag();
+      else if(a==='fps')await fpsTest();
+      else if(a==='prof')await diagProfile();
+      else if(a==='csv')shareFile('rumbo-gps.csv','hora,lat,lon,precision_m,altitud_m,precision_vertical_m,velocidad_kmh\n'+GLOG.map(f=>[new Date(f.t).toISOString(),f.lat,f.lon,f.acc??'',f.alt??'',f.va??'',f.kmh??''].join(',')).join('\n'),'text/csv');
+      else if(a==='copy'){
+        const txt='Diagnóstico Rumbo\n'+DIAG.rows.map(([k,v])=>`${k}: ${v}`).join('\n');
+        try{await navigator.clipboard.writeText(txt);toast('Copiado: pegalo en el chat',3000);}catch(e){shareFile('rumbo-diagnostico.txt',txt,'text/plain');}
+      }
+    });
+}
+function glogSvg(){
+  const pts=GLOG.filter(f=>f.alt!=null);if(pts.length<3)return '';
+  const W=300,H=60,t0=pts[0].t,t1=pts[pts.length-1].t||t0+1,mn=Math.min(...pts.map(f=>f.alt)),mx=Math.max(...pts.map(f=>f.alt)),sp=Math.max(1,mx-mn);
+  const d=pts.map((f,i)=>(i?'L':'M')+((f.t-t0)/Math.max(1,t1-t0)*W).toFixed(1)+' '+(H-4-(f.alt-mn)/sp*(H-10)).toFixed(1)).join(' ');
+  return `<div class="mprof"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="#1E6BFF" stroke-width="2" vector-effect="non-scaling-stroke"/></svg><span class="a">${mx} m</span><span class="b">${mn} m</span><span class="c">altitud del GPS</span></div>`;
+}
+function dgSet(k,v,warn){const i=DIAG.rows.findIndex(r=>r[0]===k);if(i>=0)DIAG.rows[i]=[k,v,warn];else DIAG.rows.push([k,v,warn]);const o=$('#dgOut');if(o)o.innerHTML=diagHtml();}
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+async function runDiag(){
+  if(DIAG.busy)return;DIAG.busy=true;DIAG.rows=[];DIAG.route=null;
+  try{
+    const idx=await netIndex();
+    dgSet('Redes guardadas',`${idx.length} (${idx.filter(n=>n.regional).length} regionales) · ${miles(idx.reduce((a,n)=>a+(n.ways||0),0))} tramos`);
+    dgSet('Memoria al empezar',memTxt());
+    await pause(30);
+    NETC=null;let t=performance.now();const nets=await loadNets();
+    const pts=nets.reduce((a,n)=>a+n.ways.reduce((b,w)=>b+w.p.length/2,0),0);
+    dgSet('Leer las redes',`${msTxt(performance.now()-t)} · ${miles(pts)} puntos`);
+    await pause(30);
+    VEC.dirty=true;t=performance.now();await vecEnsure();
+    dgSet('Armar el mapa de calles',`${msTxt(performance.now()-t)} · ${miles(VEC.count)} elementos`);
+    await pause(30);
+    dropGraph();t=performance.now();
+    const g=await ensureGraph({center:[(UHU.lat+TUC.lat)/2,(UHU.lon+TUC.lon)/2]});
+    const tg=performance.now()-t;
+    dgSet('Armar la red de rutas',g?`${msTxt(tg)} · ${miles(g.lat.length)} nodos · ${miles(g.E.length)} tramos${g.limited?' · solo las zonas cercanas (límite de memoria)':''}`:'sin redes guardadas',!g);
+    await pause(30);
+    if(g){
+      t=performance.now();const r=findRoute(g,'car',UHU,TUC,'fast');const tr=performance.now()-t;
+      DIAG.route=r.err?null:r;
+      dgSet('Ruta Ushuaia → Tucumán (auto)',r.err?`${msTxt(tr)} · ${errText(r)}`:`${msTxt(tr)} · ${fmtD(r.dist)} · ${fmtDur(r.time)}${r.offFrom>1000||r.offTo>1000?' · con tramos rectos hasta la red':''}`,!!r.err);
+      if(!r.err){
+        const z=demZoomForLength(r.dist),list=demTilesAlong(r.coords,z,Math.max(15,r.dist/2500)),falta=await demMissing(list,z);
+        dgSet('Altura para el perfil',`${list.length} teselas (nivel ${z}) · ${list.length-falta} ya guardadas${falta?` · faltan ${falta} (unos ${Math.max(1,Math.round(falta*0.12))} MB)`:''}`);
+        if(!falta){t=performance.now();const pr=await routeProfile(r,$('#dgProf')||document.createElement('div'),{noAsk:true});if(pr)dgSet('Perfil de desniveles',`${msTxt(performance.now()-t)} · ↑ ${miles(pr.p.gain)} m ↓ ${miles(pr.p.loss)} m`);}
+      }
+    }
+    await pause(30);
+    /* medir con relieve: 10 km hacia el norte desde donde estás (o el centro del mapa), solo con altura ya guardada */
+    const c=lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng];
+    const line=[c,[c[0]+10000/111195,c[1]]],bb={n:line[1][0]+.004,s:c[0]-.004,w:c[1]-.004,e:c[1]+.004};
+    let z=13;const lst=demTiles(bb,z),fm=await demMissing(lst,z);
+    if(fm)dgSet('Medir con relieve (10 km)','sin la altura de esta zona guardada: medí una vez con internet y repetí');
+    else{t=performance.now();const dem=await fetchDem(bb,z);const pr=reliefProfile(line,(la,lo)=>sampleDem(dem,z,la,lo));dgSet('Medir con relieve (10 km)',`${msTxt(performance.now()-t)}${pr.error?' · '+pr.error:` · ↑ ${pr.gain} m ↓ ${pr.loss} m`}`);}
+    dgSet('Memoria al terminar',memTxt());
+    if(DIAG.fps)dgSet('Fluidez del mapa',DIAG.fps);
+  }catch(e){dgSet('Error',String(e&&e.message||e),true);}
+  DIAG.busy=false;
+}
+async function diagProfile(){
+  if(!DIAG.route){toast('Primero tocá "Probar todo": hace falta la ruta de prueba',4000);return;}
+  const t=performance.now(),pr=await routeProfile(DIAG.route,$('#dgProf'));
+  if(pr)dgSet('Perfil de desniveles',`${msTxt(performance.now()-t)}${pr.falta?` (con ${pr.falta} teselas bajadas)`:''} · ↑ ${miles(pr.p.gain)} m ↓ ${miles(pr.p.loss)} m`);
+}
+/* fluidez: mueve y acerca el mapa solo durante ~6 s y mide cada cuadro */
+async function fpsTest(){
+  closeSheet();setFollow(false);
+  const c=map.getCenter(),z=map.getZoom(),fr=[];let last=performance.now(),run=true;
+  const loop=t=>{fr.push(t-last);last=t;if(run)requestAnimationFrame(loop);};
+  requestAnimationFrame(loop);
+  toast('Midiendo la fluidez: no toques la pantalla',6500);
+  const steps=[()=>map.panBy([220,0]),()=>map.panBy([0,220]),()=>map.panBy([-220,0]),()=>map.panBy([0,-220]),()=>map.setZoom(Math.max(3,z-2)),()=>map.setZoom(z),()=>map.panBy([260,140]),()=>map.panBy([-260,-140])];
+  for(const s of steps){try{s();}catch(e){}await pause(700);}
+  run=false;try{map.setView(c,z,{animate:false});}catch(e){}
+  const f=fr.slice(2).filter(x=>x>0&&x<2000);
+  if(f.length<5){DIAG.fps='no se pudo medir';}
+  else{
+    const avg=f.reduce((a,b)=>a+b,0)/f.length,s=f.slice().sort((a,b)=>a-b),p95=s[Math.floor(s.length*.95)],slow=f.filter(x=>x>50).length/f.length*100;
+    DIAG.fps=`${Math.round(1000/avg)} cuadros/s de promedio · ${slow.toFixed(0)} % de cuadros lentos (más de 50 ms) · el peor ${Math.round(s[s.length-1])} ms · capa ${LAYERS[S.layer]?LAYERS[S.layer].name:S.layer}`;
+  }
+  showDiag();dgSet('Fluidez del mapa',DIAG.fps);
+}
+async function showRouteProfileUI(){
+  const r=RT.res&&RT.res[RT.sel];if(!r||r.err)return;
+  const out=$('#rprof');if(!out)return;
+  await routeProfile(r,out);
+}
+
 /* ---------- Editor de puntos de un trazo o un área (mover, agregar, seleccionar varios, borrar, simplificar) ---------- */
 const EV={on:false,id:null,e:null,pts:[],closed:false,sels:new Set(),undo:[],dirty:false,lasso:false,lp:[],lpid:null};
 /* compatibilidad: EV.sel es "el primero de los elegidos" (o -1) */
@@ -6304,9 +6502,11 @@ function showMore(){
     <label class="chk"><input type="checkbox" id="s15" ${S.fingerRotate!==false?'checked':''}> Rotar el mapa con dos dedos (reinicia el mapa al cambiar)</label>
     <label for="s16">Opacidad del fondo de la tarjeta de guía: <b id="s16v">${Math.round(S.navOp*100)} %</b></label>
     <input type="range" id="s16" min="0" max="90" value="${Math.round(S.navOp*100)}">
-    <label class="chk"><input type="checkbox" id="s18" ${S.penMode!==false?'checked':''}> ✒️ Con S Pen en Calcar a mano alzada: el lápiz dibuja y los dedos mueven el mapa</label>
+    <label class="chk"><input type="checkbox" id="s19" ${S.penMode!==false?'checked':''}> ✒️ Con S Pen en Calcar a mano alzada: el lápiz dibuja y los dedos mueven el mapa</label>
     <label class="chk"><input type="checkbox" id="s17" ${S.smooth!==false?'checked':''}> Movimiento fluido: el punto y el mapa se deslizan entre una lectura del GPS y la siguiente</label>
     <p class="mut">Casi no gasta procesador (lo hace la placa de video). El punto va hasta 1 segundo detrás de tu posición real.</p>
+    <h3>Rendimiento</h3>
+    <button class="btn" data-act="diag">🩺 Diagnóstico de rendimiento y registro del GPS</button>
     <h3>Datos móviles</h3>
     ${chips('dm',S.dataMode,[['allow','📶 Usar siempre'],['wifi','📡 Solo con Wi‑Fi'],['never','📴 Nunca: solo lo guardado']])}
     <p class="mut">Con <b>Solo con Wi‑Fi</b>, si estás con datos móviles el mapa no baja imágenes nuevas y las descargas te piden confirmación. Con <b>Nunca</b>, no se usa internet para mapas aunque haya Wi‑Fi. Siempre se ven los mapas que ya tengas guardados. Conexión detectada ahora: <b id="conn"></b>.</p>
@@ -6363,6 +6563,7 @@ function showMore(){
         saveS();dropGraph();
         $('#calmsg').textContent=got.length?'Listo. '+got.join(' · ')+(r.stops!=null?` · Paradas: ${r.stops} %`:'')+'. Ahora elegí "Por mi velocidad promedio" arriba.':'Todavía no hay suficientes salidas grabadas (hacen falta al menos 3 km por tipo de actividad: caminata, bici o auto).';
       }
+      else if(a==='diag')showDiag();
       else if(a==='dm'){S.dataMode=d.k;saveS();updNetPill();sBody.querySelectorAll('[data-act=dm]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
       else if(a==='nt'){S.night=d.k;saveS();applyNight();sBody.querySelectorAll('[data-act=nt]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
       else if(a==='ori'){if(changeOrient(d.k))sBody.querySelectorAll('[data-act=ori]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
@@ -6378,7 +6579,7 @@ function showMore(){
       else if(t.id==='s8'){S.carF=+t.value;dropGraph();}
       else if(t.id==='s9')S.routeMode=t.value;
       else if(t.id==='s17'){S.smooth=t.checked;saveS();}
-      else if(t.id==='s18'){S.penMode=t.checked;saveS();}
+      else if(t.id==='s19'){S.penMode=t.checked;saveS();}
       else if(t.id==='s18'){S.wxWatch=t.checked;saveS();}
       else if(t.id==='s15'){
         if(t.checked&&!canRotatePlugin()){t.checked=false;toast('Esta versión no trae el módulo para rotar el mapa.',5000);return;}
@@ -6421,6 +6622,7 @@ $('#fAct').onclick=()=>{
 (async()=>{
   await DB.open();
   await loadSources();
+  await loadGpsLog();
   setLayer(S.layer);applyOverlays();
   await loadRuns();
   await migrate();
