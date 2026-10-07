@@ -385,8 +385,8 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 </div>
 <div id="vedit" hidden>
   <div class="caph"><b id="evTtl">✏️ Editar puntos</b><span><button id="evMin" aria-label="Achicar">▾</button><button id="evX" aria-label="Cerrar">✕</button></span></div>
-  <div id="evInfo"></div><small id="evHint"></small>
-  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evArea">⬛ Hacer área</button><button id="evCut">✂️ Cortar aquí</button></div>
+  <div id="evInfo"></div><small id="evWater" style="display:block;font-size:12.5px;line-height:1.35;margin-top:2px" hidden></small><small id="evHint"></small>
+  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evJoin" hidden>🔗 Unir al agua</button><button id="evArea">⬛ Hacer área</button><button id="evCut">✂️ Cortar aquí</button></div>
   <div class="nvb"><button id="evUndo">↶ Deshacer</button><button id="evDel">🗑️ Borrar</button><button id="evSimp">🧹 Simplificar todo</button><button id="evRev">⇄ Invertir</button><button id="evOk">✓ Guardar</button></div>
 </div>
 <div id="perim" hidden>
@@ -5539,6 +5539,43 @@ async function osmWaterDownload(){
     });
   show();
 }
+
+/* ---------- ¿El río está unido al agua? (para el kayak) ---------- */
+const KJOIN={lake:300,river:60};       /* las mismas distancias que usa la red de agua */
+async function loadWater(selfId){
+  const all=await DB.all('kv','edit:'),w={lakes:[],others:[],rivers:[]};
+  for(const e of all){
+    if(e.type==='area'&&e.pts&&e.pts.length>=3){(e.kind==='agua'?w.lakes:w.others).push({id:e.id,pts:e.pts,name:e.name||'',kind:e.kind});}
+    else if(e.type==='path'&&e.kind==='rio'&&e.id!==selfId&&e.pts&&e.pts.length>1)w.rivers.push({id:e.id,pts:e.pts,name:e.name||''});
+  }
+  return w;
+}
+function nearestWater(p,w,includeOthers){
+  let best=null;
+  const edge=(pts,closed,what,type)=>{
+    const n=pts.length,m=closed?n:n-1;
+    for(let i=0;i<m;i++){const pr=projSeg(pts[i],pts[(i+1)%n],p);if(!best||pr.d<best.d)best={d:pr.d,pt:pr.pt,what,type};}
+  };
+  for(const lk of w.lakes){if(pip(p[0],p[1],lk.pts))return {d:0,pt:p,what:lk.name||'lago',type:'lake',inside:true};edge(lk.pts,true,lk.name||'lago','lake');}
+  for(const r of w.rivers)edge(r.pts,false,r.name||'río','river');
+  if(includeOthers)for(const o of w.others){if(pip(p[0],p[1],o.pts)||true)edge(o.pts,true,o.name||'área','other');}
+  return best;
+}
+/* estado de las dos puntas de un río */
+function waterEnds(pts,w){
+  return [pts[0],pts[pts.length-1]].map(p=>{
+    const n=nearestWater(p,w,false);
+    if(n&&(n.inside||n.d<=(n.type==='lake'?KJOIN.lake:KJOIN.river)))return {ok:true,what:n.what,type:n.type,d:n.d,inside:!!n.inside};
+    const o=nearestWater(p,w,true);
+    return {ok:false,near:n,other:o&&o.type==='other'&&(!n||o.d<n.d)?o:null};
+  });
+}
+function waterEndsHtml(st){
+  const nm=['Principio','Final'];
+  return st.map((s,i)=>s.ok?`${nm[i]}: ✅ unido ${s.type==='lake'?'al lago':'al río'} ${esc(s.what)}${s.inside?' (adentro)':''}`:
+    s.other&&s.other.d<=2000?`${nm[i]}: ⚠️ hay un área "${esc(s.other.what)}" a ${fmtLen(s.other.d)}, pero no es de tipo Agua`:
+    s.near&&s.near.d<=20000?`${nm[i]}: ⚠️ suelto, a ${fmtLen(s.near.d)} de ${esc(s.near.what)}`:`${nm[i]}: ${i?'suelto':'naciente'} (sin agua cerca)`).join('<br>');
+}
 /* ---------- Buscar una ciudad o un lugar por internet (Nominatim, OpenStreetMap) para elegir el origen o el destino ---------- */
 async function cityQuery(q){
   if(!(await netAllowed('buscar el lugar')))return null;
@@ -5765,6 +5802,7 @@ async function openVEdit(id){
   if(TR.on||GE.on||CAP.on||NP.on||MS.on||draw||PICK){toast('Cerrá primero la otra herramienta',4000);return;}
   const e=await DB.get('kv','edit:'+id);
   if(!e||!e.pts){showFix();return;}
+  EV.water=e.kind==='rio'?await loadWater(e.id):null;
   EV.on=true;EV.id=id;EV.e=e;EV.closed=e.type==='area';EV.pts=e.pts.map(p=>[p[0],p[1]]);EV.sels=new Set();EV.undo=[];EV.dirty=false;EV.lasso=false;
   closeSheet();hidePin();setFollow(false);
   $('#vedit').hidden=false;$('#vedit').classList.remove('min');
@@ -5798,8 +5836,16 @@ function evDrawLine(){
   }
   updEvUi();
 }
+function evWaterStatus(){
+  const el=$('#evWater'),b=$('#evJoin');
+  const isR=EV.on&&EV.e&&EV.e.kind==='rio'&&EV.water;
+  if(b)b.hidden=!isR;
+  if(!el)return;
+  if(!isR){el.hidden=true;return;}
+  el.hidden=false;el.innerHTML=waterEndsHtml(waterEnds(EV.pts,EV.water));
+}
 function evDraw(){
-  evLayer.clearLayers();evDrawLine();
+  evLayer.clearLayers();evDrawLine();evWaterStatus();
   const idx=evInView();
   const hint=EV.lasso?'Lazo: rodeá con el dedo o el lápiz los puntos que quieras elegir.':'Arrastrá un punto para moverlo. Tocá puntos para elegir varios. Los círculos chicos agregan puntos.';
   if(idx.length>EV_MAX){
@@ -5863,6 +5909,25 @@ function evSimplify(){
   evPush();EV.pts=r;EV.sels=new Set();evDraw();
   toast(`${before} → ${r.length} puntos (tolerancia ${tol.toFixed(1)} m)`,3500);
 }
+/* une las puntas sueltas del río al agua más cercana (hasta 2 km): agrega un punto justo en la costa del lago o sobre el otro río */
+function evJoinWater(){
+  if(!EV.water)return;
+  const st=waterEnds(EV.pts,EV.water),R=2000;let n=0,msg=[];
+  const pts=EV.pts.slice();
+  evPush();
+  [0,1].forEach(i=>{
+    if(st[i].ok){msg.push(`${i?'Final':'Principio'}: ya estaba unido a ${st[i].what}`);return;}
+    const p=i===0?pts[0]:pts[pts.length-1],t=nearestWater(p,EV.water,false);
+    if(!t||t.d>R){msg.push(`${i?'Final':'Principio'}: sin agua a menos de ${R/1000} km${i?'':' (normal en una naciente)'}`);return;}
+    let q=t.pt;
+    /* en un lago el punto va un poco adentro de la costa, así la unión no depende de la distancia */
+    if(t.type==='lake'){const dx=(t.pt[1]-p[1]),dy=(t.pt[0]-p[0]),L=Math.hypot(dx,dy)||1,k=Math.min(8,t.d)/111195/L;q=[t.pt[0]+dy*k,t.pt[1]+dx*k/Math.max(.2,Math.cos(p[0]*Math.PI/180))*1];}
+    if(i===0)pts.unshift(q);else pts.push(q);
+    n++;msg.push(`${i?'Final':'Principio'}: unido a ${t.what} (${fmtLen(t.d)})`);
+  });
+  if(!n){EV.undo.pop();toast(msg.length?msg.join(' · '):'Las dos puntas ya están unidas al agua',5000);return;}
+  EV.pts=pts;EV.sels=new Set();evDraw();toast(msg.join(' · '),6000);
+}
 function evReverse(){evPush();EV.pts.reverse();EV.sels=new Set();evDraw();}
 function evAll(){EV.sels=new Set(EV.pts.map((_,i)=>i));evDraw();}
 function evNone(){EV.sels=new Set();evDraw();}
@@ -5918,6 +5983,7 @@ function evLassoEnd(){
   };
   el.addEventListener('pointerup',up,true);el.addEventListener('pointercancel',up,true);
 })();
+$('#evJoin').onclick=evJoinWater;
 $('#evUndo').onclick=evUndo;$('#evDel').onclick=evDelete;$('#evSimp').onclick=evSimplify;$('#evRev').onclick=evReverse;
 $('#evOk').onclick=evSave;
 $('#evAll').onclick=evAll;$('#evNone').onclick=evNone;$('#evBetween').onclick=evBetween;
