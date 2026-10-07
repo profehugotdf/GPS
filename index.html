@@ -386,7 +386,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="vedit" hidden>
   <div class="caph"><b id="evTtl">✏️ Editar puntos</b><span><button id="evMin" aria-label="Achicar">▾</button><button id="evX" aria-label="Cerrar">✕</button></span></div>
   <div id="evInfo"></div><small id="evHint"></small>
-  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evCut">✂️ Cortar aquí</button></div>
+  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evArea">⬛ Hacer área</button><button id="evCut">✂️ Cortar aquí</button></div>
   <div class="nvb"><button id="evUndo">↶ Deshacer</button><button id="evDel">🗑️ Borrar</button><button id="evSimp">🧹 Simplificar todo</button><button id="evRev">⇄ Invertir</button><button id="evOk">✓ Guardar</button></div>
 </div>
 <div id="perim" hidden>
@@ -5453,6 +5453,26 @@ $('#pbOk').onclick=pbBuild;
 $('#pbX').onclick=closePerim;
 $('#evCut').onclick=evCut;
 
+
+/* Desde el editor de puntos: una línea que da la vuelta (costa de un lago o dique) se convierte en área.
+   La línea queda y el área se arma con ella: si después corregís la línea, el área se actualiza. */
+async function evToArea(){
+  if(!EV.on||EV.closed)return;
+  const pts=EV.pts;
+  if(pts.length<3){toast('Hacen falta al menos 3 puntos para un área',3500);return;}
+  const gap=hav(pts[0],pts[pts.length-1]);
+  if(gap>PB_TOL&&!confirm(`Las puntas de la línea están a ${fmtLen(gap)}. ¿Cerrar el área con una línea recta entre ellas?`))return;
+  const rnd=p=>[+p[0].toFixed(7),+p[1].toFixed(7)],e=EV.e;
+  e.pts=pts.map(rnd);await DB.put('kv','edit:'+e.id,e);
+  const ring=gap<=PB_TOL&&pts.length>3?pts.slice(0,-1):pts.slice();
+  const ar={type:'area',id:uid(),kind:['costa','rio'].includes(e.kind)?'agua':'otro',name:e.name||'',pts:ring.map(rnd),props:{},members:[{id:e.id,rev:false}],created:Date.now()};
+  await DB.put('kv','edit:'+ar.id,ar);
+  closeVEdit();vecInvalidate();try{kayakDrop();}catch(er){}
+  await drawEdits();
+  toast(`Área creada: ${fmtArea(polyArea(ar.pts))}`,5000);
+  showEditArea(ar.id);
+}
+$('#evArea').onclick=evToArea;
 /* ---------- Kayak: rutas por los ríos y lagos guardados ---------- */
 let WGC={key:'',wg:null};
 async function kayakWG(){
@@ -5828,6 +5848,7 @@ function updEvUi(){
   $('#evNone').disabled=!ns;
   $('#evBetween').disabled=ns<2;
   $('#evCut').disabled=EV.closed||ns!==1;
+  {const b=$('#evArea');if(b){b.hidden=EV.closed;if(!EV.closed&&EV.pts.length>2){const g=hav(EV.pts[0],EV.pts[EV.pts.length-1]);b.textContent=g<=PB_TOL?'⬛ Cerrar como área':'⬛ Hacer área';b.classList.toggle('on',g<=PB_TOL);}}}
 }
 function evDelete(){
   if(!EV.sels.size)return;
