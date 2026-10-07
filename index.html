@@ -1764,14 +1764,32 @@ function findAlternatives(G,mode,from,to,pref,k){
   G.pen=null;
   return {base,alts};
 }
-/* Une dos tramos (origen→punto y punto→destino) en una sola ruta */
+/* Une dos tramos (origen→punto y punto→destino) en una sola ruta. via: {lat,lon,label,text?,stay? (min)} */
 function joinRoutes(a,b,via){
   let off=0;for(let i=1;i<a.coords.length;i++)off+=hav(a.coords[i-1],a.coords[i]);
-  const steps=a.steps.slice(0,-1).concat([{text:`Pasás por ${via.label||'el punto intermedio'}`,dist:0,at:off,ico:'📍',kind:'via',lat:via.lat,lon:via.lon,k0:0}]);
+  const txt=via.text||`Pasás por ${via.label||'el punto intermedio'}`;
+  const steps=a.steps.slice(0,-1).concat([{text:txt,dist:0,at:off,ico:via.stay?'⛺':'📍',kind:'via',lat:via.lat,lon:via.lon,k0:0}]);
   b.steps.forEach((s,i)=>{const c=Object.assign({},s,{at:s.at+off});if(i===0&&/^Salí por/.test(c.text))c.text=c.text.replace(/^Salí por/,'Seguí por');steps.push(c);});
   const fa=a.ferry,fb=b.ferry;
   const ferry=(fa||fb)?{dist:(fa?fa.dist:0)+(fb?fb.dist:0),time:(fa?fa.time:0)+(fb?fb.time:0),names:[...(fa?fa.names:[]),...(fb?fb.names:[])],unver:!!((fa&&fa.unver)||(fb&&fb.unver))}:null;
-  return {mode:a.mode,pref:a.pref,dist:a.dist+b.dist,time:a.time+b.time,avgKmh:a.avgKmh,avgStops:a.avgStops,coords:a.coords.concat(b.coords.slice(1)),eids:a.eids.concat(b.eids),elen:a.elen.concat(b.elen),stairs:a.stairs+b.stairs,steps,up:a.up+b.up,down:a.down+b.down,hasZ:a.hasZ,ferry,via:true};
+  const o={mode:a.mode,pref:a.pref,dist:a.dist+b.dist,time:a.time+b.time,avgKmh:a.avgKmh,avgStops:a.avgStops,coords:a.coords.concat(b.coords.slice(1)),eids:(a.eids||[]).concat(b.eids||[]),elen:(a.elen||[]).concat(b.elen||[]),stairs:(a.stairs||0)+(b.stairs||0),steps,up:(a.up||0)+(b.up||0),down:(a.down||0)+(b.down||0),hasZ:a.hasZ,ferry,via:true,stayMin:(a.stayMin||0)+(b.stayMin||0)+(via.stay||0),
+    offFrom:a.offFrom||0,offTo:b.offTo||0};
+  if(a.water!==undefined||b.water!==undefined){                 /* kayak: se suman los tramos de agua, de a pie y de lago */
+    for(const k of ['water','portage','lake'])o[k]=(a[k]||0)+(b[k]||0);
+    o.legs=(a.legs||[]).concat(b.legs||[]);o.fixed=true;
+  }
+  return o;
+}
+function fmtStay(min){min=Math.round(min);return min>=60?Math.floor(min/60)+' h'+(min%60?' '+(min%60)+' min':''):min+' min';}
+/* Encadena los tramos de un viaje con paradas: legs = [origen→p1, p1→p2, …, pn→destino], stops = [p1…pn] con {lat,lon,label,kind,stay} */
+function chainRoutes(legs,stops){
+  const stages=legs.map((l,i)=>({dist:l.dist,time:l.time,to:i<stops.length?stops[i].label:null,kind:i<stops.length?stops[i].kind:'fin',stay:i<stops.length?(stops[i].stay||0):0}));
+  let r=legs[0];
+  stops.forEach((v,i)=>{
+    r=joinRoutes(r,legs[i+1],{lat:v.lat,lon:v.lon,label:v.label,stay:v.stay||0,text:v.stay?`Llegás a ${v.label}: parada de ${fmtStay(v.stay)}`:`Pasás por ${v.label}`});
+  });
+  r.stages=stages;r.stayMin=stops.reduce((a,v)=>a+(v.stay||0),0);r.fixed=true;r.stops=stops.length;
+  return r;
 }
 function findRouteVia(G,mode,from,to,pref,via){
   const a=findRoute(G,mode,from,via,pref);if(a.err)return a;
@@ -3120,7 +3138,7 @@ async function offerRecover(rc){
 }
 
 /* ---------- Puntos ---------- */
-const WT={punto:['📍','Punto'],peligro:['⚠️','Peligro'],lomo:['🚧','Lomo de burro'],pozo:['🕳️','Pozo'],playa:['🏖️','Playa'],camp:['⛺','Camping'],agua:['💧','Agua'],acceso:['🚪','Acceso'],refugio:['🏠','Refugio'],comida:['🍽️','Comida'],combustible:['⛽','Combustible'],salud:['🏥','Salud'],estac:['🅿️','Estacionamiento']};
+const WT={punto:['📍','Punto'],peligro:['⚠️','Peligro'],lomo:['🚧','Lomo de burro'],pozo:['🕳️','Pozo'],playa:['🏖️','Playa'],camp:['⛺','Camping'],agua:['💧','Agua'],acceso:['🚪','Acceso'],refugio:['🏠','Refugio'],comida:['🍽️','Comida'],combustible:['⛽','Combustible'],salud:['🏥','Salud'],estac:['🅿️','Estacionamiento'],regroup:['🚩','Reagrupamiento'],embark:['🛶','Embarcadero']};
 const wptLayer=L.layerGroup().addTo(map),wptMk={};
 function addWptMarker(w){
   if(wptMk[w.id])wptLayer.removeLayer(wptMk[w.id]);
@@ -3717,8 +3735,8 @@ function showNetDownload(){
 
 /* Rutas */
 const depMs=()=>{if(!RT.dep)return Date.now();const [h,m]=RT.dep.split(':').map(Number),d=new Date();d.setHours(h,m,0,0);return d.getTime();};
-const errText=r=>!r?'':r.err==='origen'?'No hay ninguna calle ni ruta guardada a menos de 60 km del origen. Bajá las calles o la red regional de esa zona.':r.err==='destino'?'No hay ninguna calle ni ruta guardada a menos de 60 km del destino. Bajá las calles o la red regional de esa zona.':r.err==='lejos'?'Es demasiado lejos para este modo: el cálculo se hace solo para el auto.':r.err==='sinred'?'Sin calles guardadas para esta zona.':'No hay un camino conectado entre esos dos puntos con lo que tenés guardado. Si es un viaje largo, revisá que las redes regionales se toquen entre sí; si sabés que el camino existe, agregalo en Correcciones.';
-const kayakErr=r=>r.err==='origen'?'No hay ningún río ni lago guardado a menos de 8 km del origen.':r.err==='destino'?'No hay ningún río ni lago guardado a menos de 8 km del destino.':r.err==='nocon'?'Los ríos y lagos guardados no se conectan entre el origen y el destino. Revisá que no falte un tramo.':'Sin ríos ni lagos guardados.';
+const errText=r=>!r?'':r.err==='tramo'?legErr(r):r.err==='origen'?'No hay ninguna calle ni ruta guardada a menos de 60 km del origen. Bajá las calles o la red regional de esa zona.':r.err==='destino'?'No hay ninguna calle ni ruta guardada a menos de 60 km del destino. Bajá las calles o la red regional de esa zona.':r.err==='lejos'?'Es demasiado lejos para este modo: el cálculo se hace solo para el auto.':r.err==='sinred'?'Sin calles guardadas para esta zona.':'No hay un camino conectado entre esos dos puntos con lo que tenés guardado. Si es un viaje largo, revisá que las redes regionales se toquen entre sí; si sabés que el camino existe, agregalo en Correcciones.';
+const kayakErr=r=>r.err==='tramo'?legErr(r):r.err==='origen'?'No hay ningún río ni lago guardado a menos de 8 km del origen.':r.err==='destino'?'No hay ningún río ni lago guardado a menos de 8 km del destino.':r.err==='nocon'?'Los ríos y lagos guardados no se conectan entre el origen y el destino. Revisá que no falte un tramo.':'Sin ríos ni lagos guardados.';
 const offNote=r=>{const o=[];if(r.offFrom>1000)o.push(`el origen está a ${fmtD(r.offFrom)} de la red guardada`);if(r.offTo>1000)o.push(`el destino está a ${fmtD(r.offTo)}`);return o.length?`<br><small style="color:#C0392B">⚠️ ${o.join(' y ')}: ese tramo va en línea recta. Bajá las calles de la zona para el detalle.</small>`:'';};
 function drawRoute(fit){
   routeLayer.clearLayers();
@@ -3751,11 +3769,11 @@ function resultsHtml(){
     if(m==='kayak'){
       if(!r)continue;
       if(r.err){if(r.err!=='sinagua')h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${kayakErr(r)}</span></div>`;continue;}
-      h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}<br>${kayakLine(r)}</div>`;
+      h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(totT(r))}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}<br>${kayakLine(r)}${stagesHtml(r,start)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+totT(r)*1000)}</b></div>`;
       continue;
     }
     if(!r||r.err){h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${errText(r)}</span></div>`;continue;}
-    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(r.time)}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',',')} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}${offNote(r)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+r.time*1000)}</b></div>`;
+    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(totT(r))}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',',')} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}${offNote(r)}${stagesHtml(r,start)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+totT(r)*1000)}</b></div>`;
   }
   const cmp=RT.alt?`<h3>Comparar para ${MI[RT.sel]}</h3><div class="row">`+PREFS.filter(([k])=>!(RT.sel==='car'&&k==='flat')).map(([k,e])=>{
     const a=RT.alt[k];if(!a||a.err)return '';
@@ -3820,6 +3838,7 @@ async function calcRoutes(g,keep){
     if(!r.err)r.hzs=navInit(r,m,hz).hzs;
   }
   RT.res.kayak=await kayakRoute(from,RT.to);
+  if(stopsList().length)await applyStops(g,from,hz);
   if(D>100000)toast('Ruta calculada',1800);
   RT.calcFrom=from;
   const ok=m=>RT.res[m]&&!RT.res[m].err;
@@ -3829,7 +3848,7 @@ async function calcRoutes(g,keep){
   drawRoute(true);showRoutes();
 }
 async function findAlts(){
-  if(RT.sel==='kayak'){toast('Las alternativas todavía no están para el kayak',3500);return;}
+  if(RT.sel==='kayak'||stopsList().length){toast('Con kayak o con paradas no se buscan alternativas',3500);return;}
   const g=await ensureGraph({route:{from:RT.calcFrom,to:RT.to}});if(!g||!RT.calcFrom||!RT.to)return;
   const {alts}=findAlternatives(g,RT.sel,RT.calcFrom,RT.to,S.pref,2);
   RT.cands=RT.cands.filter(c=>!/^Alternativa/.test(c.label));
@@ -3840,7 +3859,7 @@ async function findAlts(){
 }
 /* camino que pasa por un punto elegido */
 async function addViaAt(ll){
-  if(RT.sel==='kayak'){toast('Pasar por un punto todavía no está para el kayak',3500);showRoutes();return;}
+  if(RT.sel==='kayak'||stopsList().length){addStopAt(ll);return;}
   const g=await ensureGraph({route:{from:RT.calcFrom,to:RT.to}});if(!g||!RT.calcFrom||!RT.to){showRoutes();return;}
   let label='el punto elegido';
   try{const h=g.nearestEdge(ll.lat,ll.lon,60,x=>g.W[x.w].name);if(h)label=g.W[g.E[h.ei].w].name;}catch(er){}
@@ -3866,6 +3885,7 @@ async function showRoutes(){
     <h3>Hasta</h3><div class="card"><b>${esc(toL)}</b></div>
     <div class="row"><button class="btn sm" data-act="tpick">En el mapa</button><button class="btn sm" data-act="cityt">🌍 Ciudad</button><button class="btn sm" data-act="tpts">Un punto guardado</button></div>
     <input class="in" id="qq" placeholder="Buscar calle o esquina" enterkeyhint="search"><div id="rq" class="row"></div>
+    ${stopsHtml()}
     <label for="dep">Salida (vacío = ahora)</label><input class="in" id="dep" type="time" value="${esc(RT.dep)}">
     <label>Preferencia</label>
     <div class="chips">${PREFS.map(([k,e,n])=>`<button data-act="pref" data-p="${k}" class="${k===S.pref?'on':''}">${e} ${n}</button>`).join('')}</div>
@@ -3883,6 +3903,10 @@ async function showRoutes(){
     else if(a==='fpick'||a==='tpick'){PICK={type:'pt',target:a==='fpick'?'from':'to'};closeSheet();banner(`Tocá en el mapa el punto de ${a==='fpick'?'partida':'llegada'}`);}
     else if(a==='tpts')showPickWpt();
     else if(a==='cityf'||a==='cityt')cityPick(a==='cityf'?'from':'to');
+    else if(a==='stwpt')showPickStop();
+    else if(a==='stmap'){PICK={type:'stop'};closeSheet();banner('Tocá en el mapa dónde querés parar');}
+    else if(a==='stedit')stopEdit(+d.i);
+    else if(a==='stclr'){RT.stops=[];RT.res=null;showRoutes();}
     else if(a==='setf'||a==='sett'){const r=RT.sr[a==='setf'?'f':'q'][+d.i];RT[a==='setf'?'from':'to']={lat:r.lat,lon:r.lon,label:r.label};RT.res=null;showRoutes();}
     else if(a==='calc')calcRoutes(g);
     else if(a==='selm'){RT.sel=d.m;if(d.m!=='kayak')computeAlt(g);resetCands();drawRoute(true);showRoutes();}
@@ -4056,7 +4080,7 @@ function showPathForm(){
 }
 function cancelPick(){
   const p=PICK;PICK=null;pickLayer.clearLayers();banner(null);
-  if(p)(p.type==='pt'||p.type==='via'?showRoutes:p.type==='wx'?()=>showWeather(null):p.type==='rsdest'?()=>showSafeReturn():p.type==='ovl'?()=>showOvlAdjust(p.id):showFix)();
+  if(p)(p.type==='pt'||p.type==='via'||p.type==='stop'?showRoutes:p.type==='wx'?()=>showWeather(null):p.type==='rsdest'?()=>showSafeReturn():p.type==='ovl'?()=>showOvlAdjust(p.id):showFix)();
 }
 async function finishPath(){
   const p=PICK;PICK=null;pickLayer.clearLayers();banner(null);
@@ -4109,6 +4133,7 @@ function onPickClick(e){
   }else if(PICK.type==='wx'){PICK=null;banner(null);showWeather([ll.lat,ll.lon]);}
   else if(PICK.type==='rsdest'){PICK=null;banner(null);RS.custom={key:'map',label:'Punto elegido',lat:ll.lat,lon:ll.lon,icon:'📍'};RS.key='map';showSafeReturn('map');}
   else if(PICK.type==='via'){PICK=null;banner(null);addViaAt(ll);}
+  else if(PICK.type==='stop'){PICK=null;banner(null);addStopAt(ll);}
   else if(PICK.type==='way')pickWayAt(ll);
   else if(PICK.type==='ovl')ovlPick(ll);
   else if(PICK.type==='path'){
@@ -5576,6 +5601,97 @@ function waterEndsHtml(st){
     s.other&&s.other.d<=2000?`${nm[i]}: ⚠️ hay un área "${esc(s.other.what)}" a ${fmtLen(s.other.d)}, pero no es de tipo Agua`:
     s.near&&s.near.d<=20000?`${nm[i]}: ⚠️ suelto, a ${fmtLen(s.near.d)} de ${esc(s.near.what)}`:`${nm[i]}: ${i?'suelto':'naciente'} (sin agua cerca)`).join('<br>');
 }
+/* ---------- Paradas del viaje: acampe, reagrupamiento y otros lugares por donde pasar, en orden ---------- */
+const STOP_KINDS={camp:['⛺','Acampe',600],regroup:['🚩','Reagrupamiento',15],embark:['🛶','Embarcadero',10],agua:['💧','Agua',10],comida:['🍽️','Comida',45],otro:['📍','Parada',10]};
+const STOP_OF={camp:'camp',regroup:'regroup',embark:'embark',agua:'agua',comida:'comida',refugio:'camp',playa:'regroup'};
+const stopsList=()=>{RT.stops=RT.stops||[];return RT.stops;};
+const totT=r=>r.time+(r.stayMin||0)*60;
+function stopsHtml(){
+  const L=stopsList();
+  return `<h3>Paradas (acampe, reagrupamiento)</h3>`+
+    (L.length?L.map((s,i)=>{const k=STOP_KINDS[s.kind]||STOP_KINDS.otro;
+      return `<div class="item" data-act="stedit" data-i="${i}"><div style="flex:1"><b>${i+1} · ${k[0]} ${esc(s.label)}</b><br><small class="mut">${k[1]} · parada de ${fmtStay(s.stay)}</small></div><span>✏️</span></div>`;}).join('')
+      :'<p class="mut">Sin paradas. Sumá los lugares por donde querés pasar, en orden: el cálculo se hace por etapas.</p>')+
+    `<div class="row"><button class="btn sm" data-act="stwpt">➕ Punto guardado</button><button class="btn sm" data-act="stmap">➕ En el mapa</button>${L.length?'<button class="btn sm" data-act="stclr">Quitar todas</button>':''}</div>`;
+}
+/* etapas de un resultado: de dónde a dónde, cuánto, a qué hora llegás y cuánto parás */
+function stagesHtml(r,start){
+  if(!r.stages||r.stages.length<2)return '';
+  let t=start;
+  const rows=r.stages.map((s,i)=>{
+    const arr=t+s.time*1000,k=s.to?(STOP_KINDS[s.kind]||STOP_KINDS.otro)[0]+' ':'';
+    const row=`<br><small>${i+1}. ${i?esc(r.stages[i-1].to):'Salida'} → ${s.to?k+esc(s.to):'Destino'}: ${fmtD(s.dist)} · ${fmtDur(s.time)} · llegás ${arrLabel(start,arr)}${s.stay?` · parada de ${fmtStay(s.stay)}`:''}</small>`;
+    t=arr+(s.stay||0)*60000;return row;
+  }).join('');
+  return `<br><small class="mut">En marcha ${fmtDur(r.time)}${r.stayMin?` + paradas ${fmtDur(r.stayMin*60)}`:''}</small>${rows}`;
+}
+const legErr=r=>`No se pudo armar la etapa «${esc(r.from)}» → «${esc(r.to)}»: ${r.why==='origen'?'no hay camino o agua cerca de la salida':r.why==='destino'?'no hay camino o agua cerca de la llegada':r.why==='lejos'?'es demasiado lejos para este modo':'no hay un camino conectado'}.`;
+/* calcula cada modo por etapas: salida → parada 1 → … → destino */
+async function applyStops(g,from,hz){
+  const L=stopsList();if(!L.length)return;
+  const pts=[from].concat(L,[RT.to]);
+  let D=0;for(let i=1;i<pts.length;i++)D+=hav([pts[i-1].lat,pts[i-1].lon],[pts[i].lat,pts[i].lon]);
+  for(const m of RMODES){
+    const cur=RT.res[m];
+    if(cur&&cur.err&&['sinagua','sinred'].includes(cur.err))continue;
+    if(m==='foot'&&D>150000){RT.res[m]={err:'lejos'};continue;}
+    if(m==='bike'&&D>600000){RT.res[m]={err:'lejos'};continue;}
+    if(m!=='kayak'&&!g)continue;
+    const legs=[];let bad=null;
+    for(let i=0;i<pts.length-1&&!bad;i++){
+      const r=m==='kayak'?await kayakRoute(pts[i],pts[i+1]):findRoute(g,m,pts[i],pts[i+1],S.pref);
+      if(r.err)bad={i,why:r.err};else legs.push(r);
+    }
+    if(bad){RT.res[m]={err:'tramo',why:bad.why,from:pts[bad.i].label||'Salida',to:pts[bad.i+1].label||'Destino'};continue;}
+    const r=chainRoutes(legs,L);
+    r.hzs=m==='kayak'?[]:navInit(r,m,hz).hzs;
+    RT.res[m]=r;
+  }
+}
+function addStop(pt,label,kind,stay){
+  const L=stopsList(),k=STOP_KINDS[kind]?kind:'otro';
+  L.push({lat:pt.lat,lon:pt.lon,label:label||`Parada ${L.length+1}`,kind:k,stay:stay==null?STOP_KINDS[k][2]:stay});
+  RT.res=null;RT.cands=[];
+  stopEdit(L.length-1);
+}
+async function addStopAt(ll){
+  const ws=await DB.all('kv','wpt:');let best=null;
+  for(const w of ws){const d=hav([w.lat,w.lon],[ll.lat,ll.lon]);if(d<=150&&(!best||d<best.d))best={w,d};}
+  if(best)addStop({lat:best.w.lat,lon:best.w.lon},best.w.name,STOP_OF[best.w.type]||'otro');
+  else addStop(ll,'',lastStopKind());
+}
+const lastStopKind=()=>{const L=stopsList();return L.length?'regroup':'camp';};
+async function showPickStop(){
+  const here=lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng];
+  const ws=(await DB.all('kv','wpt:')).map(w=>({w,rel:STOP_OF[w.type]?0:1,d:hav(here,[w.lat,w.lon])})).sort((a,b)=>a.rel-b.rel||a.d-b.d);
+  openSheet('Elegir parada',ws.length?`<p class="mut">Primero van los lugares de acampe, reagrupamiento, refugio, playa y agua.</p>`+ws.map((x,i)=>`<div class="item" data-act="pk" data-i="${i}"><b>${(WT[x.w.type]||WT.punto)[0]} ${esc(x.w.name)}</b><span>${fmtD(x.d)}</span></div>`).join(''):'<p class="mut">Todavía no marcaste puntos. Usá "En el mapa".</p>',
+    (a,d)=>{if(a==='pk'){const w=ws[+d.i].w;addStop({lat:w.lat,lon:w.lon},w.name,STOP_OF[w.type]||'otro');}});
+}
+function stopEdit(i){
+  const L=stopsList(),s=L[i];if(!s){showRoutes();return;}
+  const chip=(act,k,cur,txt)=>`<button data-act="${act}" data-k="${k}" class="${String(k)===String(cur)?'on':''}">${txt}</button>`;
+  openSheet(`Parada ${i+1}`,`
+    <label for="stn">Nombre</label><input class="in" id="stn" value="${esc(s.label)}">
+    <label>Tipo</label><div class="chips">${Object.entries(STOP_KINDS).map(([k,v])=>chip('stk',k,s.kind,v[0]+' '+v[1])).join('')}</div>
+    <label for="sts">Cuánto parás (minutos)</label><input class="in" id="sts" type="number" min="0" max="4320" value="${s.stay}">
+    <div class="chips">${[[0,'Solo pasar'],[15,'15 min'],[60,'1 h'],[600,'Noche (10 h)']].map(([v,n])=>chip('stt',v,s.stay,n)).join('')}</div>
+    <div class="row" style="margin-top:10px"><button class="btn" data-act="stu"${i?'':' disabled'}>↑ Antes</button><button class="btn" data-act="std"${i<L.length-1?'':' disabled'}>↓ Después</button><button class="btn danger" data-act="stx">Quitar</button></div>
+    <div class="row" style="margin-top:8px"><button class="btn primary" data-act="stok">Listo</button></div>`,
+    (a,d,el)=>{
+      if(a==='stk'){s.kind=d.k;stopEdit(i);}
+      else if(a==='stt'){s.stay=+d.k;stopEdit(i);}
+      else if(a==='stu'&&i){[L[i-1],L[i]]=[L[i],L[i-1]];RT.res=null;stopEdit(i-1);}
+      else if(a==='std'&&i<L.length-1){[L[i+1],L[i]]=[L[i],L[i+1]];RT.res=null;stopEdit(i+1);}
+      else if(a==='stx'){if(armed(el)){L.splice(i,1);RT.res=null;showRoutes();}}
+      else if(a==='stok')stopsDone();
+    },
+    t=>{if(t.id==='stn')s.label=t.value.trim()||s.label;else if(t.id==='sts')s.stay=Math.max(0,Math.min(4320,Math.round(+t.value||0)));});
+}
+function stopsDone(){
+  RT.res=null;RT.cands=[];
+  if(RT.to){ensureGraph().then(g=>calcRoutes(g)).catch(()=>showRoutes());}else showRoutes();
+}
+
 /* ---------- Buscar una ciudad o un lugar por internet (Nominatim, OpenStreetMap) para elegir el origen o el destino ---------- */
 async function cityQuery(q){
   if(!(await netAllowed('buscar el lugar')))return null;
@@ -5909,24 +6025,26 @@ function evSimplify(){
   evPush();EV.pts=r;EV.sels=new Set();evDraw();
   toast(`${before} → ${r.length} puntos (tolerancia ${tol.toFixed(1)} m)`,3500);
 }
-/* une las puntas sueltas del río al agua más cercana (hasta 2 km): agrega un punto justo en la costa del lago o sobre el otro río */
+/* une las puntas sueltas del río al agua más cercana: hasta 2 km directo, y hasta 20 km si lo confirmás (con una línea recta) */
 function evJoinWater(){
   if(!EV.water)return;
-  const st=waterEnds(EV.pts,EV.water),R=2000;let n=0,msg=[];
+  const st=waterEnds(EV.pts,EV.water),R=2000,RMAX=20000,msg=[];let n=0;
   const pts=EV.pts.slice();
   evPush();
   [0,1].forEach(i=>{
-    if(st[i].ok){msg.push(`${i?'Final':'Principio'}: ya estaba unido a ${st[i].what}`);return;}
+    const nm=i?'Final':'Principio';
+    if(st[i].ok){msg.push(`${nm}: ✅ ya está unido a ${st[i].what}`);return;}
     const p=i===0?pts[0]:pts[pts.length-1],t=nearestWater(p,EV.water,false);
-    if(!t||t.d>R){msg.push(`${i?'Final':'Principio'}: sin agua a menos de ${R/1000} km${i?'':' (normal en una naciente)'}`);return;}
+    if(!t||t.d>RMAX){msg.push(`${nm}: no hay agua cerca${i?'':' (es la naciente)'}`);return;}
+    if(t.d>R&&!confirm(`${nm}: el ${t.type==='lake'?'lago':'río'} "${t.what}" más cercano está a ${fmtLen(t.d)}.\n\n¿Unir con una línea recta? Puede cruzar tierra: revisá el dibujo después.`)){msg.push(`${nm}: sigue suelto`);return;}
     let q=t.pt;
     /* en un lago el punto va un poco adentro de la costa, así la unión no depende de la distancia */
     if(t.type==='lake'){const dx=(t.pt[1]-p[1]),dy=(t.pt[0]-p[0]),L=Math.hypot(dx,dy)||1,k=Math.min(8,t.d)/111195/L;q=[t.pt[0]+dy*k,t.pt[1]+dx*k/Math.max(.2,Math.cos(p[0]*Math.PI/180))*1];}
     if(i===0)pts.unshift(q);else pts.push(q);
-    n++;msg.push(`${i?'Final':'Principio'}: unido a ${t.what} (${fmtLen(t.d)})`);
+    n++;msg.push(`${nm}: unido a ${t.what} (${fmtLen(t.d)})`);
   });
-  if(!n){EV.undo.pop();toast(msg.length?msg.join(' · '):'Las dos puntas ya están unidas al agua',5000);return;}
-  EV.pts=pts;EV.sels=new Set();evDraw();toast(msg.join(' · '),6000);
+  if(!n){EV.undo.pop();toast(msg.join(' · '),6000);return;}
+  EV.pts=pts;EV.sels=new Set();evDraw();toast(msg.join(' · ')+'. Tocá ✓ Guardar.',7000);
 }
 function evReverse(){evPush();EV.pts.reverse();EV.sels=new Set();evDraw();}
 function evAll(){EV.sels=new Set(EV.pts.map((_,i)=>i));evDraw();}
