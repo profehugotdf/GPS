@@ -4300,6 +4300,58 @@ async function drawCoverage(){
   for(const n of (await netIndex()).filter(x=>!x.pending))
     L.rectangle([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{color:n.regional?'#E0A100':'#2E7D5B',weight:2,fill:false,opacity:.75,dashArray:n.regional?'2 6':null,interactive:false}).addTo(covLayer);
 }
+/* Mosaicos de una misma descarga: los que se bajaron con menos de 15 min de diferencia van juntos */
+function netGroups(list){
+  const a=list.filter(n=>!n.regional).sort((x,y)=>x.date-y.date),gs=[];
+  for(const n of a){const g=gs[gs.length-1];if(g&&n.date-g.t1<=900000){g.items.push(n);g.t1=n.date;}else gs.push({t0:n.date,t1:n.date,items:[n]});}
+  for(const g of gs){
+    g.bb={s:Math.min(...g.items.map(n=>n.bb.s)),w:Math.min(...g.items.map(n=>n.bb.w)),n:Math.max(...g.items.map(n=>n.bb.n)),e:Math.max(...g.items.map(n=>n.bb.e))};
+    g.ways=g.items.reduce((t,n)=>t+n.ways,0);g.hz=g.items.reduce((t,n)=>t+n.hz,0);
+    g.z=g.items.every(n=>n.z);g.zSome=g.items.some(n=>n.z);
+    g.ids=g.items.map(n=>n.id);
+  }
+  return gs.sort((x,y)=>y.t1-x.t1);
+}
+const fmtN=n=>String(n).replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+const hhmmDate=t=>new Date(t).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+function groupTitle(g){return g.items.length>1?`${fmtDate(g.t0)} a ${hhmmDate(g.t1)}`:fmtDate(g.t0);}
+/* Une mosaicos vecinos de un grupo en bloques de hasta ~1,2° y 150.000 puntos, sin repetir calles */
+async function mergeGroup(g,say){
+  const nets=[];
+  for(const id of g.ids){const n=await DB.get('kv','net:'+id);if(n)nets.push(n);}
+  nets.sort((a,b)=>a.bb.s-b.bb.s||a.bb.w-b.bb.w);
+  const pts=n=>n.ways.reduce((t,w)=>t+w.p.length/2,0);
+  const bundles=[];
+  for(const n of nets){
+    let put=false;
+    for(const b of bundles){
+      const u={s:Math.min(b.bb.s,n.bb.s),w:Math.min(b.bb.w,n.bb.w),n:Math.max(b.bb.n,n.bb.n),e:Math.max(b.bb.e,n.bb.e)};
+      const touch=n.bb.s<=b.bb.n+.002&&n.bb.n>=b.bb.s-.002&&n.bb.w<=b.bb.e+.002&&n.bb.e>=b.bb.w-.002;
+      if(touch&&u.n-u.s<=1.2&&u.e-u.w<=1.5&&b.pts+pts(n)<=150000){b.list.push(n);b.bb=u;b.pts+=pts(n);put=true;break;}
+    }
+    if(!put)bundles.push({list:[n],bb:Object.assign({},n.bb),pts:pts(n)});
+  }
+  let before=0,after=0,made=0;
+  for(const b of bundles){
+    if(b.list.length<2)continue;
+    const ways=new Map(),hz=new Map();
+    for(const n of b.list){
+      before+=n.ways.length;
+      for(const w of n.ways){
+        const o=ways.get(w.id);
+        if(!o||w.p.length>o.p.length||(w.p.length===o.p.length&&!o.z&&w.z))ways.set(w.id,w);
+      }
+      for(const h of (n.hz||[]))hz.set(h.lat+','+h.lon+','+h.k,h);
+    }
+    const out={id:uid(),bb:b.bb,date:Math.max(...b.list.map(n=>n.date)),ways:[...ways.values()],hz:[...hz.values()],regional:false};
+    after+=out.ways.length;
+    await DB.put('kv','net:'+out.id,out);
+    for(const n of b.list){await DB.del('kv','net:'+n.id);await DB.del('kv','netidx:'+n.id);}
+    made++;
+  }
+  netsChanged();await netIndex();
+  return {made,before,after,tiles:nets.length,now:bundles.length};
+}
 async function showMapMgr(){
   const zs=(await DB.all('kv','dlz:')).sort((a,b)=>b.date-a.date),idxAll=(await netIndex()).sort((a,b)=>b.date-a.date);
   const idx=idxAll.filter(n=>!n.pending),pend=idxAll.filter(n=>n.pending),miss=[];
@@ -4326,8 +4378,14 @@ async function showMapMgr(){
       ${n?`<button class="btn sm danger" data-act="ldel" data-k="${k}">Borrar todo de este mapa</button>`:''}</div>`;
   }
   h+='<h3>Calles y rutas</h3>';
-  h+=idx.length?idx.map(n=>`<div class="card"><b>${fmtDate(n.date)}</b>${n.regional?' <span class="tag">regional</span>':''}<br><small class="mut">${n.regional?`${n.ways} tramos de rutas principales y ferris`:`${n.ways} calles y senderos · ${n.hz} lomos de burro · ${n.z?'con altura del terreno':'sin altura del terreno'}`}</small>
-      <div class="row" style="margin-top:6px"><button class="btn sm" data-act="nview" data-id="${n.id}">Ver zona</button><button class="btn sm danger" data-act="ndel" data-id="${n.id}">Borrar</button></div></div>`).join(''):'<p class="mut">No hay red de calles descargada.</p>';
+  const one=n=>`<div class="item"><div><b>${fmtDate(n.date)}</b><br><small class="mut">${fmtN(n.ways)} calles · ${n.hz} lomos${n.z?' · con altura':''}</small></div><div class="row"><button class="btn sm" data-act="nview" data-id="${n.id}">Ver</button><button class="btn sm danger" data-act="ndel" data-id="${n.id}">Borrar</button></div></div>`;
+  const grs=netGroups(idx),regs=idx.filter(n=>n.regional);
+  h+=idx.length?grs.map(g=>g.items.length<2?`<div class="card"><b>${fmtDate(g.t0)}</b><br><small class="mut">${fmtN(g.ways)} calles y senderos · ${g.hz} lomos de burro · ${g.z?'con altura del terreno':'sin altura del terreno'}</small>
+      <div class="row" style="margin-top:6px"><button class="btn sm" data-act="nview" data-id="${g.ids[0]}">Ver zona</button><button class="btn sm danger" data-act="ndel" data-id="${g.ids[0]}">Borrar</button></div></div>`
+    :`<div class="card"><b>${groupTitle(g)}</b> <span class="tag">${g.items.length} mosaicos</span><br><small class="mut">${fmtN(g.ways)} calles y senderos · ${g.hz} lomos de burro · ${g.z?'con altura del terreno':g.zSome?'altura en algunos':'sin altura del terreno'}</small>
+      <div class="row" style="margin-top:6px"><button class="btn sm" data-act="gview" data-ids="${g.ids.join(',')}">Ver zona</button><button class="btn sm" data-act="gmerge" data-ids="${g.ids.join(',')}">🧩 Unir</button><button class="btn sm danger" data-act="gdel" data-ids="${g.ids.join(',')}">Borrar todo</button></div>
+      <details style="margin-top:6px"><summary class="mut">Ver los ${g.items.length} mosaicos</summary>${g.items.slice().sort((a,b)=>b.date-a.date).map(one).join('')}</details></div>`).join('')
+    +regs.map(n=>`<div class="card"><b>${fmtDate(n.date)}</b> <span class="tag">regional</span><br><small class="mut">${fmtN(n.ways)} tramos de rutas principales y ferris</small><div class="row" style="margin-top:6px"><button class="btn sm" data-act="nview" data-id="${n.id}">Ver zona</button><button class="btn sm danger" data-act="ndel" data-id="${n.id}">Borrar</button></div></div>`).join(''):'<p class="mut">No hay red de calles descargada.</p>';
   h+=`<div class="row"><button class="btn primary" data-act="cap">📐 Elegir zona en el mapa</button></div><div class="row"><button class="btn" id="netgo" data-act="dl">${idx.length?'Agregar 25 × 25 km centrados':'Bajar 25 × 25 km centrados'}</button>${idx.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button>':''}<button class="btn" data-act="dlreg">🌐 Red regional (lo que ves)</button></div><p id="netmsg" class="mut"></p>`;
   const cts=(await DB.all('kv','ctr:')).sort((a,b)=>b.date-a.date);
   h+='<h3>Curvas de nivel</h3>';
@@ -4344,6 +4402,19 @@ async function showMapMgr(){
     }
     else if(a==='ldel'){if(armed(el)){await clearTiles(d.k);toast('Borrado');showMapMgr();}}
     else if(a==='nview'){const n=idx.find(x=>x.id===d.id);closeSheet();map.fitBounds([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{padding:[20,20]});}
+    else if(a==='gview'){const g=netGroups(idx).find(x=>x.ids.join(',')===d.ids);if(g){closeSheet();map.fitBounds([[g.bb.s,g.bb.w],[g.bb.n,g.bb.e]],{padding:[20,20]});}}
+    else if(a==='gdel'){if(armed(el)){for(const id of d.ids.split(',')){await DB.del('kv','net:'+id);await DB.del('kv','netidx:'+id);}netsChanged();drawCoverage();toast('Mosaicos borrados');showMapMgr();}}
+    else if(a==='gmerge'){
+      if(!armed(el))return;
+      const g=netGroups(idx).find(x=>x.ids.join(',')===d.ids);if(!g)return;
+      el.disabled=true;el.textContent='Uniendo…';
+      try{
+        const r=await mergeGroup(g);
+        drawCoverage();
+                toast(r.made?`🧩 ${r.tiles} mosaicos ahora son ${r.now} bloque${r.now===1?'':'s'}. Calles repetidas quitadas: ${fmtN(r.before-r.after)}`:'Estos mosaicos no se pueden unir (están lejos entre sí o son muy grandes)',6000);
+      }catch(e){toast('No se pudo unir: '+(e.message||e),5000);}
+      showMapMgr();
+    }
     else if(a==='ndel'){if(armed(el)){await DB.del('kv','net:'+d.id);await DB.del('kv','netidx:'+d.id);netsChanged();drawCoverage();toast('Red borrada');showMapMgr();}}
     else if(a==='dl'){if(await dlNet()){drawCoverage();showMapMgr();}}
     else if(a==='dlr'){if(await dlNet(true)){drawCoverage();showMapMgr();}}
