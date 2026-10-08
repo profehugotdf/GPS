@@ -2701,12 +2701,14 @@ map.on('moveend zoomend',()=>{if(sheetTitle==='Mapas')updDlInfo();});
 /* ---------- Hoja inferior ---------- */
 const sheet=$('#sheet'),sBody=$('#sBody');
 let sheetTitle=null,onAct=null,onChg=null;
+let NSEL=null;   /* ids de mosaicos elegidos en Mis mapas (null = sin selección) */
+const selLayer=L.layerGroup().addTo(map);
 function openSheet(title,html,act,chg){
   if(title!=='Circuito'&&!draw&&editingCirc){editingCirc=null;refreshGates();}
   sheetTitle=title;$('#sTitle').textContent=title;sBody.innerHTML=html;
   onAct=act||null;onChg=chg||null;sheet.classList.add('open');sBody.scrollTop=0;
 }
-function closeSheet(){sheet.classList.remove('open');sheetTitle=null;onAct=null;onChg=null;if(!draw&&editingCirc){editingCirc=null;refreshGates();}}
+function closeSheet(){NSEL=null;selLayer.clearLayers();sheet.classList.remove('open');sheetTitle=null;onAct=null;onChg=null;if(!draw&&editingCirc){editingCirc=null;refreshGates();}}
 $('#sX').onclick=closeSheet;
 sBody.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(el&&onAct)onAct(el.dataset.act,el.dataset,el);});
 sBody.addEventListener('change',e=>{if(onChg)onChg(e.target);});
@@ -4321,15 +4323,17 @@ async function mergeGroup(g,say){
   for(const id of g.ids){const n=await DB.get('kv','net:'+id);if(n)nets.push(n);}
   nets.sort((a,b)=>a.bb.s-b.bb.s||a.bb.w-b.bb.w);
   const pts=n=>n.ways.reduce((t,w)=>t+w.p.length/2,0);
-  const bundles=[];
-  for(const n of nets){
-    let put=false;
-    for(const b of bundles){
-      const u={s:Math.min(b.bb.s,n.bb.s),w:Math.min(b.bb.w,n.bb.w),n:Math.max(b.bb.n,n.bb.n),e:Math.max(b.bb.e,n.bb.e)};
-      const touch=n.bb.s<=b.bb.n+.002&&n.bb.n>=b.bb.s-.002&&n.bb.w<=b.bb.e+.002&&n.bb.e>=b.bb.w-.002;
-      if(touch&&u.n-u.s<=1.2&&u.e-u.w<=1.5&&b.pts+pts(n)<=150000){b.list.push(n);b.bb=u;b.pts+=pts(n);put=true;break;}
+  const touch=(a,b)=>b.s<=a.n+.002&&b.n>=a.s-.002&&b.w<=a.e+.002&&b.e>=a.w-.002;
+  const uni=(a,b)=>({s:Math.min(a.s,b.s),w:Math.min(a.w,b.w),n:Math.max(a.n,b.n),e:Math.max(a.e,b.e)});
+  const bundles=nets.map(n=>({list:[n],bb:Object.assign({},n.bb),pts:pts(n)}));
+  /* se juntan de a dos los bloques que se tocan (y entran en el tope) hasta que no quede ninguno: un mosaico del medio une a los de los costados */
+  for(let ch=true;ch;){
+    ch=false;
+    out:for(let i=0;i<bundles.length;i++)for(let j=i+1;j<bundles.length;j++){
+      const x=bundles[i],y=bundles[j];if(!touch(x.bb,y.bb))continue;
+      const u=uni(x.bb,y.bb);
+      if(u.n-u.s<=1.2&&u.e-u.w<=1.5&&x.pts+y.pts<=150000){x.list.push(...y.list);x.bb=u;x.pts+=y.pts;bundles.splice(j,1);ch=true;break out;}
     }
-    if(!put)bundles.push({list:[n],bb:Object.assign({},n.bb),pts:pts(n)});
   }
   let before=0,after=0,made=0;
   for(const b of bundles){
@@ -4350,11 +4354,55 @@ async function mergeGroup(g,say){
     made++;
   }
   netsChanged();await netIndex();
-  return {made,before,after,tiles:nets.length,now:bundles.length};
+  return {made,before,after,tiles:nets.length,now:bundles.length,alone:bundles.filter(b=>b.list.length<2).length};
+}
+/* Superposición de mosaicos: qué parte de a queda tapada por b (0 a 1) */
+const bbArea=b=>Math.max(0,b.n-b.s)*Math.max(0,b.e-b.w);
+function bbCover(a,b){const w=Math.min(a.e,b.e)-Math.max(a.w,b.w),h=Math.min(a.n,b.n)-Math.max(a.s,b.s);return w>0&&h>0&&bbArea(a)>0?w*h/bbArea(a):0;}
+function overlapInfo(list){
+  const o={};
+  for(const a of list){let max=0,n=0;for(const b of list){if(a===b)continue;const c=bbCover(a.bb,b.bb);if(c>=.1)n++;if(c>max)max=c;}o[a.id]={max,n};}
+  return o;
+}
+function netSelHtml(idx,sel){
+  const tiles=idx.filter(n=>!n.regional).sort((a,b)=>b.date-a.date),ov=overlapInfo(tiles);
+  const row=n=>{
+    const o=ov[n.id],on=sel.has(n.id);
+    const hint=o.max>=.1?`<br><small style="color:var(--buoy)">⚠️ se superpone con ${o.n} (hasta ${Math.round(o.max*100)} %)</small>`:'';
+    return `<div class="item"><div><b>${fmtDate(n.date)}</b><br><small class="mut">${fmtN(n.ways)} calles · ${n.hz} lomos${n.z?' · con altura':''}</small>${hint}</div><div class="row"><button class="btn sm" data-act="sone" data-id="${n.id}">Ver</button><button class="btn sm${on?' primary':''}" data-act="ssel" data-id="${n.id}">${on?'☑ Elegido':'☐ Elegir'}</button></div></div>`;
+  };
+  const k=sel.size;
+  return `<div class="card"><b>☑️ Elegí los mosaicos</b> · <b id="nselN">${k} elegido${k===1?'':'s'}</b><br><small class="mut">En el mapa, naranja = elegidos y verde = los demás; donde se superponen se ve más oscuro. Los marcados con ⚠️ se pisan con otro.</small>
+    <div class="row" style="margin-top:6px"><button class="btn sm" data-act="sovl">⚠️ Los superpuestos</button><button class="btn sm" data-act="sall">Todos</button><button class="btn sm" data-act="snone">Ninguno</button></div>
+    <div class="row" style="margin-top:6px"><button class="btn sm" data-act="sview">🔍 Ver (${k})</button><button class="btn sm" data-act="smerge">🧩 Unir (${k})</button><button class="btn sm danger" data-act="sdel">Borrar (${k})</button><button class="btn sm" data-act="sexit">Salir</button></div></div>`
+    +(tiles.length?tiles.map(row).join(''):'<p class="mut">No hay mosaicos de calles.</p>');
+}
+function drawSel(idx){
+  selLayer.clearLayers();
+  if(!NSEL)return;
+  for(const n of idx.filter(x=>!x.regional)){
+    const on=NSEL.has(n.id);
+    L.rectangle([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{color:on?'#F04A1C':'#2E7D5B',weight:on?3:1,fillColor:on?'#F04A1C':'#2E7D5B',fillOpacity:on?.18:.10,interactive:false}).addTo(selLayer);
+  }
+}
+/* se actualiza en el lugar, sin redibujar la hoja (si no, volvería arriba de todo) */
+function nselRefresh(idx){
+  const sel=NSEL||new Set();
+  for(const b of sBody.querySelectorAll('[data-act=ssel]')){const on=sel.has(b.dataset.id);b.textContent=on?'☑ Elegido':'☐ Elegir';b.classList.toggle('primary',on);}
+  const e=$('#nselN');if(e)e.textContent=`${sel.size} elegido${sel.size===1?'':'s'}`;
+  for(const [a,t] of [['sview','🔍 Ver'],['smerge','🧩 Unir'],['sdel','Borrar']]){const b=sBody.querySelector(`[data-act=${a}]`);if(b&&!b.dataset.arm)b.textContent=`${t} (${sel.size})`;}
+  drawSel(idx);
+}
+/* encuadra mosaicos dejando libre la parte de arriba (la hoja tapa casi todo el mapa) */
+function fitSel(t){
+  const bb={s:Math.min(...t.map(n=>n.bb.s)),w:Math.min(...t.map(n=>n.bb.w)),n:Math.max(...t.map(n=>n.bb.n)),e:Math.max(...t.map(n=>n.bb.e))};
+  const sh=sheet.getBoundingClientRect().height||0,pad=Math.max(0,Math.min(sh+8,innerHeight-220));
+  map.fitBounds([[bb.s,bb.w],[bb.n,bb.e]],{paddingTopLeft:[20,60],paddingBottomRight:[20,pad]});
 }
 async function showMapMgr(){
   const zs=(await DB.all('kv','dlz:')).sort((a,b)=>b.date-a.date),idxAll=(await netIndex()).sort((a,b)=>b.date-a.date);
   const idx=idxAll.filter(n=>!n.pending),pend=idxAll.filter(n=>n.pending),miss=[];
+  if(NSEL)NSEL=new Set([...NSEL].filter(id=>idx.some(n=>n.id===id)));
   for(const z of zs)if(await zoneMissing(z))miss.push(z);
   const c=map.getCenter(),inside=bb=>c.lat>=bb.s&&c.lat<=bb.n&&c.lng>=bb.w&&c.lng<=bb.e;
   let est='';
@@ -4380,18 +4428,20 @@ async function showMapMgr(){
   h+='<h3>Calles y rutas</h3>';
   const one=n=>`<div class="item"><div><b>${fmtDate(n.date)}</b><br><small class="mut">${fmtN(n.ways)} calles · ${n.hz} lomos${n.z?' · con altura':''}</small></div><div class="row"><button class="btn sm" data-act="nview" data-id="${n.id}">Ver</button><button class="btn sm danger" data-act="ndel" data-id="${n.id}">Borrar</button></div></div>`;
   const grs=netGroups(idx),regs=idx.filter(n=>n.regional);
-  h+=idx.length?grs.map(g=>g.items.length<2?`<div class="card"><b>${fmtDate(g.t0)}</b><br><small class="mut">${fmtN(g.ways)} calles y senderos · ${g.hz} lomos de burro · ${g.z?'con altura del terreno':'sin altura del terreno'}</small>
+  h+=NSEL?netSelHtml(idx,NSEL):idx.length?grs.map(g=>g.items.length<2?`<div class="card"><b>${fmtDate(g.t0)}</b><br><small class="mut">${fmtN(g.ways)} calles y senderos · ${g.hz} lomos de burro · ${g.z?'con altura del terreno':'sin altura del terreno'}</small>
       <div class="row" style="margin-top:6px"><button class="btn sm" data-act="nview" data-id="${g.ids[0]}">Ver zona</button><button class="btn sm danger" data-act="ndel" data-id="${g.ids[0]}">Borrar</button></div></div>`
     :`<div class="card"><b>${groupTitle(g)}</b> <span class="tag">${g.items.length} mosaicos</span><br><small class="mut">${fmtN(g.ways)} calles y senderos · ${g.hz} lomos de burro · ${g.z?'con altura del terreno':g.zSome?'altura en algunos':'sin altura del terreno'}</small>
-      <div class="row" style="margin-top:6px"><button class="btn sm" data-act="gview" data-ids="${g.ids.join(',')}">Ver zona</button><button class="btn sm" data-act="gmerge" data-ids="${g.ids.join(',')}">🧩 Unir</button><button class="btn sm danger" data-act="gdel" data-ids="${g.ids.join(',')}">Borrar todo</button></div>
+      <div class="row" style="margin-top:6px"><button class="btn sm" data-act="gview" data-ids="${g.ids.join(',')}">Ver zona</button><button class="btn sm" data-act="gmerge" data-ids="${g.ids.join(',')}">🧩 Unir todo</button><button class="btn sm" data-act="gpick" data-ids="${g.ids.join(',')}">☑️ Elegir</button><button class="btn sm danger" data-act="gdel" data-ids="${g.ids.join(',')}">Borrar todo</button></div>
       <details style="margin-top:6px"><summary class="mut">Ver los ${g.items.length} mosaicos</summary>${g.items.slice().sort((a,b)=>b.date-a.date).map(one).join('')}</details></div>`).join('')
     +regs.map(n=>`<div class="card"><b>${fmtDate(n.date)}</b> <span class="tag">regional</span><br><small class="mut">${fmtN(n.ways)} tramos de rutas principales y ferris</small><div class="row" style="margin-top:6px"><button class="btn sm" data-act="nview" data-id="${n.id}">Ver zona</button><button class="btn sm danger" data-act="ndel" data-id="${n.id}">Borrar</button></div></div>`).join(''):'<p class="mut">No hay red de calles descargada.</p>';
+  if(!NSEL&&idx.filter(n=>!n.regional).length>1)h+=`<div class="row"><button class="btn" data-act="senter">☑️ Elegir mosaicos para unir o borrar</button></div>`;
   h+=`<div class="row"><button class="btn primary" data-act="cap">📐 Elegir zona en el mapa</button></div><div class="row"><button class="btn" id="netgo" data-act="dl">${idx.length?'Agregar 25 × 25 km centrados':'Bajar 25 × 25 km centrados'}</button>${idx.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button>':''}<button class="btn" data-act="dlreg">🌐 Red regional (lo que ves)</button></div><p id="netmsg" class="mut"></p>`;
   const cts=(await DB.all('kv','ctr:')).sort((a,b)=>b.date-a.date);
   h+='<h3>Curvas de nivel</h3>';
   h+=cts.length?cts.map(c=>`<div class="card"><b>${fmtDate(c.date)}</b><br><small class="mut">cada ${c.interval} m · ${c.lines.length} curvas</small><div class="row" style="margin-top:6px"><button class="btn sm" data-act="ctview" data-id="${c.id}">Ver zona</button><button class="btn sm danger" data-act="ctdel" data-id="${c.id}">Borrar</button></div></div>`).join(''):'<p class="mut">No hay curvas generadas. Se calculan desde el relieve en "📐 Elegir zona en el mapa".</p>';
   const nOv=OVL.length;
   h+=`<h3>Fotos de dron</h3><div class="item" data-act="ovl"><div><b>${nOv} foto${nOv===1?'':'s'}</b><br><small class="mut">Se guardan aparte: borrar mapas no las toca.</small></div><span>›</span></div>`;
+  drawSel(idx);
   openSheet('Mis mapas',h,async(a,d,el)=>{
     if(a==='zview'){const z=zs.find(x=>x.id===d.id);closeSheet();map.fitBounds([[z.bb.s,z.bb.w],[z.bb.n,z.bb.e]],{padding:[20,20]});}
     else if(a==='zdel'){
@@ -4402,6 +4452,34 @@ async function showMapMgr(){
     }
     else if(a==='ldel'){if(armed(el)){await clearTiles(d.k);toast('Borrado');showMapMgr();}}
     else if(a==='nview'){const n=idx.find(x=>x.id===d.id);closeSheet();map.fitBounds([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{padding:[20,20]});}
+    else if(a==='senter'){NSEL=new Set();showMapMgr();}
+    else if(a==='gpick'){NSEL=new Set(d.ids.split(','));showMapMgr();}
+    else if(a==='sexit'){NSEL=null;showMapMgr();}
+    else if(a==='ssel'){if(NSEL){if(NSEL.has(d.id))NSEL.delete(d.id);else NSEL.add(d.id);nselRefresh(idx);}}
+    else if(a==='sall'){NSEL=new Set(idx.filter(n=>!n.regional).map(n=>n.id));nselRefresh(idx);}
+    else if(a==='snone'){NSEL=new Set();nselRefresh(idx);}
+    else if(a==='sovl'){
+      const t=idx.filter(n=>!n.regional),ov=overlapInfo(t);
+      NSEL=new Set(t.filter(n=>ov[n.id].max>=.1).map(n=>n.id));nselRefresh(idx);
+      toast(NSEL.size?`${NSEL.size} mosaicos se superponen con otro`:'Ningún mosaico se superpone con otro',3500);
+    }
+    else if(a==='sone'){const n=idx.find(x=>x.id===d.id);if(n)fitSel([n]);}
+    else if(a==='sview'){const t=idx.filter(n=>NSEL&&NSEL.has(n.id));if(t.length)fitSel(t);else toast('No elegiste ninguno',2500);}
+    else if(a==='sdel'){
+      if(!NSEL||!NSEL.size){toast('No elegiste ninguno',2500);return;}
+      if(armed(el)){const k=NSEL.size;for(const id of NSEL){await DB.del('kv','net:'+id);await DB.del('kv','netidx:'+id);}NSEL=new Set();netsChanged();drawCoverage();toast(`${k} mosaico${k===1?'':'s'} borrado${k===1?'':'s'}`);showMapMgr();}
+    }
+    else if(a==='smerge'){
+      if(!NSEL||NSEL.size<2){toast('Elegí al menos dos mosaicos',3000);return;}
+      if(!armed(el))return;
+      el.disabled=true;el.textContent='Uniendo…';
+      try{
+        const r=await mergeGroup({ids:[...NSEL]});
+        drawCoverage();
+        toast(r.made?`🧩 ${r.tiles-r.alone} mosaicos ahora son ${r.made} bloque${r.made===1?'':'s'}. Calles repetidas quitadas: ${fmtN(r.before-r.after)}`+(r.alone?`. ${r.alone===1?'1 quedó aparte':r.alone+' quedaron aparte'} (lejos o muy grande)`:''):'Los elegidos no se pueden unir: están lejos entre sí o son muy grandes',7000);
+      }catch(e){toast('No se pudo unir: '+(e.message||e),5000);}
+      NSEL=new Set();showMapMgr();
+    }
     else if(a==='gview'){const g=netGroups(idx).find(x=>x.ids.join(',')===d.ids);if(g){closeSheet();map.fitBounds([[g.bb.s,g.bb.w],[g.bb.n,g.bb.e]],{padding:[20,20]});}}
     else if(a==='gdel'){if(armed(el)){for(const id of d.ids.split(',')){await DB.del('kv','net:'+id);await DB.del('kv','netidx:'+id);}netsChanged();drawCoverage();toast('Mosaicos borrados');showMapMgr();}}
     else if(a==='gmerge'){
