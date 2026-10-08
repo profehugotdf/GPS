@@ -2702,13 +2702,14 @@ map.on('moveend zoomend',()=>{if(sheetTitle==='Mapas')updDlInfo();});
 const sheet=$('#sheet'),sBody=$('#sBody');
 let sheetTitle=null,onAct=null,onChg=null;
 let NSEL=null;   /* ids de mosaicos elegidos en Mis mapas (null = sin selección) */
+let NFOC=null;   /* mosaico que se está mirando: se dibuja en azul y los que se pisan con él en amarillo */
 const selLayer=L.layerGroup().addTo(map);
 function openSheet(title,html,act,chg){
   if(title!=='Circuito'&&!draw&&editingCirc){editingCirc=null;refreshGates();}
   sheetTitle=title;$('#sTitle').textContent=title;sBody.innerHTML=html;
   onAct=act||null;onChg=chg||null;sheet.classList.add('open');sBody.scrollTop=0;
 }
-function closeSheet(){NSEL=null;selLayer.clearLayers();sheet.classList.remove('open');sheetTitle=null;onAct=null;onChg=null;if(!draw&&editingCirc){editingCirc=null;refreshGates();}}
+function closeSheet(){NSEL=null;NFOC=null;selLayer.clearLayers();sheet.classList.remove('open');sheetTitle=null;onAct=null;onChg=null;if(!draw&&editingCirc){editingCirc=null;refreshGates();}}
 $('#sX').onclick=closeSheet;
 sBody.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(el&&onAct)onAct(el.dataset.act,el.dataset,el);});
 sBody.addEventListener('change',e=>{if(onChg)onChg(e.target);});
@@ -4361,18 +4362,25 @@ const bbArea=b=>Math.max(0,b.n-b.s)*Math.max(0,b.e-b.w);
 function bbCover(a,b){const w=Math.min(a.e,b.e)-Math.max(a.w,b.w),h=Math.min(a.n,b.n)-Math.max(a.s,b.s);return w>0&&h>0&&bbArea(a)>0?w*h/bbArea(a):0;}
 function overlapInfo(list){
   const o={};
-  for(const a of list){let max=0,n=0;for(const b of list){if(a===b)continue;const c=bbCover(a.bb,b.bb);if(c>=.1)n++;if(c>max)max=c;}o[a.id]={max,n};}
+  for(const a of list)o[a.id]={max:0,n:0,pairs:[]};
+  for(let i=0;i<list.length;i++)for(let j=i+1;j<list.length;j++){
+    const a=list[i],b=list[j],c=Math.max(bbCover(a.bb,b.bb),bbCover(b.bb,a.bb));
+    if(c<.1)continue;
+    o[a.id].pairs.push({n:b,c});o[b.id].pairs.push({n:a,c});
+  }
+  for(const a of list){const p=o[a.id];p.pairs.sort((x,y)=>y.c-x.c);p.n=p.pairs.length;p.max=p.n?p.pairs[0].c:0;}
   return o;
 }
 function netSelHtml(idx,sel){
   const tiles=idx.filter(n=>!n.regional).sort((a,b)=>b.date-a.date),ov=overlapInfo(tiles);
   const row=n=>{
     const o=ov[n.id],on=sel.has(n.id);
-    const hint=o.max>=.1?`<br><small style="color:var(--buoy)">⚠️ se superpone con ${o.n} (hasta ${Math.round(o.max*100)} %)</small>`:'';
-    return `<div class="item"><div><b>${fmtDate(n.date)}</b><br><small class="mut">${fmtN(n.ways)} calles · ${n.hz} lomos${n.z?' · con altura':''}</small>${hint}</div><div class="row"><button class="btn sm" data-act="sone" data-id="${n.id}">Ver</button><button class="btn sm${on?' primary':''}" data-act="ssel" data-id="${n.id}">${on?'☑ Elegido':'☐ Elegir'}</button></div></div>`;
+    const nm=p=>`${fmtDate(p.n.date)} · ${fmtN(p.n.ways)} calles`;
+    const hint=o.n?`<br><small style="color:var(--buoy)">⚠️ se pisa con ${o.pairs.slice(0,2).map(p=>`<b>${nm(p)}</b> (${Math.round(p.c*100)} %)`).join(' y con ')}${o.n>2?` y ${o.n-2} más`:''}</small><br><button class="btn sm" data-act="spair" data-id="${n.id}">☑ Elegir con ${o.n===1?'su par':'sus pares'}</button>`:'';
+    return `<div class="item"><div><b>${fmtDate(n.date)}</b><br><small class="mut">${fmtN(n.ways)} calles · ${n.hz} lomos${n.z?' · con altura':''}</small>${hint}</div><div class="row"><button class="btn sm${NFOC===n.id?' primary':''}" data-act="sone" data-id="${n.id}">Ver</button><button class="btn sm${on?' primary':''}" data-act="ssel" data-id="${n.id}">${on?'☑ Elegido':'☐ Elegir'}</button></div></div>`;
   };
   const k=sel.size;
-  return `<div class="card"><b>☑️ Elegí los mosaicos</b> · <b id="nselN">${k} elegido${k===1?'':'s'}</b><br><small class="mut">En el mapa, naranja = elegidos y verde = los demás; donde se superponen se ve más oscuro. Los marcados con ⚠️ se pisan con otro.</small>
+  return `<div class="card"><b>☑️ Elegí los mosaicos</b> · <b id="nselN">${k} elegido${k===1?'':'s'}</b><br><small class="mut">En el mapa, naranja = elegidos y verde = los demás. Tocá <b>Ver</b> en uno: se dibuja en <b>azul</b> y los que se pisan con él en <b>amarillo</b>. ⚠️ dice con cuál se pisa; <b>☑ Elegir con su par</b> tilda los dos.</small>
     <div class="row" style="margin-top:6px"><button class="btn sm" data-act="sovl">⚠️ Los superpuestos</button><button class="btn sm" data-act="sall">Todos</button><button class="btn sm" data-act="snone">Ninguno</button></div>
     <div class="row" style="margin-top:6px"><button class="btn sm" data-act="sview">🔍 Ver (${k})</button><button class="btn sm" data-act="smerge">🧩 Unir (${k})</button><button class="btn sm danger" data-act="sdel">Borrar (${k})</button><button class="btn sm" data-act="sexit">Salir</button></div></div>`
     +(tiles.length?tiles.map(row).join(''):'<p class="mut">No hay mosaicos de calles.</p>');
@@ -4380,15 +4388,20 @@ function netSelHtml(idx,sel){
 function drawSel(idx){
   selLayer.clearLayers();
   if(!NSEL)return;
-  for(const n of idx.filter(x=>!x.regional)){
-    const on=NSEL.has(n.id);
-    L.rectangle([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{color:on?'#F04A1C':'#2E7D5B',weight:on?3:1,fillColor:on?'#F04A1C':'#2E7D5B',fillOpacity:on?.18:.10,interactive:false}).addTo(selLayer);
+  const t=idx.filter(x=>!x.regional),ov=overlapInfo(t),foc=NFOC&&t.find(x=>x.id===NFOC),par=new Set(foc?ov[foc.id].pairs.map(p=>p.n.id):[]);
+  const st=n=>n.id===NFOC?{c:'#1E6BFF',w:4,f:.22}:par.has(n.id)?{c:'#E0A100',w:3,f:.22}:NSEL.has(n.id)?{c:'#F04A1C',w:3,f:.18}:{c:'#2E7D5B',w:1,f:.10};
+  /* primero los de fondo, al final el mirado y sus pares, para que no queden tapados */
+  const ord=n=>n.id===NFOC?3:par.has(n.id)?2:NSEL.has(n.id)?1:0;
+  for(const n of t.slice().sort((a,b)=>ord(a)-ord(b))){
+    const q=st(n);
+    L.rectangle([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{color:q.c,weight:q.w,fillColor:q.c,fillOpacity:q.f,interactive:false,dashArray:par.has(n.id)?'6 4':null}).addTo(selLayer);
   }
 }
 /* se actualiza en el lugar, sin redibujar la hoja (si no, volvería arriba de todo) */
 function nselRefresh(idx){
   const sel=NSEL||new Set();
   for(const b of sBody.querySelectorAll('[data-act=ssel]')){const on=sel.has(b.dataset.id);b.textContent=on?'☑ Elegido':'☐ Elegir';b.classList.toggle('primary',on);}
+  for(const b of sBody.querySelectorAll('[data-act=sone]'))b.classList.toggle('primary',b.dataset.id===NFOC);
   const e=$('#nselN');if(e)e.textContent=`${sel.size} elegido${sel.size===1?'':'s'}`;
   for(const [a,t] of [['sview','🔍 Ver'],['smerge','🧩 Unir'],['sdel','Borrar']]){const b=sBody.querySelector(`[data-act=${a}]`);if(b&&!b.dataset.arm)b.textContent=`${t} (${sel.size})`;}
   drawSel(idx);
@@ -4452,22 +4465,32 @@ async function showMapMgr(){
     }
     else if(a==='ldel'){if(armed(el)){await clearTiles(d.k);toast('Borrado');showMapMgr();}}
     else if(a==='nview'){const n=idx.find(x=>x.id===d.id);closeSheet();map.fitBounds([[n.bb.s,n.bb.w],[n.bb.n,n.bb.e]],{padding:[20,20]});}
-    else if(a==='senter'){NSEL=new Set();showMapMgr();}
-    else if(a==='gpick'){NSEL=new Set(d.ids.split(','));showMapMgr();}
-    else if(a==='sexit'){NSEL=null;showMapMgr();}
+    else if(a==='senter'){NSEL=new Set();NFOC=null;showMapMgr();}
+    else if(a==='gpick'){NSEL=new Set(d.ids.split(','));NFOC=null;showMapMgr();}
+    else if(a==='sexit'){NSEL=null;NFOC=null;showMapMgr();}
     else if(a==='ssel'){if(NSEL){if(NSEL.has(d.id))NSEL.delete(d.id);else NSEL.add(d.id);nselRefresh(idx);}}
     else if(a==='sall'){NSEL=new Set(idx.filter(n=>!n.regional).map(n=>n.id));nselRefresh(idx);}
-    else if(a==='snone'){NSEL=new Set();nselRefresh(idx);}
+    else if(a==='snone'){NSEL=new Set();NFOC=null;nselRefresh(idx);}
     else if(a==='sovl'){
       const t=idx.filter(n=>!n.regional),ov=overlapInfo(t);
       NSEL=new Set(t.filter(n=>ov[n.id].max>=.1).map(n=>n.id));nselRefresh(idx);
       toast(NSEL.size?`${NSEL.size} mosaicos se superponen con otro`:'Ningún mosaico se superpone con otro',3500);
     }
-    else if(a==='sone'){const n=idx.find(x=>x.id===d.id);if(n)fitSel([n]);}
+    else if(a==='sone'){
+      const n=idx.find(x=>x.id===d.id);if(!n)return;
+      NFOC=NFOC===d.id?null:d.id;nselRefresh(idx);
+      if(NFOC){const t=idx.filter(x=>!x.regional),ov=overlapInfo(t);fitSel([n].concat(ov[n.id].pairs.map(p=>p.n)));}
+    }
+    else if(a==='spair'){
+      const n=idx.find(x=>x.id===d.id);if(!n||!NSEL)return;
+      const t=idx.filter(x=>!x.regional),ov=overlapInfo(t),pr=ov[n.id].pairs.map(p=>p.n);
+      NSEL.add(n.id);for(const p of pr)NSEL.add(p.id);NFOC=n.id;nselRefresh(idx);fitSel([n].concat(pr));
+      toast(`Elegiste este y ${pr.length===1?'su par':pr.length+' que se pisan con él'}`,3000);
+    }
     else if(a==='sview'){const t=idx.filter(n=>NSEL&&NSEL.has(n.id));if(t.length)fitSel(t);else toast('No elegiste ninguno',2500);}
     else if(a==='sdel'){
       if(!NSEL||!NSEL.size){toast('No elegiste ninguno',2500);return;}
-      if(armed(el)){const k=NSEL.size;for(const id of NSEL){await DB.del('kv','net:'+id);await DB.del('kv','netidx:'+id);}NSEL=new Set();netsChanged();drawCoverage();toast(`${k} mosaico${k===1?'':'s'} borrado${k===1?'':'s'}`);showMapMgr();}
+      if(armed(el)){const k=NSEL.size;for(const id of NSEL){await DB.del('kv','net:'+id);await DB.del('kv','netidx:'+id);}NSEL=new Set();NFOC=null;netsChanged();drawCoverage();toast(`${k} mosaico${k===1?'':'s'} borrado${k===1?'':'s'}`);showMapMgr();}
     }
     else if(a==='smerge'){
       if(!NSEL||NSEL.size<2){toast('Elegí al menos dos mosaicos',3000);return;}
@@ -4478,7 +4501,7 @@ async function showMapMgr(){
         drawCoverage();
         toast(r.made?`🧩 ${r.tiles-r.alone} mosaicos ahora son ${r.made} bloque${r.made===1?'':'s'}. Calles repetidas quitadas: ${fmtN(r.before-r.after)}`+(r.alone?`. ${r.alone===1?'1 quedó aparte':r.alone+' quedaron aparte'} (lejos o muy grande)`:''):'Los elegidos no se pueden unir: están lejos entre sí o son muy grandes',7000);
       }catch(e){toast('No se pudo unir: '+(e.message||e),5000);}
-      NSEL=new Set();showMapMgr();
+      NSEL=new Set();NFOC=null;showMapMgr();
     }
     else if(a==='gview'){const g=netGroups(idx).find(x=>x.ids.join(',')===d.ids);if(g){closeSheet();map.fitBounds([[g.bb.s,g.bb.w],[g.bb.n,g.bb.e]],{padding:[20,20]});}}
     else if(a==='gdel'){if(armed(el)){for(const id of d.ids.split(',')){await DB.del('kv','net:'+id);await DB.del('kv','netidx:'+id);}netsChanged();drawCoverage();toast('Mosaicos borrados');showMapMgr();}}
