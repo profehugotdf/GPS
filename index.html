@@ -463,6 +463,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="netpill" hidden></div>
 <div id="tgt" hidden><div id="tgtArrow">➤</div><div><div id="tgtD">—</div><div id="tgtSub"></div><div id="tgtM"></div></div></div>
 <div id="fabs">
+  <button id="fFind" aria-label="Buscar">🔍</button>
   <button id="fAct" aria-label="Actividad">🚴</button>
   <button id="fPts" aria-label="Puntos">📍</button>
   <button id="fLoc" aria-label="Seguir mi posición">◎</button>
@@ -4589,6 +4590,91 @@ $('#pinSave').onclick=async()=>{
   await DB.put('kv','wpt:'+w.id,w);addWptMarker(w);vib();toast('📍 Punto guardado');hidePin();
 };
 
+/* ---------- 🔍 Buscar: puntos guardados, calles y esquinas de la red descargada, coordenadas y, por internet, lugares y direcciones ---------- */
+function placePin(lat,lon,label){
+  PIN={lat,lon,label};
+  pinLayer.clearLayers();
+  L.marker([lat,lon],{interactive:false,icon:L.divIcon({html:'<div class="gl s">B</div>',className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(pinLayer);
+  $('#pinTxt').textContent=label;
+  $('#pinVia').hidden=!(RT.res&&RT.to&&RT.calcFrom&&(RT.res[RT.sel]&&!RT.res[RT.sel].err));
+  const o=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null),d=o?hav([o.lat,o.lon],[lat,lon]):null;
+  $('#pinSub').textContent=(d!=null?fmtD(d)+' en línea recta desde '+(RT.from?'el origen elegido':'tu posición')+' · ':'')+lat.toFixed(5)+', '+lon.toFixed(5);
+  $('#pin').hidden=false;
+}
+/* "-54,80 -68,30", "-54.8, -68.3"... (con al menos un decimal, para no confundirlo con un número de puerta) */
+function parseCoords(q){
+  q=String(q||'').trim();
+  if(!/\d[.,]\d/.test(q))return null;
+  const m=q.match(/^(-?\d{1,3}(?:[.,]\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:[.,]\d+)?)$/);
+  if(!m)return null;
+  const a=+m[1].replace(',','.'),b=+m[2].replace(',','.');
+  return Math.abs(a)<=90&&Math.abs(b)<=180?{lat:a,lon:b}:null;
+}
+/* Nominatim: lugares y direcciones con número; se favorece lo que está cerca de lo que se ve en el mapa */
+async function placeQuery(q,c){
+  if(!(await netAllowed('buscar el lugar')))return null;
+  const d=1.5,vb=[c[1]-d,c[0]+d,c[1]+d,c[0]-d].map(x=>x.toFixed(4)).join(',');
+  const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=es&viewbox='+vb+'&q='+encodeURIComponent(q),{headers:{'Accept':'application/json'}});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  return j.map(x=>({lat:+x.lat,lon:+x.lon,full:String(x.display_name),label:String(x.display_name).split(',').slice(0,2).join(',').trim(),type:x.type||''}));
+}
+let FIND={list:[],web:[],gen:0,t:0};
+function goFind(r){
+  closeSheet();setFollow(false);
+  map.setView([r.lat,r.lon],Math.max(map.getZoom(),17));
+  placePin(r.lat,r.lon,r.label);
+}
+async function showFind(){
+  const c0=lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng];
+  FIND={list:[],web:[],gen:0,t:0};
+  let g=G||null;
+  openSheet('Buscar',`<input class="in" id="fq" placeholder="Calle, esquina, punto guardado, lugar o coordenadas" enterkeyhint="search" autocomplete="off">
+    <div class="row" style="margin-top:6px"><button class="btn primary" data-act="web">🌐 Buscar por internet</button></div>
+    <div id="fres" style="margin-top:8px"></div><div id="fweb" style="margin-top:6px"></div>
+    <p class="mut" id="fhint">Calles, esquinas y puntos guardados se buscan en tu teléfono, sin internet (ej: <i>San Martín y Roca</i>). Para direcciones con número, comercios o ciudades, tocá 🌐 (ej: <i>Av. Maipú 450, Ushuaia</i>). También sirven coordenadas: <i>-54.80, -68.30</i>.</p>`,
+    (a,d)=>{
+      if(a==='fr'||a==='fw'){const r=(a==='fr'?FIND.list:FIND.web)[+d.i];if(r)goFind(r);}
+      else if(a==='web')webRun();
+    });
+  const inp=$('#fq');
+  const run=async()=>{
+    const my=++FIND.gen,q=inp.value.trim(),out=$('#fres');if(!out)return;
+    const list=[],nq=norm(q),pc=parseCoords(q);
+    if(pc)list.push({ico:'🧭',label:`Coordenadas ${pc.lat.toFixed(5)}, ${pc.lon.toFixed(5)}`,sub:'Ir a este punto',lat:pc.lat,lon:pc.lon,k:0,d:0});
+    if(nq.length>=2){
+      for(const w of await DB.all('kv','wpt:'))if(norm(w.name).includes(nq))list.push({ico:(WT[w.type]||WT.punto)[0],label:w.name,sub:'Punto guardado · '+fmtD(hav(c0,[w.lat,w.lon])),lat:w.lat,lon:w.lon,k:1,d:hav(c0,[w.lat,w.lon])});
+    }
+    /* "San Martín 450": la red descargada no tiene números de puerta, se ubica la calle y la dirección exacta se busca por internet */
+    const nm=q.match(/^(.*\D)\s+\d{1,5}$/),qs=nm?nm[1].trim():q;
+    if(g&&qs.length>=3){try{for(const r of searchPlaces(g,qs,c0))list.push({ico:'🛣️',label:r.label,sub:(nm?'La calle (sin número) · ':'Calle de tu red descargada · ')+fmtD(r.d),lat:r.lat,lon:r.lon,k:2,d:r.d});}catch(e){}}
+    if(my!==FIND.gen)return;
+    list.sort((a,b)=>a.k-b.k||a.d-b.d);
+    FIND.list=list;
+    out.innerHTML=list.length?list.map((r,i)=>`<button class="btn" data-act="fr" data-i="${i}" style="width:100%;text-align:left;margin-bottom:6px">${r.ico} <b>${esc(r.label)}</b><br><small class="mut">${esc(r.sub)}</small></button>`).join(''):(q.length>=2?`<p class="mut">${g?'Nada en tus puntos ni en las calles descargadas.':'Nada en tus puntos. Todavía no hay calles descargadas para buscar sin internet.'} Probá con 🌐.</p>`:'');
+  };
+  inp.addEventListener('input',()=>{clearTimeout(FIND.t);FIND.t=setTimeout(run,150);});
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();inp.blur();webRun();}});
+  inp.focus();
+  if(!g){
+    try{const x=await ensureGraph({center:c0});if(x&&sheetTitle==='Buscar'){g=x;if(inp.value.trim().length>=3)run();}}catch(e){}
+  }
+}
+async function webRun(){
+  const inp=$('#fq'),out=$('#fweb');if(!inp||!out)return;
+  const q=inp.value.trim();
+  if(q.length<3){out.innerHTML='<p class="mut">Escribí al menos 3 letras.</p>';return;}
+  out.innerHTML='<p class="mut">Buscando por internet…</p>';
+  try{
+    const res=await placeQuery(q,[map.getCenter().lat,map.getCenter().lng]);
+    if(res===null){out.innerHTML='';return;}
+    if(!$('#fweb'))return;
+    const c0=lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng];
+    FIND.web=res;
+    out.innerHTML=res.length?'<h3>🌐 Por internet</h3>'+res.map((r,i)=>`<button class="btn" data-act="fw" data-i="${i}" style="width:100%;text-align:left;margin-bottom:6px"><b>${esc(r.label)}</b><br><small class="mut">${esc(r.full.split(',').slice(2,5).join(',').trim()||r.type)} · ${fmtD(hav(c0,[r.lat,r.lon]))}</small></button>`).join('')+'<p class="mut">Datos © colaboradores de OpenStreetMap (Nominatim), una consulta por vez.</p>':'<p class="mut">No encontré nada. Probá con menos palabras o agregá la ciudad.</p>';
+  }catch(e){out.innerHTML=`<p class="mwarn">No pude buscar: ${esc(e.message||String(e))}. Revisá la conexión.</p>`;}
+}
+
 
 /* ---------- Copia de seguridad completa y recuperación ---------- */
 const blobB64=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(String(f.result).split(',')[1]);f.readAsDataURL(b);});
@@ -7542,6 +7628,7 @@ $('#nRoutes').onclick=showRoutes;
 $('#nGates').onclick=showCircuits;
 $('#nMore').onclick=showMoreMenu;
 $('#fPts').onclick=showPoints;
+$('#fFind').onclick=showFind;
 $('#fIn').onclick=()=>map.zoomIn();
 $('#fOut').onclick=()=>map.zoomOut();
 $('#fLoc').onclick=()=>{
