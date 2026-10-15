@@ -256,6 +256,16 @@ body.night #nodep .nvb button{background:#E4EDEF;color:#0E2A36}
 #pin .nvb button{flex:1 1 28%}
 #pin .nvb #pinGo{flex:2 1 52%}
 
+
+#globe{position:fixed;left:0;top:0;right:0;bottom:0;z-index:1050;background:radial-gradient(ellipse at 50% 42%,#12304a 0%,#060f17 78%);touch-action:none;user-select:none;-webkit-user-select:none}
+#globe[hidden]{display:none}
+#globe canvas{position:absolute;left:0;top:0;width:100%;height:100%}
+#gbTop{position:absolute;left:0;right:0;top:0;padding:calc(var(--top) + 6px) 10px 6px;display:flex;align-items:center;gap:8px;color:#fff;z-index:2}
+#gbTop b{flex:1;font-size:18px}
+#gbTop button{min-width:44px;height:44px;border-radius:12px;border:0;background:rgba(255,255,255,.14);color:#fff;font-size:20px}
+#gbm{position:absolute;left:12px;right:12px;bottom:calc(var(--bot) + 12px);text-align:center;color:#cfe3ee;font-size:13px;z-index:2;pointer-events:none}
+#gbp{position:absolute;left:10px;right:10px;bottom:calc(var(--bot) + 40px);background:var(--paper);color:var(--ink);border-radius:14px;padding:10px 12px;z-index:3}
+#gbp .row{margin-top:8px}
 #netpill{position:fixed;top:calc(var(--top) + 8px);right:12px;z-index:905;background:rgba(14,42,54,.85);color:#fff;border-radius:16px;padding:6px 12px;font:700 13px system-ui;box-shadow:0 1px 5px rgba(0,0,0,.35)}
 #netpill[hidden]{display:none}
 
@@ -483,6 +493,12 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
   <div id="sHead"><h2 id="sTitle"></h2><button id="sX" aria-label="Cerrar">✕</button></div>
   <div id="sBody"></div>
 </section>
+<div id="globe" hidden>
+  <canvas id="gbGL"></canvas><canvas id="gbOv"></canvas>
+  <div id="gbTop"><button id="gbX" aria-label="Cerrar">✕</button><b>🌍 Globo</b><button id="gbMe" aria-label="Mi posición">📍</button><button id="gbLy" aria-label="Capa">🛰️</button><button id="gbQ" aria-label="Buscar">🔍</button></div>
+  <div id="gbp" hidden></div>
+  <div id="gbm"></div>
+</div>
 <div id="toast"></div>
 <input type="file" id="file" hidden>
 
@@ -4621,6 +4637,7 @@ async function placeQuery(q,c){
 }
 let FIND={list:[],web:[],gen:0,t:0};
 function goFind(r){
+  if(typeof GB!=='undefined'&&GB.on)closeGlobe();
   closeSheet();setFollow(false);
   map.setView([r.lat,r.lon],Math.max(map.getZoom(),17));
   placePin(r.lat,r.lon,r.label);
@@ -4674,6 +4691,249 @@ async function webRun(){
     out.innerHTML=res.length?'<h3>🌐 Por internet</h3>'+res.map((r,i)=>`<button class="btn" data-act="fw" data-i="${i}" style="width:100%;text-align:left;margin-bottom:6px"><b>${esc(r.label)}</b><br><small class="mut">${esc(r.full.split(',').slice(2,5).join(',').trim()||r.type)} · ${fmtD(hav(c0,[r.lat,r.lon]))}</small></button>`).join('')+'<p class="mut">Datos © colaboradores de OpenStreetMap (Nominatim), una consulta por vez.</p>':'<p class="mut">No encontré nada. Probá con menos palabras o agregá la ciudad.</p>';
   }catch(e){out.innerHTML=`<p class="mwarn">No pude buscar: ${esc(e.message||String(e))}. Revisá la conexión.</p>`;}
 }
+
+/* ---------- 🌍 Globo: vista general sobre una esfera (WebGL2). No deforma las áreas como el plano ---------- */
+const GB={on:false,lat:-.35,lon:-1.05,s:1,vx:0,vy:0,sel:null,layer:'sat',tex:false,gl:null,prog:null,u:{},raf:0,ptr:new Map(),dirty:true,lastZ:null,W:0,H:0,dpr:1,pd:0,t0:0,x0:0,y0:0,mv:0,wpts:[],gen:0,msg:''};
+const GB_LAYERS=['sat','etopo','osm'],GB_ICO={sat:'🛰️',etopo:'🗺️',osm:'🛣️'};
+const GB_VS='#version 300 es\nin vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
+const GB_FS=`#version 300 es
+precision highp float;
+uniform vec2 res;uniform float R;uniform vec2 c0;uniform sampler2D tex;uniform float has;
+out vec4 o;
+const float PI=3.14159265358979;
+vec3 wv(vec2 p){float r2=min(dot(p,p),.9999),z=sqrt(1.-r2),cl=cos(c0.y),sl=sin(c0.y);return vec3(p.x,p.y*cl+z*sl,-p.y*sl+z*cl);}
+vec2 uvOf(vec3 w){float lat=asin(clamp(w.y,-1.,1.)),lon=atan(w.x,w.z)+c0.x;return vec2(lon/(2.*PI)+.5,.5-log(tan(PI/4.+lat/2.))/(2.*PI));}
+void main(){
+  vec2 p=(gl_FragCoord.xy-.5*res)/R;float d=length(p);
+  if(d>1.){float a=smoothstep(1.07,1.,d)*.55;o=vec4(vec3(.45,.7,1.)*a,a);return;}
+  vec2 uv=uvOf(wv(p));
+  vec3 col=vec3(.10,.20,.30);
+  if(has>.5){
+    vec2 dx=uvOf(wv(p+vec2(1./R,0.)))-uv,dy=uvOf(wv(p+vec2(0.,1./R)))-uv;
+    dx.x-=floor(dx.x+.5);dy.x-=floor(dy.x+.5);
+    float inb=step(0.,uv.y)*step(uv.y,1.);
+    vec3 t=textureGrad(tex,vec2(uv.x,clamp(uv.y,0.,1.)),dx,dy).rgb;
+    col=mix(vec3(.92,.94,.96),t,inb);
+  }
+  col=mix(col,vec3(.5,.72,1.),pow(d,7.)*.45);
+  o=vec4(col,1.);
+}`;
+const gbBase=()=>.44*Math.min(GB.W,GB.H);
+const gbR=()=>gbBase()*GB.s;
+function gbNormLon(l){return ((l+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;}
+/* grados → posición en pantalla (px CSS) y si está del lado que se ve */
+function gbProj(lat,lon){
+  const la=lat*rad,lo=lon*rad-GB.lon,cla=Math.cos(la),sla=Math.sin(la),c0=Math.cos(GB.lat),s0=Math.sin(GB.lat),R=gbR();
+  return {x:GB.W/2+R*cla*Math.sin(lo),y:GB.H/2-R*(c0*sla-s0*cla*Math.cos(lo)),v:s0*sla+c0*cla*Math.cos(lo)>0};
+}
+function gbUnproj(cx,cy){
+  const R=gbR(),x=(cx-GB.W/2)/R,y=-(cy-GB.H/2)/R,r2=x*x+y*y;
+  if(r2>1)return null;
+  const z=Math.sqrt(1-r2),cl=Math.cos(GB.lat),sl=Math.sin(GB.lat),y1=y*cl+z*sl,z1=-y*sl+z*cl;
+  return {lat:Math.asin(Math.max(-1,Math.min(1,y1)))/rad,lon:gbNormLon(Math.atan2(x,z1)+GB.lon)/rad};
+}
+/* Textura: el mundo entero en 8×8 teselas (nivel 3), se arma una vez, se guarda y después anda sin conexión */
+async function globeTexture(k,say){
+  const key='globe/z3/'+k;let b=null;
+  try{b=await DB.get('tiles',key);}catch(e){}
+  if(!b){
+    if(!(await netAllowed('armar el globo')))return null;
+    const l=LAYERS[k],Z=3,N=8,cv=document.createElement('canvas');cv.width=cv.height=256*N;
+    const cx=cv.getContext('2d'),jobs=[];let done=0,fail=0;
+    for(let y=0;y<N;y++)for(let x=0;x<N;x++)jobs.push([x,y]);
+    const work=async()=>{
+      while(jobs.length){
+        const [x,y]=jobs.shift();
+        try{const bm=await createImageBitmap(await getTileBlob(tileUrl(l,Z,x,y)));cx.drawImage(bm,x*256,y*256,256,256);}catch(e){fail++;}
+        done++;if(say)say(`Armando el globo… ${done}/${N*N}`);
+      }
+    };
+    await Promise.all(Array.from({length:6},work));
+    if(fail>N*N/4)return null;
+    b=await new Promise(r=>cv.toBlob(r,'image/jpeg',.88));
+    if(!fail){try{await DB.put('tiles',key,b);}catch(e){}}
+  }
+  return createImageBitmap(b);
+}
+async function gbLoadTex(){
+  const my=++GB.gen,say=t=>{if(my===GB.gen)gbMsg(t);};
+  say('Armando el globo…');
+  let bm=null;
+  try{bm=await globeTexture(GB.layer,say);}catch(e){}
+  if(my!==GB.gen||!GB.gl)return;
+  const gl=GB.gl;
+  if(!bm){GB.tex=false;gbMsg('Sin imagen: el globo baja 64 teselas una sola vez (con internet) y después anda sin conexión.');GB.dirty=true;return;}
+  if(!GB.tx)GB.tx=gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,GB.tx);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,bm);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const an=gl.getExtension('EXT_texture_filter_anisotropic');
+  if(an)gl.texParameterf(gl.TEXTURE_2D,an.TEXTURE_MAX_ANISOTROPY_EXT,Math.min(8,gl.getParameter(an.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+  GB.tex=true;gbMsg('');GB.dirty=true;
+  $('#gbLy').textContent=GB_ICO[GB.layer]||'🛰️';
+}
+const gbMsg=t=>{GB.msg=t;const m=$('#gbm');if(m)m.textContent=t||'Un dedo gira · dos dedos acercan · acercá mucho para abrir el mapa plano';};
+function gbInitGL(){
+  if(GB.gl)return true;
+  const cv=$('#gbGL');let gl=null;
+  try{gl=cv.getContext('webgl2',{alpha:true,premultipliedAlpha:true,antialias:false,preserveDrawingBuffer:false});}catch(e){}
+  if(!gl)return false;
+  const sh=(t,src)=>{const x=gl.createShader(t);gl.shaderSource(x,src);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(x));return x;};
+  try{
+    const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,GB_VS));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,GB_FS));gl.linkProgram(p);
+    if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));
+    GB.prog=p;GB.u={res:gl.getUniformLocation(p,'res'),R:gl.getUniformLocation(p,'R'),c0:gl.getUniformLocation(p,'c0'),tex:gl.getUniformLocation(p,'tex'),has:gl.getUniformLocation(p,'has')};
+    const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+    const loc=gl.getAttribLocation(p,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+  }catch(e){return false;}
+  GB.gl=gl;return true;
+}
+function gbResize(){
+  const g=$('#globe');GB.W=g.clientWidth||innerWidth;GB.H=g.clientHeight||innerHeight;GB.dpr=Math.min(devicePixelRatio||1,2.5);
+  for(const id of ['#gbGL','#gbOv']){const c=$(id);c.width=Math.round(GB.W*GB.dpr);c.height=Math.round(GB.H*GB.dpr);}
+  GB.dirty=true;
+}
+function gbDraw(){
+  const gl=GB.gl;if(!gl)return;
+  gl.viewport(0,0,GB.W*GB.dpr,GB.H*GB.dpr);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(GB.prog);gl.uniform2f(GB.u.res,$('#gbGL').width,$('#gbGL').height);gl.uniform1f(GB.u.R,gbR()*GB.dpr);
+  gl.uniform2f(GB.u.c0,GB.lon,GB.lat);gl.uniform1f(GB.u.has,GB.tex?1:0);gl.uniform1i(GB.u.tex,0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  gbOverlay();
+}
+/* línea (lista de [lat,lon] en grados) con cortes donde da la vuelta */
+function gbLine(ctx,pts){
+  let pen=false;
+  for(const p of pts){const q=gbProj(p[0],p[1]);if(!q.v){pen=false;continue;}if(pen)ctx.lineTo(q.x,q.y);else{ctx.moveTo(q.x,q.y);pen=true;}}
+}
+function gbArc(a,b,n){
+  const A=[Math.cos(a[0]*rad)*Math.cos(a[1]*rad),Math.cos(a[0]*rad)*Math.sin(a[1]*rad),Math.sin(a[0]*rad)],B=[Math.cos(b[0]*rad)*Math.cos(b[1]*rad),Math.cos(b[0]*rad)*Math.sin(b[1]*rad),Math.sin(b[0]*rad)];
+  const dot=Math.max(-1,Math.min(1,A[0]*B[0]+A[1]*B[1]+A[2]*B[2])),om=Math.acos(dot),so=Math.sin(om),out=[];
+  for(let i=0;i<=n;i++){
+    const t=i/n,k1=so<1e-9?1-t:Math.sin((1-t)*om)/so,k2=so<1e-9?t:Math.sin(t*om)/so,x=k1*A[0]+k2*B[0],y=k1*A[1]+k2*B[1],z=k1*A[2]+k2*B[2];
+    out.push([Math.atan2(z,Math.hypot(x,y))/rad,Math.atan2(y,x)/rad]);
+  }
+  return out;
+}
+function gbOverlay(){
+  const c=$('#gbOv'),ctx=c.getContext('2d');ctx.setTransform(GB.dpr,0,0,GB.dpr,0,0);ctx.clearRect(0,0,GB.W,GB.H);
+  ctx.lineWidth=1;ctx.strokeStyle='rgba(255,255,255,.28)';
+  for(let lo=-180;lo<180;lo+=30){ctx.beginPath();const l=[];for(let la=-88;la<=88;la+=4)l.push([la,lo]);gbLine(ctx,l);ctx.stroke();}
+  for(let la=-60;la<=60;la+=30){ctx.strokeStyle=la===0?'rgba(255,220,120,.6)':'rgba(255,255,255,.28)';ctx.beginPath();const l=[];for(let lo=-180;lo<=180;lo+=4)l.push([la,lo]);gbLine(ctx,l);ctx.stroke();}
+  const rt=RT.res&&RT.sel&&RT.res[RT.sel];
+  if(rt&&rt.coords&&rt.coords.length>1){
+    const k=Math.max(1,Math.floor(rt.coords.length/500));ctx.strokeStyle='#F04A1C';ctx.lineWidth=3;ctx.beginPath();
+    gbLine(ctx,rt.coords.filter((_,i)=>i%k===0||i===rt.coords.length-1));ctx.stroke();
+  }
+  for(const w of GB.wpts){const q=gbProj(w.lat,w.lon);if(!q.v)continue;ctx.fillStyle='#fff';ctx.strokeStyle='#0E2A36';ctx.lineWidth=2;ctx.beginPath();ctx.arc(q.x,q.y,4,0,7);ctx.fill();ctx.stroke();}
+  if(typeof TGT!=='undefined'&&TGT.on&&lastFix){
+    ctx.strokeStyle='#F04A1C';ctx.lineWidth=2.5;ctx.setLineDash([6,6]);ctx.beginPath();gbLine(ctx,gbArc([lastFix.lat,lastFix.lon],[TGT.lat,TGT.lon],96));ctx.stroke();ctx.setLineDash([]);
+    const q=gbProj(TGT.lat,TGT.lon);if(q.v){ctx.font='24px sans-serif';ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText('🎯',q.x,q.y+4);}
+  }
+  if(GB.sel){const q=gbProj(GB.sel.lat,GB.sel.lon);if(q.v){ctx.fillStyle='#F04A1C';ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(q.x,q.y,7,0,7);ctx.fill();ctx.stroke();}}
+  if(lastFix){const q=gbProj(lastFix.lat,lastFix.lon);if(q.v){ctx.fillStyle='#1E6BFF';ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(q.x,q.y,7,0,7);ctx.fill();ctx.stroke();}}
+}
+function gbLoop(){
+  GB.raf=0;if(!GB.on)return;
+  if(Math.abs(GB.vx)>1e-5||Math.abs(GB.vy)>1e-5){
+    GB.lon=gbNormLon(GB.lon+GB.vx);GB.lat=Math.max(-1.48,Math.min(1.48,GB.lat+GB.vy));GB.vx*=.93;GB.vy*=.93;GB.dirty=true;
+    if(Math.abs(GB.vx)<=1e-5)GB.vx=0;if(Math.abs(GB.vy)<=1e-5)GB.vy=0;
+  }
+  if(GB.dirty){GB.dirty=false;gbDraw();}
+  GB.raf=requestAnimationFrame(gbLoop);
+}
+function gbKick(){GB.dirty=true;if(GB.on&&!GB.raf)GB.raf=requestAnimationFrame(gbLoop);}
+function gbRotate(dx,dy){
+  const R=gbR();GB.lon=gbNormLon(GB.lon-dx/(R*Math.max(.3,Math.cos(GB.lat))));GB.lat=Math.max(-1.48,Math.min(1.48,GB.lat+dy/R));
+}
+function gbZoomBy(f){
+  GB.s=Math.max(.7,Math.min(3.4,GB.s*f));gbKick();
+  if(GB.s>=3&&GB.on)gbToMap();
+}
+/* mismo tamaño en pantalla que el mapa plano: píxeles por radián de la esfera ⇄ nivel de zoom de Leaflet */
+const gbZoomOf=()=>Math.log2(2*Math.PI*gbR()*Math.max(.25,Math.cos(GB.lat))/256);
+function gbToMap(){
+  const lat=GB.lat/rad,lon=GB.lon/rad,z=Math.max(3,Math.round(gbZoomOf()+.3));
+  closeGlobe();map.setView([lat,lon],z);
+}
+function gbSelect(p){
+  GB.sel=p;const d=lastFix?hav([lastFix.lat,lastFix.lon],[p.lat,p.lon]):null;
+  let brg='';
+  if(lastFix){
+    const f1=lastFix.lat*rad,f2=p.lat*rad,dl=(p.lon-lastFix.lon)*rad,b=((Math.atan2(Math.sin(dl)*Math.cos(f2),Math.cos(f1)*Math.sin(f2)-Math.sin(f1)*Math.cos(f2)*Math.cos(dl))/rad)+360)%360;
+    brg=` · rumbo inicial ${WIND[Math.round(b/22.5)%16]} ${Math.round(b)}°`;
+  }
+  const pn=$('#gbp');
+  pn.innerHTML=`<b>${Math.abs(p.lat).toFixed(2)}° ${p.lat<0?'S':'N'}, ${Math.abs(p.lon).toFixed(2)}° ${p.lon<0?'O':'E'}</b><br><small class="mut">${d!=null?fmtD(d)+' por el camino más corto sobre la esfera'+brg:'Sin GPS: no puedo calcular la distancia desde vos'}</small>
+    <div class="row"><button class="btn primary sm" data-g="map">🗺️ Abrir mapa acá</button><button class="btn sm" data-g="tgt">🎯 Seguir distancia</button><button class="btn sm" data-g="x">✕</button></div>`;
+  pn.hidden=false;gbKick();
+}
+function gbPointer(){
+  const ov=$('#gbOv');
+  const pos=e=>{const r=ov.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};};
+  ov.addEventListener('pointerdown',e=>{
+    ov.setPointerCapture(e.pointerId);const q=pos(e);GB.ptr.set(e.pointerId,q);
+    GB.vx=GB.vy=0;
+    if(GB.ptr.size===1){GB.x0=q.x;GB.y0=q.y;GB.t0=Date.now();GB.mv=0;}
+    if(GB.ptr.size===2){const [a,b]=[...GB.ptr.values()];GB.pd=Math.hypot(a.x-b.x,a.y-b.y);GB.mv=99;}
+  });
+  ov.addEventListener('pointermove',e=>{
+    if(!GB.ptr.has(e.pointerId))return;
+    const q=pos(e),o=GB.ptr.get(e.pointerId);GB.ptr.set(e.pointerId,q);
+    if(GB.ptr.size===1){const dx=q.x-o.x,dy=q.y-o.y;GB.mv+=Math.abs(dx)+Math.abs(dy);gbRotate(dx,dy);GB.vx=-dx/(gbR()*Math.max(.3,Math.cos(GB.lat)));GB.vy=dy/gbR();gbKick();}
+    else if(GB.ptr.size===2){const [a,b]=[...GB.ptr.values()],d=Math.hypot(a.x-b.x,a.y-b.y);if(GB.pd>0)gbZoomBy(d/GB.pd);GB.pd=d;GB.vx=GB.vy=0;}
+  });
+  const up=e=>{
+    if(!GB.ptr.has(e.pointerId))return;
+    const was=GB.ptr.size;GB.ptr.delete(e.pointerId);
+    if(was===1&&GB.mv<8&&Date.now()-GB.t0<500){GB.vx=GB.vy=0;const p=gbUnproj(GB.x0,GB.y0);if(p)gbSelect(p);}
+    else if(GB.ptr.size===0)gbKick();
+  };
+  ov.addEventListener('pointerup',up);ov.addEventListener('pointercancel',up);
+  ov.addEventListener('wheel',e=>{e.preventDefault();gbZoomBy(Math.exp(-e.deltaY*.0015));},{passive:false});
+  ov.addEventListener('dblclick',e=>{gbZoomBy(1.5);});
+}
+let GB_WIRED=false;
+async function openGlobe(){
+  if(GB.on)return;
+  const g=$('#globe');g.hidden=false;GB.on=true;
+  if(!gbInitGL()){g.hidden=true;GB.on=false;toast('Este teléfono no soporta el globo (hace falta WebGL 2)',5000);return;}
+  if(!GB_WIRED){GB_WIRED=true;gbPointer();addEventListener('resize',()=>{if(GB.on){gbResize();gbKick();}});}
+  gbResize();
+  const c=map.getCenter(),z=map.getZoom();
+  GB.lat=Math.max(-1.3,Math.min(1.3,c.lat*rad));GB.lon=gbNormLon(c.lng*rad);GB.vx=GB.vy=0;GB.sel=null;$('#gbp').hidden=true;
+  /* si se abrió alejando el mapa, el globo arranca del mismo tamaño que se veía */
+  GB.s=z<=3.5?Math.max(.8,Math.min(2.6,256*Math.pow(2,z)/(2*Math.PI*Math.max(.25,Math.cos(GB.lat)))/gbBase())):1;
+  try{GB.wpts=await DB.all('kv','wpt:');}catch(e){GB.wpts=[];}
+  gbMsg('');gbKick();
+  if(!GB.tex||GB.texLayer!==GB.layer){GB.texLayer=GB.layer;gbLoadTex();}
+}
+function closeGlobe(){
+  GB.on=false;$('#globe').hidden=true;if(GB.raf){cancelAnimationFrame(GB.raf);GB.raf=0;}GB.ptr.clear();
+}
+$('#gbX').onclick=closeGlobe;
+$('#gbMe').onclick=()=>{if(!lastFix){toast('Todavía sin GPS',2500);return;}GB.lat=lastFix.lat*rad;GB.lon=gbNormLon(lastFix.lon*rad);GB.vx=GB.vy=0;gbKick();};
+$('#gbLy').onclick=()=>{GB.layer=GB_LAYERS[(GB_LAYERS.indexOf(GB.layer)+1)%GB_LAYERS.length];S.globeLayer=GB.layer;saveS();GB.texLayer=GB.layer;GB.tex=false;gbKick();gbLoadTex();};
+$('#gbQ').onclick=()=>showFind();
+$('#gbp').addEventListener('click',e=>{
+  const a=e.target.closest('[data-g]');if(!a||!GB.sel)return;
+  if(a.dataset.g==='x'){$('#gbp').hidden=true;GB.sel=null;gbKick();}
+  else if(a.dataset.g==='tgt'){setTarget(GB.sel.lat,GB.sel.lon,'Punto del globo');toast('Siguiendo la distancia en línea recta',3000);$('#gbp').hidden=true;gbKick();}
+  else if(a.dataset.g==='map'){const p=GB.sel;closeGlobe();map.setView([p.lat,p.lon],5);}
+});
+GB.layer=S.globeLayer&&LAYERS[S.globeLayer]?S.globeLayer:'sat';
+/* al alejar mucho el mapa plano se pasa solo al globo (se puede apagar en Ajustes) */
+map.on('zoomend',()=>{
+  const z=map.getZoom(),prev=GB.lastZ;GB.lastZ=z;
+  if(S.globeAuto===false||GB.on||prev==null||z>=prev||z>2)return;
+  if(REC.state!=='idle'||NAV.on)return;
+  openGlobe();
+});
 
 
 /* ---------- Copia de seguridad completa y recuperación ---------- */
@@ -7497,8 +7757,9 @@ function showMoreMenu(){
     <button class="btn big" data-act="meas">📏<br>Medir</button>
     <button class="btn big" data-act="back">🆘<br>Retorno seguro</button>
     <button class="btn big" data-act="wx">☁️<br>Clima</button>
+    <button class="btn big" data-act="globe">🌍<br>Globo</button>
     <button class="btn big" data-act="set">⚙️<br>Ajustes</button></div>`,
-    a=>{if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
+    a=>{if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
 }
 function showMore(){
   const chips=(id,cur,opts)=>`<div class="chips">${opts.map(([k,n])=>`<button data-act="${id}" data-k="${k}" class="${k===cur?'on':''}">${n}</button>`).join('')}</div>`;
@@ -7514,6 +7775,7 @@ function showMore(){
     <label for="s16">Opacidad del fondo de la tarjeta de guía: <b id="s16v">${Math.round(S.navOp*100)} %</b></label>
     <input type="range" id="s16" min="0" max="90" value="${Math.round(S.navOp*100)}">
     <label class="chk"><input type="checkbox" id="s19" ${S.penMode!==false?'checked':''}> ✒️ Con S Pen en Calcar a mano alzada: el lápiz dibuja y los dedos mueven el mapa</label>
+    <label class="chk"><input type="checkbox" id="sGl" ${S.globeAuto!==false?'checked':''}> 🌍 Al alejar mucho el mapa, pasar al globo (se abre también en Más → Globo)</label>
     <label class="chk"><input type="checkbox" id="s17" ${S.smooth!==false?'checked':''}> Movimiento fluido: el punto y el mapa se deslizan entre una lectura del GPS y la siguiente</label>
     <p class="mut">Casi no gasta procesador (lo hace la placa de video). El punto va hasta 1 segundo detrás de tu posición real.</p>
     <h3>🛶 Kayak</h3>
@@ -7596,6 +7858,7 @@ function showMore(){
       else if(t.id==='s7'){S.vBike=Math.max(5,Math.min(40,+t.value||16));dropGraph();}
       else if(t.id==='s8'){S.carF=+t.value;dropGraph();}
       else if(t.id==='s9')S.routeMode=t.value;
+      else if(t.id==='sGl'){S.globeAuto=t.checked;saveS();}
       else if(t.id==='s17'){S.smooth=t.checked;saveS();}
       else if(t.id==='s19'){S.penMode=t.checked;saveS();}
       else if(t.id==='sw'){S.swimSec=Math.max(45,Math.min(300,Math.round(+t.value||120)));saveS();const h=$('#swh');if(h)h.textContent=`${fmtPace100(S.swimSec)} · ${(swimV(S.swimSec)*3.6).toFixed(1).replace('.',',')} km/h. Con 120 s son 3 km/h.`;}
