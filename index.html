@@ -3879,29 +3879,60 @@ function setLimColors(edits){
   LIMC.clear();
   [...new Set(edits.filter(e=>e.type==='path'&&e.kind==='limite'&&e.name).map(e=>limBase(e.name)))].sort().forEach((n,i)=>LIMC.set(n,LIMPAL[i%LIMPAL.length]));
 }
+/* Rendimiento al alejar: los trazos largos (límites, caminos) se simplifican según el zoom, y las franjas táctiles invisibles y las rayas se sacan cuando no se pueden usar */
+let EDLOD=[];
+function dpSimplify(p,tol){
+  const n=p.length;if(n<3)return p;
+  const k=Math.cos(p[n>>1][0]*rad),t2=tol*tol,keep=new Uint8Array(n);keep[0]=keep[n-1]=1;
+  const st=[[0,n-1]];
+  while(st.length){
+    const [a,b]=st.pop();let md=0,mi=-1;
+    const ax=p[a][1]*k,ay=p[a][0],dx=p[b][1]*k-ax,dy=p[b][0]-ay,L2=dx*dx+dy*dy;
+    for(let i=a+1;i<b;i++){
+      const px=p[i][1]*k-ax,py=p[i][0]-ay;let d;
+      if(L2===0)d=px*px+py*py;else{let u=(px*dx+py*dy)/L2;u=u<0?0:u>1?1:u;const qx=px-u*dx,qy=py-u*dy;d=qx*qx+qy*qy;}
+      if(d>md){md=d;mi=i;}
+    }
+    if(mi>=0&&md>t2){keep[mi]=1;st.push([a,mi],[mi,b]);}
+  }
+  const out=[];for(let i=0;i<n;i++)if(keep[i])out.push(p[i]);return out;
+}
+function edLod(){
+  const z=map.getZoom(),zb=Math.floor(z),far=z<9;
+  for(const o of EDLOD){
+    let pts=o.pts;
+    if(o.lod&&zb<14&&o.pts.length>120){o.c=o.c||{};pts=o.c[zb]||(o.c[zb]=dpSimplify(o.pts,360/(256*Math.pow(2,zb))*.7));}
+    if(o.cur!==pts){o.line.setLatLngs(pts);if(o.strip)o.strip.setLatLngs(o.closed?pts.concat([pts[0]]):pts);o.cur=pts;}
+    if(o.strip){const on=editLayer.hasLayer(o.strip);if(far&&on)editLayer.removeLayer(o.strip);else if(!far&&!on)editLayer.addLayer(o.strip);}
+    if(o.dash){const d=far?null:o.dash;if(o.dOn!==d){o.line.setStyle({dashArray:d});o.dOn=d;}}
+  }
+}
+map.on('zoomend',edLod);
 async function drawEdits(){
-  editLayer.clearLayers();
+  editLayer.clearLayers();EDLOD=[];
   const edits=await DB.all('kv','edit:');
   setLimColors(edits);
   for(const e of edits)if(e.type==='path'){
     const lc=e.kind==='limite'&&e.name?limColor(e.name):(KCOL[e.kind]||'#B0157A');
-    L.polyline(e.pts,{color:lc,weight:e.kind==='limite'?5:4,dashArray:e.kind==='limite'?'12 4 3 4':'6 6',interactive:false}).addTo(editLayer);
+    const dsh=e.kind==='limite'?'12 4 3 4':'6 6',ln=L.polyline(e.pts,{color:lc,weight:e.kind==='limite'?5:4,dashArray:dsh,interactive:false}).addTo(editLayer);
     /* franja ancha e invisible: tocar un trazo abre sus propiedades (o lo elige, si se está armando un área) */
-    L.polyline(e.pts,{color:'#000',weight:22,opacity:.001}).on('click',ev=>{
+    const st=L.polyline(e.pts,{color:'#000',weight:22,opacity:.001}).on('click',ev=>{
       if(PB.on){if(ev&&ev.originalEvent)ev.originalEvent._owned=true;pbToggle(e.id);return;}
       if(TR.on||GE.on||CAP.on||PICK||draw||EV.on||MS.on||REC.state!=='idle'||NAV.on||sheet.classList.contains('open'))return;
       if(ev&&ev.originalEvent)ev.originalEvent._owned=true;
       showEditPath(e.id);
     }).addTo(editLayer);
+    EDLOD.push({line:ln,strip:st,pts:e.pts,lod:true,dash:dsh});
   }
   for(const e of edits)if(e.type==='area'){
     const cl=areaRestricted(e);
-    L.polygon(e.pts,{color:cl?'#D0392B':'#6B7B85',weight:2,dashArray:'6 4',fillColor:AREA_COL[e.kind]||'#E0DCD2',fillOpacity:.3,interactive:false}).addTo(editLayer);
-    L.polyline(e.pts.concat([e.pts[0]]),{color:'#000',weight:22,opacity:.001}).on('click',ev=>{
+    const pg=L.polygon(e.pts,{color:cl?'#D0392B':'#6B7B85',weight:2,dashArray:'6 4',fillColor:AREA_COL[e.kind]||'#E0DCD2',fillOpacity:.3,interactive:false}).addTo(editLayer);
+    const st2=L.polyline(e.pts.concat([e.pts[0]]),{color:'#000',weight:22,opacity:.001}).on('click',ev=>{
       if(TR.on||GE.on||CAP.on||NP.on||PICK||draw||EV.on||MS.on||REC.state!=='idle'||NAV.on||sheet.classList.contains('open'))return;
       if(ev&&ev.originalEvent)ev.originalEvent._owned=true;
       showEditArea(e.id);
     }).addTo(editLayer);
+    EDLOD.push({line:pg,strip:st2,pts:e.pts,closed:true,lod:false,dash:'6 4'});
   }
   for(const e of edits)if(e.type==='turn'||e.type==='barrier')
     L.marker([e.lat,e.lon],{interactive:false,icon:L.divIcon({html:`<div class="nodem">${e.type==='turn'?'🚫':'⛔'}</div>`,className:'',iconSize:[26,26],iconAnchor:[13,13]})}).addTo(editLayer);
@@ -3915,6 +3946,7 @@ async function drawEdits(){
     const col=e.dir==='closed'?'#F04A1C':'#E0A100';
     for(const q of e.geom)L.polyline([[q[0],q[1]],[q[2],q[3]]],{color:col,weight:6,opacity:.8,interactive:false}).addTo(editLayer);
   }
+  edLod();
 }
 async function showFix(){
   const nets=await netIndex(),edits=(await DB.all('kv','edit:')).sort((a,b)=>b.created-a.created);
