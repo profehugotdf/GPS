@@ -4703,7 +4703,7 @@ const GB_LAYERS=['sat','etopo','osm'],GB_ICO={sat:'🛰️',etopo:'🗺️',osm:
 const GB_VS='#version 300 es\nin vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const GB_FS=`#version 300 es
 precision highp float;
-uniform vec2 res;uniform float F;uniform float D;uniform mat3 Q;uniform sampler2D tex;uniform float has;
+uniform vec2 res;uniform float F;uniform float D;uniform mat3 Q;uniform sampler2D tex;uniform float has;uniform sampler2D tex2;uniform float has2;uniform vec4 dbox;
 out vec4 o;
 const float PI=3.14159265358979;
 bool hit(vec2 p,out vec3 w,out float inc){
@@ -4737,6 +4737,14 @@ void main(){
     dx.x-=floor(dx.x+.5);dy.x-=floor(dy.x+.5);
     float inb=step(0.,uv.y)*step(uv.y,1.);
     vec3 t=textureGrad(tex,vec2(uv.x,clamp(uv.y,0.,1.)),dx,dy).rgb;
+    if(has2>.5){
+      vec2 sz=dbox.zw-dbox.xy,q=(vec2(uv.x,uv.y)-dbox.xy)/sz;
+      float e=min(min(q.x,1.-q.x),min(q.y,1.-q.y));
+      if(e>0.){
+        vec3 t2=textureGrad(tex2,clamp(q,0.,1.),dx/sz,dy/sz).rgb;
+        t=mix(t,t2,smoothstep(0.,.04,e));
+      }
+    }
     col=mix(vec3(.92,.94,.96),t,inb);
   }
   col=mix(col,vec3(.45,.7,1.),pow(1.-clamp(inc,0.,1.),3.)*.6);
@@ -4823,6 +4831,7 @@ async function gbLoadTex(){
   if(my!==GB.gen||!GB.gl)return;
   const gl=GB.gl;
   if(!bm){GB.tex=false;gbMsg('Sin imagen: el globo baja 64 teselas una sola vez (con internet) y después anda sin conexión.');GB.dirty=true;return;}
+  GB.baseBm=bm;GB.dt=null;
   if(!GB.tx)GB.tx=gl.createTexture();
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,GB.tx);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
@@ -4836,6 +4845,49 @@ async function gbLoadTex(){
   if(an)gl.texParameterf(gl.TEXTURE_2D,an.TEXTURE_MAX_ANISOTROPY_EXT,Math.min(8,gl.getParameter(an.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
   GB.tex=true;gbMsg('');GB.dirty=true;
   $('#gbLy').textContent=GB_ICO[GB.layer]||'🛰️';
+}
+/* Detalle: al acercar, se arma una segunda textura de 8×8 teselas (zoom 4 o 5) alrededor de lo que se mira y se mezcla sobre la base */
+async function gbDetail(){
+  if(!GB.on||!GB.gl||!GB.tex||GB.dBusy||GB.fly||GB.ptr.size)return;
+  const zc=gbZoomOf();if(zc<3.2)return;
+  const z=Math.min(5,Math.max(4,Math.ceil(zc-.05))),n=Math.pow(2,z),v=gbView();
+  const tx=Math.floor((gbNormLon(v.lon)/(2*Math.PI)+.5)*n),ty=Math.floor((.5-Math.log(Math.tan(Math.PI/4+Math.max(-1.48,Math.min(1.48,v.lat))/2))/(2*Math.PI))*n);
+  const d=GB.dt;
+  if(d&&d.ready&&d.z===z&&d.layer===GB.layer&&tx>=d.x0+2&&tx<d.x0+6&&ty>=d.y0+2&&ty<d.y0+6)return;
+  if(d&&d.fail&&d.z===z&&d.layer===GB.layer&&tx>=d.x0+2&&tx<d.x0+6&&ty>=d.y0+2&&ty<d.y0+6)return;
+  const x0=Math.max(0,Math.min(n-8,tx-4)),y0=Math.max(0,Math.min(n-8,ty-4)),layer=GB.layer,l=LAYERS[layer];
+  GB.dBusy=true;
+  try{
+    const cv=document.createElement('canvas');cv.width=cv.height=2048;const cx=cv.getContext('2d');
+    const sc=Math.pow(2,z-3),jobs=[];let got=0;
+    for(let j=0;j<8;j++)for(let i=0;i<8;i++)jobs.push([i,j]);
+    const work=async()=>{
+      while(jobs.length){
+        const [i,j]=jobs.shift(),X=x0+i,Y=y0+j,key=`gd/${layer}/${z}/${X}/${Y}`;
+        let b=null;
+        try{b=await DB.get('tiles',key);}catch(e){}
+        if(!b&&!netBlocked()){try{b=await getTileBlob(tileUrl(l,z,X,Y));if(b)try{await DB.put('tiles',key,b);}catch(e){}}catch(e){b=null;}}
+        let ok=false;
+        if(b){try{const bm=await createImageBitmap(b);cx.drawImage(bm,i*256,j*256,256,256);ok=true;got++;}catch(e){}}
+        if(!ok&&GB.baseBm)cx.drawImage(GB.baseBm,X*256/sc,Y*256/sc,256/sc,256/sc,i*256,j*256,256,256);
+      }
+    };
+    await Promise.all(Array.from({length:6},work));
+    if(!GB.on||layer!==GB.layer||!GB.gl)return;
+    const nd={z,x0,y0,layer,box:[x0/n,y0/n,(x0+8)/n,(y0+8)/n],fail:got===0};
+    if(got>0){
+      const gl=GB.gl;if(!GB.tx2)GB.tx2=gl.createTexture();
+      gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,GB.tx2);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,cv);gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+      const an=gl.getExtension('EXT_texture_filter_anisotropic');if(an)gl.texParameterf(gl.TEXTURE_2D,an.TEXTURE_MAX_ANISOTROPY_EXT,Math.min(8,gl.getParameter(an.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+      gl.activeTexture(gl.TEXTURE0);nd.ready=true;
+    }
+    GB.dt=nd;GB.dirty=true;
+  }catch(e){}
+  finally{GB.dBusy=false;}
+  gbKick();
 }
 const gbMsg=t=>{GB.msg=t;GB.infoTxt=null;GB.dirty=true;};
 /* línea de abajo: ayuda al abrir; después altura de la cámara y el punto que se ve al centro */
@@ -4860,7 +4912,7 @@ function gbInitGL(){
   try{
     const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,GB_VS));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,GB_FS));gl.linkProgram(p);
     if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));
-    GB.prog=p;GB.u={res:gl.getUniformLocation(p,'res'),F:gl.getUniformLocation(p,'F'),D:gl.getUniformLocation(p,'D'),Q:gl.getUniformLocation(p,'Q'),tex:gl.getUniformLocation(p,'tex'),has:gl.getUniformLocation(p,'has')};
+    GB.prog=p;GB.u={res:gl.getUniformLocation(p,'res'),F:gl.getUniformLocation(p,'F'),D:gl.getUniformLocation(p,'D'),Q:gl.getUniformLocation(p,'Q'),tex:gl.getUniformLocation(p,'tex'),has:gl.getUniformLocation(p,'has'),tex2:gl.getUniformLocation(p,'tex2'),has2:gl.getUniformLocation(p,'has2'),dbox:gl.getUniformLocation(p,'dbox')};
     const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
     const loc=gl.getAttribLocation(p,'a');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
   }catch(e){return false;}
@@ -4877,6 +4929,7 @@ function gbDraw(){
   gl.viewport(0,0,GB.W*GB.dpr,GB.H*GB.dpr);
   gl.useProgram(GB.prog);gl.uniform2f(GB.u.res,$('#gbGL').width,$('#gbGL').height);gl.uniform1f(GB.u.F,GB.F*GB.dpr);gl.uniform1f(GB.u.D,GB.D);
   gl.uniformMatrix3fv(GB.u.Q,false,new Float32Array(GB.Q));gl.uniform1f(GB.u.has,GB.tex?1:0);gl.uniform1i(GB.u.tex,0);
+  const dt=GB.dt;gl.uniform1f(GB.u.has2,dt&&dt.ready?1:0);gl.uniform1i(GB.u.tex2,1);if(dt)gl.uniform4f(GB.u.dbox,dt.box[0],dt.box[1],dt.box[2],dt.box[3]);
   gl.drawArrays(gl.TRIANGLES,0,3);
   gbOverlay();
   const n=$('#gbN i');if(n)n.style.transform=`rotate(${(-gbView().h/rad).toFixed(1)}deg)`;
@@ -4970,7 +5023,7 @@ function gbLoop(){
   }
   if(!GB.on)return;
   if(GB.dirty){GB.dirty=false;gbDraw();}
-  if(act||GB.ptr.size)GB.raf=requestAnimationFrame(gbLoop);else GB.tl=0;
+  if(act||GB.ptr.size)GB.raf=requestAnimationFrame(gbLoop);else{GB.tl=0;gbDetail();}
 }
 function gbKick(){GB.dirty=true;if(GB.on&&!GB.raf)GB.raf=requestAnimationFrame(gbLoop);}
 /* cambia la altura de la cámara por un factor de zoom manteniendo agarrado el punto bajo (cx,cy) */
@@ -5073,7 +5126,7 @@ $('#gbX').onclick=()=>closeGlobe();
 $('#gbMe').onclick=()=>{if(!lastFix){toast('Todavía sin GPS',2500);return;}gbFly(lastFix.lat*rad,lastFix.lon*rad,Math.min(GB.D-1,.7),null,null);};
 $('#gbN').onclick=()=>{GB.twisted=false;const v=gbView();gbFly(v.lat,v.lon,GB.D-1,0,null);};
 $('#gbLb').onclick=()=>{GB.lbl=!GB.lbl;S.globeLabels=GB.lbl;saveS();$('#gbLb').style.opacity=GB.lbl?1:.5;gbKick();};
-$('#gbLy').onclick=()=>{GB.layer=GB_LAYERS[(GB_LAYERS.indexOf(GB.layer)+1)%GB_LAYERS.length];S.globeLayer=GB.layer;saveS();GB.texLayer=GB.layer;GB.tex=false;gbKick();gbLoadTex();};
+$('#gbLy').onclick=()=>{GB.layer=GB_LAYERS[(GB_LAYERS.indexOf(GB.layer)+1)%GB_LAYERS.length];S.globeLayer=GB.layer;saveS();GB.texLayer=GB.layer;GB.tex=false;GB.dt=null;gbKick();gbLoadTex();};
 $('#gbQ').onclick=()=>showFind();
 $('#gbp').addEventListener('click',e=>{
   const a=e.target.closest('[data-g]');if(!a||!GB.sel)return;
@@ -5086,7 +5139,7 @@ GB.lbl=S.globeLabels!==false;$('#gbLb').style.opacity=GB.lbl?1:.5;
 /* al alejar mucho el mapa plano se pasa solo al globo (se puede apagar en Ajustes) */
 map.on('zoomend',()=>{
   const z=map.getZoom(),prev=GB.lastZ;GB.lastZ=z;
-  if(S.globeAuto===false||GB.on||prev==null||z>=prev||z>2)return;
+  if(S.globeAuto===false||GB.on||prev==null||z>=prev||z>3.5)return;
   if(REC.state!=='idle'||NAV.on)return;
   openGlobe();
 });
@@ -7939,7 +7992,7 @@ function showMore(){
     <label for="s16">Opacidad del fondo de la tarjeta de guía: <b id="s16v">${Math.round(S.navOp*100)} %</b></label>
     <input type="range" id="s16" min="0" max="90" value="${Math.round(S.navOp*100)}">
     <label class="chk"><input type="checkbox" id="s19" ${S.penMode!==false?'checked':''}> ✒️ Con S Pen en Calcar a mano alzada: el lápiz dibuja y los dedos mueven el mapa</label>
-    <label class="chk"><input type="checkbox" id="sGl" ${S.globeAuto!==false?'checked':''}> 🌍 Al alejar mucho el mapa, pasar al globo (se abre también en Más → Globo)</label>
+    <label class="chk"><input type="checkbox" id="sGl" ${S.globeAuto!==false?'checked':''}> 🌍 Al alejar el mapa (zoom 3 o menos), pasar al globo (se abre también en Más → Globo)</label>
     <label class="chk"><input type="checkbox" id="s17" ${S.smooth!==false?'checked':''}> Movimiento fluido: el punto y el mapa se deslizan entre una lectura del GPS y la siguiente</label>
     <p class="mut">Casi no gasta procesador (lo hace la placa de video). El punto va hasta 1 segundo detrás de tu posición real.</p>
     <h3>🛶 Kayak</h3>
