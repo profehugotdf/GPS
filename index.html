@@ -3898,6 +3898,7 @@ function dpSimplify(p,tol){
   const out=[];for(let i=0;i<n;i++)if(keep[i])out.push(p[i]);return out;
 }
 function edLod(){
+  const _t=performance.now();
   const z=map.getZoom(),zb=Math.floor(z),far=z<9;
   for(const o of EDLOD){
     let pts=o.pts;
@@ -3906,6 +3907,7 @@ function edLod(){
     if(o.strip){const on=editLayer.hasLayer(o.strip);if(far&&on)editLayer.removeLayer(o.strip);else if(!far&&!on)editLayer.addLayer(o.strip);}
     if(o.dash){const d=far?null:o.dash;if(o.dOn!==d){o.line.setStyle({dashArray:d});o.dOn=d;}}
   }
+  if(typeof GBT!=='undefined'&&GBT)GBT.lod=Math.round(performance.now()-_t);
 }
 map.on('zoomend',edLod);
 async function drawEdits(){
@@ -4919,6 +4921,16 @@ async function gbDetail(){
   gbKick();
 }
 /* Se deja listo en segundo plano (contexto WebGL, shader compilado e imagen decodificada) para que abrir el globo sea instantáneo */
+var GBT={a:0,o:0,f:0,long:[],prep:null,z:0,lod:0,shown:true};
+try{new PerformanceObserver(l=>{for(const e of l.getEntries())if(e.startTime>=GBT.a-50&&GBT.a)GBT.long.push(Math.round(e.duration));}).observe({entryTypes:['longtask']});}catch(e){}
+map.on('zoomstart',()=>{GBT.a=performance.now();GBT.long=[];});
+function gbReport(){
+  const t=GBT,tot=Math.round(t.f-t.a),o=Math.round(t.o-t.a),d=Math.round(t.f-t.o);
+  if(!(tot>0)||tot>60000)return;
+  const lg=t.long.length?`${t.long.length} tareas largas (máx ${Math.max(...t.long)} ms, suma ${t.long.reduce((a,b)=>a+b,0)} ms)`:'sin tareas largas';
+  const msg=`⏱ gesto→globo ${tot} ms (hasta abrir ${o}, primer cuadro ${d}) · ${lg} · mapa repinta ${t.z} ms · simplificar ${t.lod} ms`+(t.prep?` · preparación: motor ${t.prep.i}, imagen ${t.prep.t}, shader ${t.prep.w} ms`:' · sin preparar');
+  GB.lastReport=msg;if(tot>1500)toast(msg,15000);
+}
 let GB_PREP=null;
 function gbWarm(){
   const gl=GB.gl;if(!gl)return;
@@ -4930,12 +4942,16 @@ function gbPrepare(){
   if(GB_PREP||GB.on)return GB_PREP;
   GB_PREP=(async()=>{
     try{
+      const t0=performance.now();
       if(!gbInitGL())return;
+      const t1=performance.now();
       if(!GB.tex){
         let has=false;try{has=!!(await DB.get('tiles','globe/z3/'+GB.layer));}catch(e){}
         if(has&&!GB.on){GB.texLayer=GB.layer;await gbLoadTex();}
       }
+      const t2=performance.now();
       if(!GB.on)gbWarm();
+      GBT.prep={i:Math.round(t1-t0),t:Math.round(t2-t1),w:Math.round(performance.now()-t2)};
     }catch(e){}
   })();
   return GB_PREP;
@@ -5073,7 +5089,7 @@ function gbLoop(){
     if(!GB.twisted){const v=gbView();if(Math.abs(v.h)>.002&&Math.abs(v.lat)<1.45){gbSetView(v.lat,v.lon,v.h*Math.exp(-dt/140));act=true;GB.dirty=true;}}
   }
   if(!GB.on)return;
-  if(GB.dirty){GB.dirty=false;gbDraw();}
+  if(GB.dirty){GB.dirty=false;gbDraw();if(GBT.o&&!GBT.f){GBT.f=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>{GBT.f=performance.now();gbReport();}));}}
   if(act||GB.ptr.size)GB.raf=requestAnimationFrame(gbLoop);else{GB.tl=0;gbDetail();}
 }
 function gbKick(){GB.dirty=true;if(GB.on&&!GB.raf)GB.raf=requestAnimationFrame(gbLoop);}
@@ -5155,6 +5171,7 @@ function gbPointer(){
 let GB_WIRED=false;
 async function openGlobe(zIn,cIn){
   if(GB.on)return;
+  GBT.o=performance.now();GBT.f=0;if(!GBT.a||GBT.o-GBT.a>60000)GBT.a=GBT.o;
   const g=$('#globe');g.style.pointerEvents='';g.style.opacity='0';g.hidden=false;GB.on=true;
   requestAnimationFrame(()=>requestAnimationFrame(()=>{if(GB.on)g.style.opacity='';}));document.body.classList.add('gbOn');
   if(!gbInitGL()){g.hidden=true;GB.on=false;document.body.classList.remove('gbOn');toast('Este teléfono no soporta el globo (hace falta WebGL 2)',5000);return;}
@@ -5169,6 +5186,7 @@ async function openGlobe(zIn,cIn){
   if(!GB.tex||GB.texLayer!==GB.layer){GB.texLayer=GB.layer;gbLoadTex();}
 }
 function closeGlobe(fade){
+  TGT._lk='';
   GB.on=false;document.body.classList.remove('gbOn');if(GB.raf){cancelAnimationFrame(GB.raf);GB.raf=0;}GB.ptr.clear();GB.fly=null;GB.spin=null;
   const g=$('#globe');
   if(fade===true){g.style.pointerEvents='none';g.style.opacity='0';setTimeout(()=>{if(!GB.on)g.hidden=true;g.style.opacity='';g.style.pointerEvents='';},300);}
@@ -5190,12 +5208,14 @@ GB.layer=S.globeLayer&&LAYERS[S.globeLayer]?S.globeLayer:'sat';
 GB.lbl=S.globeLabels!==false;$('#gbLb').style.opacity=GB.lbl?1:.5;
 /* al alejar mucho el mapa plano se pasa solo al globo (se puede apagar en Ajustes) */
 map.on('zoomanim',e=>{
+  GBT.a=performance.now();GBT.long=[];
   if(S.globeAuto===false||GB.on||e.zoom>3.5||e.zoom>=map.getZoom())return;
   if(REC.state!=='idle'||NAV.on)return;
   openGlobe(e.zoom,e.center);
 });
 setTimeout(()=>{if(S.globeAuto!==false)gbPrepare();},3500);
 map.on('zoomend',()=>{
+  const _z0=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>{GBT.z=Math.round(performance.now()-_z0);}));
   const z=map.getZoom(),prev=GB.lastZ;GB.lastZ=z;
   if(z<=5&&S.globeAuto!==false)gbPrepare();
   if(S.globeAuto===false||GB.on||prev==null||z>=prev||z>3.5)return;
@@ -5843,7 +5863,7 @@ const TGT={on:false,lat:0,lon:0,label:'',hist:[],armed:true,timer:0,alertAt:30};
 const tgtLine=L.polyline([],{color:'#F04A1C',weight:3,dashArray:'3 8',opacity:.9,interactive:false}).addTo(map);
 let tgtMk=null;
 function setTarget(lat,lon,label){
-  TGT.on=true;TGT.lat=lat;TGT.lon=lon;TGT.label=label||'Objetivo';TGT.hist=[];TGT.armed=true;
+  TGT._lk='';TGT.on=true;TGT.lat=lat;TGT.lon=lon;TGT.label=label||'Objetivo';TGT.hist=[];TGT.armed=true;
   S.tgt={lat,lon,label:TGT.label};saveS();
   if(tgtMk)map.removeLayer(tgtMk);
   tgtMk=L.marker([lat,lon],{interactive:false,zIndexOffset:900,icon:L.divIcon({html:'<div class="tgtm">🎯</div>',className:'',iconSize:[30,30],iconAnchor:[15,26]})}).addTo(map);
@@ -5884,7 +5904,9 @@ function updTarget(){
     ?`⛰️ ${alt!=null?(an.doubt?'≈':'')+Math.round(alt)+' m'+(an.va!=null?' ±'+Math.round(an.va):''):'—'}  ·  ⚡ ${kmh!=null?kmh.toFixed(1)+' km/h'+pace:'—'}`
     :'Sin lectura de GPS reciente';
   const d=hav(here,there),brg=bearingTo(here,there);
-  tgtLine.setLatLngs(tgtPath(here,there,d));
+  /* mover la línea repinta TODO el mapa vectorial: solo se hace si te moviste ~10 m (y no mientras el globo tapa el mapa) */
+  const lk=here[0].toFixed(4)+','+here[1].toFixed(4)+','+there[0].toFixed(5)+','+there[1].toFixed(5);
+  if(lk!==TGT._lk&&!(typeof GB!=='undefined'&&GB.on)){TGT._lk=lk;tgtLine.setLatLngs(tgtPath(here,there,d));}
   $('#tgtD').textContent=fmtLen(d);
   /* velocidad de acercamiento: cuánto se achica la distancia por segundo en los últimos ~30 s */
   const now=Date.now();TGT.hist.push([now,d]);
