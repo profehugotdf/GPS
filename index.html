@@ -5063,11 +5063,11 @@ function gbOverlay(){
   if(lastFix){const q=gbProj(lastFix.lat,lastFix.lon);if(q.v){ctx.fillStyle='#1E6BFF';ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(q.x,q.y,7,0,7);ctx.fill();ctx.stroke();}}
 }
 /* vuelo animado a un punto (radianes), con "salto" hacia arriba si está lejos; head=null conserva el giro */
-function gbFly(la,lo,h,head,cb){
+function gbFly(la,lo,h,head,cb,dur){
   const v=gbView(),C0=gbC(v.lat,v.lon),C1=gbC(la,lo),om=Math.acos(Math.max(-1,Math.min(1,v3.dot(C0,C1))));
   let dh=head==null?0:head-v.h;dh=Math.atan2(Math.sin(dh),Math.cos(dh));
   const h0=GB.D-1,h1=Math.max(.02,h),peak=Math.min(5,om*1.7),mx=Math.max(h0,h1);
-  GB.fly={t0:performance.now(),dur:Math.max(600,Math.min(2600,700+om*700)),C0,C1,om,h0,h1,hd0:v.h,dh,bump:peak>mx?Math.log(peak/mx):0,cb};
+  GB.fly={t0:performance.now(),dur:dur||Math.max(600,Math.min(2600,700+om*700)),C0,C1,om,h0,h1,hd0:v.h,dh,bump:peak>mx?Math.log(peak/mx):0,cb};
   GB.spin=null;gbKick();
 }
 function gbFlyStep(now){
@@ -5169,7 +5169,7 @@ function gbPointer(){
   ov.addEventListener('wheel',e=>{e.preventDefault();GB.hint=false;GB.fly=null;const r=ov.getBoundingClientRect();gbZoomBy(Math.exp(-e.deltaY*.0015),e.clientX-r.left,e.clientY-r.top);},{passive:false});
 }
 let GB_WIRED=false;
-async function openGlobe(zIn,cIn){
+async function openGlobe(zIn,cIn,to){
   if(GB.on)return;
   GBT.o=performance.now();GBT.f=0;if(!GBT.a||GBT.o-GBT.a>60000)GBT.a=GBT.o;
   const g=$('#globe');g.style.pointerEvents='';g.style.opacity='0';g.hidden=false;GB.on=true;
@@ -5180,7 +5180,9 @@ async function openGlobe(zIn,cIn){
   const c=cIn||map.getCenter(),z=typeof zIn==='number'?zIn:map.getZoom(),la=Math.max(-1.3,Math.min(1.3,c.lat*rad));
   gbSetView(la,gbNormLon(c.lng*rad),0);GB.spin=null;GB.fly=null;GB.sel=null;GB.twisted=false;GB.hint=true;GB.lastTap=0;$('#gbp').hidden=true;
   /* si se abrió alejando el mapa, el globo arranca con la misma escala que se veía */
-  GB.D=z<=3.6?1+Math.max(.35,Math.min(6,gbHofZ(z,la))):3.2;
+  GB.D=z<=4.6?1+Math.max(.2,Math.min(6,gbHofZ(z,la))):3.2;
+  /* si se abrió con el gesto de alejar: arranca del mismo tamaño que se veía el plano y se aleja suave hasta donde iba el mapa */
+  if(to){const tl=Math.max(-1.3,Math.min(1.3,to.c.lat*rad));gbFly(tl,gbNormLon(to.c.lng*rad),Math.max(.35,Math.min(6,gbHofZ(to.z,tl))),null,null,450);}
   gbMsg('');gbKick();
   DB.all('kv','wpt:').then(w=>{GB.wpts=w;gbKick();}).catch(()=>{GB.wpts=[];});
   if(!GB.tex||GB.texLayer!==GB.layer){GB.texLayer=GB.layer;gbLoadTex();}
@@ -5211,7 +5213,7 @@ map.on('zoomanim',e=>{
   GBT.a=performance.now();GBT.long=[];
   if(S.globeAuto===false||GB.on||e.zoom>3.5||e.zoom>=map.getZoom())return;
   if(REC.state!=='idle'||NAV.on)return;
-  openGlobe(e.zoom,e.center);
+  openGlobe(map.getZoom(),map.getCenter(),{z:e.zoom,c:e.center});
 });
 setTimeout(()=>{if(S.globeAuto!==false)gbPrepare();},3500);
 map.on('zoomend',()=>{
