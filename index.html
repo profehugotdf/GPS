@@ -7813,8 +7813,14 @@ function vecDraw(canvas,z,tx,ty,night,only){
   const n=Math.pow(2,z);tx=((tx%n)+n)%n;
   const la1=vlat(ty,z),la0=vlat(ty+1,z),lo0=vlon(tx,z),lo1=vlon(tx+1,z),mLa=(la1-la0)*14/256,mLo=(lo1-lo0)*14/256;
   const A=la0-mLa,B=la1+mLa,C=lo0-mLo,D=lo1+mLo,cs=VEC.cs;
+  /* las curvas de nivel recién se dibujan desde zoom 12: más lejos no hay nada que hacer */
+  if(only&&z<12)return 0;
   const ids=new Set();
-  for(let i=Math.floor(A/cs)+20000;i<=Math.floor(B/cs)+20000;i++)for(let j=Math.floor(C/cs)+40000;j<=Math.floor(D/cs)+40000;j++){
+  /* teselas grandes (zoom bajo): recorrer la grilla de celdas de 0,01° serían millones de consultas por tesela
+     (eso trababa el teléfono 10-25 s al alejar); en ese caso se revisan los tramos directamente */
+  const ni=Math.floor(B/cs)-Math.floor(A/cs)+1,nj=Math.floor(D/cs)-Math.floor(C/cs)+1;
+  if(ni*nj>VEC.chunks.length){for(let id=0;id<VEC.chunks.length;id++)ids.add(id);}
+  else for(let i=Math.floor(A/cs)+20000;i<=Math.floor(B/cs)+20000;i++)for(let j=Math.floor(C/cs)+40000;j<=Math.floor(D/cs)+40000;j++){
     const l=VEC.cells.get(vkey(i,j));if(l)for(const id of l)ids.add(id);
   }
   for(const id of VEC.big)ids.add(id);
@@ -7822,7 +7828,8 @@ function vecDraw(canvas,z,tx,ty,night,only){
   for(const id of ids){
     const ch=VEC.chunks[id],bb=ch.bb;
     if(bb[2]<A||bb[0]>B||bb[3]<C||bb[1]>D)continue;
-    const cls=VEC.ways[ch.w].cls;
+    const wy=VEC.ways[ch.w],cls=wy.cls,st0=VSTY[cls];
+    if(st0&&z<(wy.minz!=null?wy.minz:st0.z))continue;
     (by[cls]=by[cls]||[]).push(ch);
   }
   ctx.lineCap='round';ctx.lineJoin='round';
