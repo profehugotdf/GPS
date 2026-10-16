@@ -313,6 +313,16 @@ body.night .wxal.warn{background:#4A3B10;color:#FFE08A}body.night .wxal.danger{b
 
 #tgt{position:fixed;left:12px;top:calc(var(--top) + 56px);z-index:906;display:flex;align-items:center;gap:10px;max-width:calc(100% - 24px);background:rgba(14,42,54,.88);color:#fff;border-radius:18px;padding:6px 14px 6px 8px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
 #tgt[hidden]{display:none}
+#rtp{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:905;display:flex;gap:8px;align-items:center;background:rgba(14,42,54,.55);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:8px 8px 8px 12px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45)}
+#rtp[hidden]{display:none}
+#rtpBody{flex:1;min-width:0}
+#rtp .t{font:800 20px system-ui;line-height:1.15;font-variant-numeric:tabular-nums}
+#rtp .t small{font:600 13px system-ui;opacity:.9}
+#rtp .s{font:600 12.5px system-ui;opacity:.95;line-height:1.3;font-variant-numeric:tabular-nums}
+#rtp svg{display:block;width:100%;height:30px;margin-top:4px}
+#rtp .rb{display:flex;flex-direction:column;gap:6px}
+#rtp .rb button{width:40px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.2);color:#fff;font-size:16px;padding:0}
+#rtp .rb button.go{background:#F04A1C}
 #tgtArrow{font-size:26px;line-height:1;transition:transform .4s linear;color:#FF8A5C}
 #tgtD{font:800 22px system-ui;line-height:1.1}
 #tgtSub{font:600 12px system-ui;opacity:.85;line-height:1.2}
@@ -475,6 +485,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 
 <button id="fNorth" hidden aria-label="Norte arriba">N⬆</button>
 <div id="netpill" hidden></div>
+<div id="rtp" hidden></div>
 <div id="tgt" hidden><div id="tgtArrow">➤</div><div><div id="tgtD">—</div><div id="tgtSub"></div><div id="tgtM"></div></div></div>
 <div id="fabs">
   <button id="fFind" aria-label="Buscar">🔍</button>
@@ -3641,6 +3652,41 @@ const depMs=()=>{if(!RT.dep)return Date.now();const [h,m]=RT.dep.split(':').map(
 const errText=r=>!r?'':r.err==='tramo'?legErr(r):r.err==='origen'?'No hay ninguna calle ni ruta guardada a menos de 60 km del origen. Bajá las calles o la red regional de esa zona.':r.err==='destino'?'No hay ninguna calle ni ruta guardada a menos de 60 km del destino. Bajá las calles o la red regional de esa zona.':r.err==='lejos'?'Es demasiado lejos para este modo: el cálculo se hace solo para el auto.':r.err==='sinred'?'Sin calles guardadas para esta zona.':'No hay un camino conectado entre esos dos puntos con lo que tenés guardado. Si es un viaje largo, revisá que las redes regionales se toquen entre sí; si sabés que el camino existe, agregalo en Correcciones.';
 const kayakErr=(r,m)=>r.err==='tramo'?legErr(r):r.err==='origen'?`No hay ningún río ni lago guardado a menos de ${m==='swim'?'1,5':'8'} km del origen.`:r.err==='destino'?`No hay ningún río ni lago guardado a menos de ${m==='swim'?'1,5':'8'} km del destino.`:r.err==='nocon'?'Los ríos y lagos guardados no se conectan entre el origen y el destino. Revisá que no falte un tramo.':'Sin ríos ni lagos guardados.';
 const offNote=r=>{const o=[];if(r.offFrom>1000)o.push(`el origen está a ${fmtD(r.offFrom)} de la red guardada`);if(r.offTo>1000)o.push(`el destino está a ${fmtD(r.offTo)}`);return o.length?`<br><small style="color:#C0392B">⚠️ ${o.join(' y ')}: ese tramo va en línea recta. Bajá las calles de la zona para el detalle.</small>`:'';};
+/* Panel semitransparente con los datos de la ruta elegida (tocarlo abre Rutas) */
+function rtPanel(){
+  const p=$('#rtp');if(!p)return;
+  const r=RT.res&&RT.res[RT.sel];
+  if(!r||r.err||NAV.on||RT.panelOff===r){p.hidden=true;return;}
+  const m=RT.sel,start=depMs(),arr=start+totT(r)*1000;
+  const cs=(RT.cands||[]).filter(c=>c.mode===m),cand=cs.find(c=>c.route===r);
+  const name=cand&&cs.length>1?cand.label:MN[m];
+  const bits=[fmtD(r.dist)];
+  if(r.prof)bits.push(`↑${r.prof.gain} m ↓${r.prof.loss} m`);
+  else if(r.hasZ&&m!=='car'&&!isWater(m))bits.push(`↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`);
+  if(r.stairs>5)bits.push(`${Math.round(r.stairs)} m de escalera`);
+  if(r.ferry)bits.push('⛴️ ferry');
+  if(r.hzs&&r.hzs.length)bits.push(`⚠️ ${r.hzs.length} aviso${r.hzs.length>1?'s':''}`);
+  let sp='';
+  if(r.prof&&r.prof.profile&&r.prof.profile.length>1){
+    const q=r.prof,W=200,H=30,span=Math.max(1,q.max-q.min),pf=q.profile,k=Math.max(1,Math.floor(pf.length/120));
+    const line=pf.filter((_,i)=>i%k===0||i===pf.length-1).map(([d,e],i)=>(i?'L':'M')+(d/q.flat*W).toFixed(1)+' '+(H-3-(e-q.min)/span*(H-6)).toFixed(1)).join(' ');
+    sp=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${line} L${W} ${H} L0 ${H} Z" fill="rgba(255,255,255,.22)"/><path d="${line}" fill="none" stroke="#FFD9C9" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
+  }
+  p.innerHTML=`<div id="rtpBody" data-r="open"><div class="t">${MI[m]} ${fmtDur(totT(r))} <small>${esc(name)}</small></div>
+    <div class="s">${bits.join(' · ')}</div>
+    <div class="s">${RT.dep?'Salís '+hhmm(start)+' · ':''}llegás ${arrLabel(start,arr)}</div>${sp}</div>
+    <div class="rb"><button class="go" data-r="nav" aria-label="Guiarme">▶</button><button data-r="prof" aria-label="Perfil">⛰️</button><button data-r="x" aria-label="Ocultar">✕</button></div>`;
+  p.hidden=false;
+}
+$('#rtp').addEventListener('click',e=>{
+  const a=e.target.closest('[data-r]');if(!a)return;
+  const r=RT.res&&RT.res[RT.sel];
+  if(a.dataset.r==='x'){RT.panelOff=r;$('#rtp').hidden=true;toast('La ruta sigue en el mapa; sus datos están en Rutas',3000);}
+  else if(a.dataset.r==='nav')startNav();
+  else if(a.dataset.r==='prof')showRoutes().then(()=>{if($('#rprof'))showRouteProfileUI();});
+  else showRoutes();
+});
+setInterval(()=>{if(!$('#rtp').hidden)rtPanel();},30000);
 function drawRoute(fit){
   routeLayer.clearLayers();
   const r=RT.res&&RT.res[RT.sel];
@@ -3658,6 +3704,7 @@ function drawRoute(fit){
   for(const c of RT.cands||[])if(c.route!==r&&c.mode===RT.sel)L.polyline(c.route.coords,{color:c.col,weight:5,opacity:.8,dashArray:'9 7',interactive:false}).addTo(routeLayer);
   ends.forEach(([t,c])=>L.marker(c,{interactive:false,icon:L.divIcon({html:`<div class="gl s">${t}</div>`,className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(routeLayer));
   if(fit&&r&&!r.err)map.fitBounds(L.latLngBounds(r.coords),{paddingTopLeft:[24,24],paddingBottomRight:[24,360]});
+  rtPanel();
 }
 function arrLabel(start,arr){
   const d0=new Date(start),d1=new Date(arr);d0.setHours(0,0,0,0);d1.setHours(0,0,0,0);
@@ -4170,7 +4217,7 @@ function updNavTop(){
 setInterval(()=>{if(NAV.on)updNavTop();},700);
 function endNav(){
   if(!NAV.on)return;
-  NAV.on=false;NAV.N=null;clearTimeout(NAV.endT);NAV.endT=null;
+  NAV.on=false;NAV.N=null;clearTimeout(NAV.endT);NAV.endT=null;rtPanel();
   $('#nav').hidden=true;
   keepAwake(REC.state!=='idle'&&S.keepAwake);
   if(REC.state==='idle'){setFollow(false);startWatch(false);}
@@ -6501,7 +6548,7 @@ async function routeProfile(r,out,opts){
   const p=reliefProfile(r.coords,(la,lo)=>sampleDem(dem,z,la,lo),{step});
   const ms=performance.now()-t0;
   if(p.error){out.innerHTML=`<p class="mwarn">⚠️ ${esc(p.error)}${falta?' (¿sin conexión?)':''}</p>`;return null;}
-  r.prof=p;
+  r.prof=p;if(typeof rtPanel==='function')setTimeout(rtPanel,0);
   out.innerHTML=r.profHtml=`<div class="card"><b>⛰️ Perfil de desniveles</b><br>↑ ${miles(p.gain)} m · ↓ ${miles(p.loss)} m · de ${p.start} a ${p.end} m de altura<br><small class="mut">Mín ${p.min} · máx ${p.max} m${step<=100?` · pendiente máx ${p.maxSlope.toFixed(0)} %`:''} · altura con detalle de ~${Math.round(40075000*Math.cos(r.coords[0][0]*Math.PI/180)/Math.pow(2,z)/256)} m, por eso es aproximado</small>${profSvg(p)}</div>`;
   return {p,ms,z,tiles:list.length,falta};
 }
