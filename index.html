@@ -420,7 +420,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="vedit" hidden>
   <div class="caph"><b id="evTtl">✏️ Editar puntos</b><span><button id="evMin" aria-label="Achicar">▾</button><button id="evX" aria-label="Cerrar">✕</button></span></div>
   <div id="evInfo"></div><small id="evWater" style="display:block;font-size:12.5px;line-height:1.35;margin-top:2px" hidden></small><small id="evHint"></small>
-  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evJoin" hidden>🔗 Unir al agua</button><button id="evArea">⬛ Hacer área</button><button id="evCut">✂️ Cortar aquí</button></div>
+  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evJoin" hidden>🔗 Unir al agua</button><button id="evArea">⬛ Hacer área</button><button id="evCut">✂️ Cortar aquí</button><button id="evSnapW" hidden>🧲 Copiar el borde del agua</button></div>
   <div class="nvb"><button id="evUndo">↶ Deshacer</button><button id="evDel">🗑️ Borrar</button><button id="evSimp">🧹 Simplificar todo</button><button id="evRev">⇄ Invertir</button><button id="evOk">✓ Guardar</button></div>
 </div>
 <div id="perim" hidden>
@@ -6388,6 +6388,37 @@ $('#pbClr').onclick=()=>{PB.ids=[];updPerim();};
 $('#pbOk').onclick=pbBuild;
 $('#pbX').onclick=closePerim;
 $('#evCut').onclick=evCut;
+/* Costa ↔ agua: reemplaza la línea por el tramo del borde del área 💧 que la acompaña (así coinciden sin dibujar dos veces) */
+function waterEdgeFor(P,rings){
+  if(P.length<2||!rings.length)return null;
+  const samp=P.filter((_,i)=>i%Math.max(1,Math.floor(P.length/40))===0).concat([P[P.length-1]]);
+  const dRing=(R,p)=>{let b=Infinity;for(let i=0;i<R.length;i++){const d=projSeg(R[i],R[(i+1)%R.length],p).d;if(d<b)b=d;}return b;};
+  let best=null;
+  for(const R of rings){const m=samp.reduce((a,p)=>a+dRing(R,p),0)/samp.length;if(!best||m<best.m)best={R,m};}
+  if(!best||best.m>400)return null;
+  const R=best.R,n=R.length,cum=[0];for(let i=0;i<n;i++)cum.push(cum[i]+hav(R[i],R[(i+1)%n]));const T=cum[n];
+  const proj=p=>{let b=null;for(let i=0;i<n;i++){const q=projSeg(R[i],R[(i+1)%n],p);if(!b||q.d<b.d)b={i,t:q.t,pt:q.pt,d:q.d,s:cum[i]+q.t*(cum[i+1]-cum[i])};}return b;};
+  const a=proj(P[0]),b=proj(P[P.length-1]);
+  /* los dos sentidos posibles por el anillo: se queda el que pasa más cerca de la línea original */
+  const walk=(fw)=>{
+    const out=[a.pt];
+    if(fw){let i=(a.i+1)%n,k=0;const stop=(b.i+1)%n;const same=a.i===b.i&&b.t>=a.t;if(!same)while(k++<n){out.push(R[i]);if(i===b.i)break;i=(i+1)%n;}}
+    else{let i=a.i,k=0;const same=a.i===b.i&&b.t<=a.t;if(!same)while(k++<n){out.push(R[i]);if(i===(b.i+1)%n)break;i=(i-1+n)%n;}}
+    out.push(b.pt);return out;
+  };
+  const score=L=>{let s=0;for(const p of samp){let m=Infinity;for(let i=1;i<L.length;i++){const d=projSeg(L[i-1],L[i],p).d;if(d<m)m=d;}s+=m;}return s;};
+  const f=walk(true),g=walk(false);
+  const pick=score(f)<=score(g)?f:g;
+  return {pts:pick.filter((p,i)=>i===0||hav(pick[i-1],p)>0.5),off:best.m};
+}
+$('#evSnapW').onclick=async()=>{
+  if(!EV.on||!EV.e||EV.e.type!=='path')return;
+  const rings=(await DB.all('kv','edit:')).filter(e=>e.type==='area'&&e.kind==='agua'&&e.pts&&e.pts.length>=3).map(e=>e.pts);
+  const r=waterEdgeFor(EV.pts,rings);
+  if(!r){toast('No hay un área de 💧 agua a menos de 400 m de esta línea',4000);return;}
+  evPush();EV.pts=r.pts.map(p=>[p[0],p[1]]);EV.sels=new Set();evDraw();
+  toast(`La línea ahora sigue el borde del agua (estaba corrida unos ${fmtLen(r.off)}). Revisala y tocá Guardar; ↩ deshace.`,6000);
+};
 
 
 /* Desde el editor de puntos: una línea que da la vuelta (costa de un lago o dique) se convierte en área.
@@ -6950,6 +6981,7 @@ function updEvUi(){
   $('#evNone').disabled=!ns;
   $('#evBetween').disabled=ns<2;
   $('#evCut').disabled=EV.closed||ns!==1;
+  {const w=$('#evSnapW');if(w)w.hidden=!(EV.e&&EV.e.type==='path'&&!EV.ringPath&&['costa','limite','rio'].includes(EV.e.kind));}
   {const b=$('#evArea');if(b){b.hidden=EV.closed&&!EV.ringPath;if(EV.ringPath){b.textContent='⬛ Cerrar como área';b.classList.add('on');}else if(!EV.closed&&EV.pts.length>2){const g=hav(EV.pts[0],EV.pts[EV.pts.length-1]);b.textContent=g<=PB_TOL?'⬛ Cerrar como área':'⬛ Hacer área';b.classList.toggle('on',g<=PB_TOL);}}}
 }
 function evDelete(){
