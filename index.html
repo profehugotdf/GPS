@@ -2497,7 +2497,7 @@ function findWaterRoute(WG,from,to,o){
     if(e.kind==='river'||e.kind==='portage')return 1;
     let v=pc.get(e);if(v!=null)return v;
     const a=vx(u),b=vx(e.to);
-    if(land&&e.kind==='lake'&&land.cross(a,b,60)){pc.set(e,Infinity);return Infinity;}
+    if(land&&e.kind==='lake'&&land.cross(a,b,(u===S||e.to===TT)?400:60)){pc.set(e,Infinity);return Infinity;}
     v=1;
     if(W&&shore&&shore.n){const n=Math.min(30,Math.max(2,Math.ceil(e.len/150)));let s=0;
       for(let k=0;k<n;k++){const t=(k+.5)/n,d=shore.dist([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t],3000);s+=1+W*Math.max(0,d-250)/1000;}v=s/n;}
@@ -3756,19 +3756,24 @@ function rtPanel(){
   p.innerHTML=`<div id="rtpBody" data-r="open"><div class="t">${MI[m]} ${fmtDur(totT(r))} <small>${esc(name)}</small></div>
     <div class="s">${bits.join(' · ')}</div>
     <div class="s">${RT.dep?'Salís '+hhmm(start)+' · ':''}llegás ${arrLabel(start,arr)}</div>${sp}${mm}</div>
-    <div class="rb"><button class="go" data-r="nav" aria-label="Guiarme">▶</button><button data-r="prof" aria-label="Perfil">⛰️</button><button data-r="x" aria-label="Ocultar">✕</button></div>`;
+    <div class="rb"><button class="go" data-r="nav" aria-label="Guiarme">▶</button><button data-r="prof" aria-label="Perfil">⛰️</button><button data-r="x" aria-label="Quitar la ruta">✕</button></div>`;
   p.hidden=false;
 }
 $('#rtp').addEventListener('click',e=>{
   const a=e.target.closest('[data-r]');if(!a)return;
   const r=RT.res&&RT.res[RT.sel];
   if(a.dataset.r.startsWith('m:')){RT.sel=a.dataset.r.slice(2);resetCands();drawRoute(true);return;}
-  if(a.dataset.r==='x'){RT.panelOff=r;$('#rtp').hidden=true;toast('La ruta sigue en el mapa; sus datos están en Rutas',3000);}
+  if(a.dataset.r==='x'){rtClear();toast('Ruta, A y B quitados del mapa',2500);}
   else if(a.dataset.r==='nav')startNav();
   else if(a.dataset.r==='prof')showRoutes().then(()=>{if($('#rprof'))showRouteProfileUI();});
   else showRoutes();
 });
 setInterval(()=>{if(!$('#rtp').hidden)rtPanel();},30000);
+/* quita la ruta y los puntos A y B (y las paradas) del mapa */
+function rtClear(){
+  RT.res=null;RT.from=null;RT.to=null;RT.cands=[];RT.selCand=null;RT.stops=[];RT.calcFrom=null;RT.alt=null;
+  routeLayer.clearLayers();rtPanel();
+}
 function drawRoute(fit){
   routeLayer.clearLayers();
   const r=RT.res&&RT.res[RT.sel];
@@ -3816,7 +3821,7 @@ function resultsHtml(){
   const r=RT.res[RT.sel];
   if(r&&!r.err)h+=`<button class="btn primary" data-act="nav" style="width:100%;margin-top:8px">▶ Guiarme por esta ruta</button>
     ${r.hzs&&r.hzs.length?`<p>⚠️ En el camino: ${hzSummary(r.hzs)}</p>`:''}
-    <div class="row"><button class="btn sm" data-act="rprof">⛰️ Perfil de desniveles</button><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button><button class="btn sm" data-act="rclear">Quitar del mapa</button></div><div id="rprof">${r.profHtml||''}</div>
+    <div class="row"><button class="btn sm" data-act="rprof">⛰️ Perfil de desniveles</button><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button><button class="btn sm" data-act="rclear">🧹 Quitar ruta, A y B</button></div><div id="rprof">${r.profHtml||''}</div>
     <h3>Indicaciones</h3>${r.steps.map(s=>`<div class="item"><div>${s.ico?s.ico+' ':''}${esc(s.text)}</div><small class="mut">${s.dist?fmtD(s.dist):''}</small></div>`).join('')}`;
   return h;
 }
@@ -3928,7 +3933,7 @@ async function showRoutes(){
     <label>Preferencia</label>
     <div class="chips">${PREFS.map(([k,e,n])=>`<button data-act="pref" data-p="${k}" class="${k===S.pref?'on':''}">${e} ${n}</button>`).join('')}</div>
     ${!g||g.hasZ?'':'<p class="mut">Para "menos pendiente" hace falta la altura del terreno: en Más → Correcciones tocá "Reemplazar por esta zona", con internet.</p>'}
-    <div class="row" style="margin-top:10px"><button class="btn primary" data-act="calc">Calcular ruta</button><button class="btn" data-act="swap">⇅ Invertir A y B</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn primary" data-act="calc">Calcular ruta</button><button class="btn" data-act="swap">⇅ Invertir A y B</button>${RT.from||RT.to?'<button class="btn" data-act="rclear">🧹 Limpiar</button>':''}</div>
     <div id="rres">${RT.res?resultsHtml():''}</div>`;
   openSheet('Rutas',h,async(a,d)=>{
     if(a==='mgr')showMapMgr();
@@ -3955,7 +3960,7 @@ async function showRoutes(){
     else if(a==='pref'){S.pref=d.p;saveS();if(RT.to&&RT.res)calcRoutes(g,true);else showRoutes();}
     else if(a==='rfit'){closeSheet();drawRoute(true);}
     else if(a==='rprof')showRouteProfileUI();
-    else if(a==='rclear'){routeLayer.clearLayers();RT.res=null;showRoutes();}
+    else if(a==='rclear'){rtClear();showRoutes();}
     else if(a==='rgpx'){const r=RT.res[RT.sel];shareFile('ruta.gpx',toGPX([{name:'Ruta',pts:r.coords.map(c=>[c[0],c[1],0,0,null,0])}],[],esc),'application/gpx+xml');}
     else if(a==='rsave')showSaveRoute();
     else if(a==='nav')startNav();
