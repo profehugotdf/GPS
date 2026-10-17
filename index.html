@@ -323,6 +323,14 @@ body.night .wxal.warn{background:#4A3B10;color:#FFE08A}body.night .wxal.danger{b
 #rtp .rb{display:flex;flex-direction:column;gap:6px}
 #rtp .rb button{width:40px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.2);color:#fff;font-size:16px;padding:0}
 #rtp .rb button.go{background:#F04A1C}
+#rtp.exp{max-height:62vh;align-items:flex-start}
+#rtp.exp #rtpBody{max-height:calc(62vh - 16px);overflow:auto}
+#rtp .det{font:500 12.5px system-ui;line-height:1.35;margin-top:4px}
+#rtp .det .mut,#rtp .det small{color:rgba(255,255,255,.85)}
+#rtp .det span[style*="C0392B"],#rtp .det small[style*="C0392B"]{color:#FFB4A1!important}
+#rtp .chips{display:flex;gap:6px;flex-wrap:wrap}
+#rtp .chips button{border:0;border-radius:10px;background:rgba(255,255,255,.18);color:#fff;font:700 12.5px system-ui;padding:6px 10px}
+#rtp .chips button.on{background:#fff;color:#0E2A36;text-shadow:none}
 #rtp .mm{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 #rtp .mm button{border:0;border-radius:10px;background:rgba(255,255,255,.2);color:#fff;font:700 12.5px system-ui;padding:5px 9px}
 #tgtArrow{font-size:26px;line-height:1;transition:transform .4s linear;color:#FF8A5C}
@@ -2016,6 +2024,34 @@ function routeFromLine(raw,o){
   for(let i=0;i<steps.length-1;i++)steps[i].dist=steps[i+1].at-steps[i].at;
   return {mode:o.mode||'foot',pref:'fast',dist,time:dist/speed,avgKmh:null,avgStops:0,coords,eids:[],elen:[],stairs:0,steps,up:0,down:0,hasZ:false,ferry:null,fixed:true,back:!!o.back,offTrack:o.offTrack||0,from:o.fromKm||0};
 }
+/* A pie a campo traviesa: línea recta entre A y B cuando no hay senderos (por ejemplo, dentro de una isla).
+   No se acepta si cruza agua (un área 💧 que no esté tapada por tierra: isla con costa cerrada o área de tierra) ni una zona cerrada. */
+async function crossCountry(from,to){
+  const A=[from.lat,from.lon],B=[to.lat,to.lon],D=hav(A,B);
+  if(D<20||D>30000)return null;
+  const eds=await DB.all('kv','edit:');
+  const ring=e=>e.pts&&e.pts.length>=3;
+  const waters=eds.filter(e=>e.type==='area'&&e.kind==='agua'&&ring(e)).map(e=>e.pts);
+  const lands=[];
+  for(const e of eds){
+    if(e.type==='path'&&e.kind==='costa'&&e.pts&&e.pts.length>=4&&hav(e.pts[0],e.pts[e.pts.length-1])<=40)lands.push(e.pts);
+    if(e.type==='area'&&ring(e)&&!['agua','medida'].includes(e.kind))lands.push(e.pts);
+  }
+  const closed=eds.filter(e=>e.type==='area'&&ring(e)&&areaRestricted(e)&&e.props.restrict.foot).map(e=>e.pts);
+  const inWater=p=>waters.some(w=>pip(p[0],p[1],w))&&!lands.some(l=>pip(p[0],p[1],l));
+  const n=Math.max(2,Math.ceil(D/40));
+  for(let k=0;k<=n;k++){
+    const t=k/n,p=[A[0]+(B[0]-A[0])*t,A[1]+(B[1]-A[1])*t];
+    if(inWater(p))return {err:'agua'};
+    if(closed.some(c=>pip(p[0],p[1],c)))return {err:'cerrada'};
+  }
+  const rios=[];for(const e of eds)if(e.type==='path'&&e.kind==='rio'&&e.pts)for(let i=1;i<e.pts.length;i++)rios.push([e.pts[i-1],e.pts[i]]);
+  const v=(S.vFoot||5)/3.6*.75;
+  const r=routeFromLine([A,B],{speed:v,mode:'foot',startText:'Caminá a campo traviesa hacia el destino',startIco:'🧭',endText:'Llegaste a tu destino'});
+  r.xc=true;r.riverX=rios.length?segIndex(rios).cross(A,B,5):false;
+  return r;
+}
+const xcNote=r=>!r.xc?'':`<br><small class="mut">🧭 A campo traviesa: en línea recta, sin senderos, al 75 % de tu velocidad a pie. Mirá el perfil ⛰️ antes de salir.${r.riverX?' <b>Cruza un río.</b>':''}${r.landAlt?` Por caminos serían ${fmtD(r.landAlt.dist)}.`:''}</small>`;
 /* Ruta de regreso por la huella: desde tu posición hacia atrás por los puntos grabados hasta el inicio */
 function backtrackRoute(track,cur,o){
   o=o||{};
@@ -3741,6 +3777,7 @@ function rtPanel(){
   if(r.prof)bits.push(`↑${r.prof.gain} m ↓${r.prof.loss} m`);
   else if(r.hasZ&&m!=='car'&&!isWater(m))bits.push(`↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`);
   if(r.stairs>5)bits.push(`${Math.round(r.stairs)} m de escalera`);
+  if(r.xc)bits.push('🧭 a campo traviesa'+(r.riverX?', cruza un río':''));
   if(isWater(m)&&r.maxOff!=null)bits.push(`${r.coastal?'🏝️ costera':'➡️ directa'}, hasta ${fmtD(Math.max(10,Math.round(r.maxOff/10)*10))} de la costa`);
   if(r.ferry)bits.push('⛴️ ferry');
   if(r.hzs&&r.hzs.length)bits.push(`⚠️ ${r.hzs.length} aviso${r.hzs.length>1?'s':''}`);
@@ -3753,14 +3790,32 @@ function rtPanel(){
   const others=RMODES.filter(k=>k!==m&&RT.res[k]&&!RT.res[k].err);
   const mm=others.length?`<div class="mm">${others.map(k=>`<button data-r="m:${k}">${MI[k]} ${fmtDur(totT(RT.res[k]))}</button>`).join('')}</div>`:'';
   if(rodeo(r)>3)bits.push(`⚠️ vuelta ×${Math.round(rodeo(r))}`);
-  p.innerHTML=`<div id="rtpBody" data-r="open"><div class="t">${MI[m]} ${fmtDur(totT(r))} <small>${esc(name)}</small></div>
+  let det='';
+  if(RT.pExp){
+    if(isWater(m))det=kayakLine(r);
+    else det=[r.avgKmh?`<small class="mut">Con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',',')} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:'',
+      r.xc?xcNote(r):offNote(r),
+      r.ferry?`<br>⛴️ Ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera.`:'',
+      r.hzs&&r.hzs.length?`<br>⚠️ En el camino: ${hzSummary(r.hzs)}`:''].join('');
+    det=`<div class="det">${det}</div><div class="s" style="margin-top:6px;opacity:.8">Tocá de nuevo para achicar · ☰ abre Rutas completo</div>`;
+  }else det='<div class="s" style="opacity:.75;font-size:11.5px">Tocá para ver más datos</div>';
+  p.classList.toggle('exp',!!RT.pExp);
+  p.innerHTML=`<div id="rtpBody" data-r="exp"><div class="t">${MI[m]} ${fmtDur(totT(r))} <small>${esc(name)}</small></div>
     <div class="s">${bits.join(' · ')}</div>
-    <div class="s">${RT.dep?'Salís '+hhmm(start)+' · ':''}llegás ${arrLabel(start,arr)}</div>${sp}${mm}</div>
-    <div class="rb"><button class="go" data-r="nav" aria-label="Guiarme">▶</button><button data-r="prof" aria-label="Perfil">⛰️</button><button data-r="x" aria-label="Quitar la ruta">✕</button></div>`;
+    <div class="s">${RT.dep?'Salís '+hhmm(start)+' · ':''}llegás ${arrLabel(start,arr)}</div>${sp}${det}${mm}</div>
+    <div class="rb"><button class="go" data-r="nav" aria-label="Guiarme">▶</button><button data-r="prof" aria-label="Perfil">⛰️</button><button data-r="open" aria-label="Rutas">☰</button><button data-r="x" aria-label="Quitar la ruta">✕</button></div>`;
   p.hidden=false;
 }
-$('#rtp').addEventListener('click',e=>{
+$('#rtp').addEventListener('click',async e=>{
+  const k=e.target.closest('[data-act="kc"]');
+  if(k){
+    S.kCoast=k.dataset.v==='1';saveS();
+    const f=RT.calcFrom||RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null);
+    if(f&&RT.to){RT.res.kayak=await waterRouteFor('kayak',f,RT.to);RT.sel='kayak';resetCands();drawRoute(true);}
+    return;
+  }
   const a=e.target.closest('[data-r]');if(!a)return;
+  if(a.dataset.r==='exp'){RT.pExp=!RT.pExp;rtPanel();return;}
   const r=RT.res&&RT.res[RT.sel];
   if(a.dataset.r.startsWith('m:')){RT.sel=a.dataset.r.slice(2);resetCands();drawRoute(true);return;}
   if(a.dataset.r==='x'){rtClear();toast('Ruta, A y B quitados del mapa',2500);}
@@ -3790,8 +3845,12 @@ function drawRoute(fit){
   /* los otros caminos que se están comparando, más finos y punteados */
   for(const c of RT.cands||[])if(c.route!==r&&c.mode===RT.sel)L.polyline(c.route.coords,{color:c.col,weight:5,opacity:.8,dashArray:'9 7',interactive:false}).addTo(routeLayer);
   ends.forEach(([t,c])=>L.marker(c,{interactive:false,icon:L.divIcon({html:`<div class="gl s">${t}</div>`,className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(routeLayer));
-  if(fit&&r&&!r.err)map.fitBounds(L.latLngBounds(r.coords),{paddingTopLeft:[24,24],paddingBottomRight:[24,360]});
   rtPanel();
+  if(fit&&r&&!r.err){
+    const p=$('#rtp'),open=sheet.classList.contains('open');
+    const bot=open?360:(!p.hidden?Math.max(120,innerHeight-p.getBoundingClientRect().top+16):140);
+    map.fitBounds(L.latLngBounds(r.coords),{paddingTopLeft:[24,90],paddingBottomRight:[70,bot]});
+  }
 }
 function arrLabel(start,arr){
   const d0=new Date(start),d1=new Date(arr);d0.setHours(0,0,0,0);d1.setHours(0,0,0,0);
@@ -3810,7 +3869,7 @@ function resultsHtml(){
       continue;
     }
     if(!r||r.err){h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${errText(r)}</span></div>`;continue;}
-    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(totT(r))}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',',')} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}${offNote(r)}${rodeo(r)>3?`<br><small style="color:#C0392B">⚠️ Da una vuelta: ${Math.round(rodeo(r))} veces la distancia en línea recta</small>`:''}${stagesHtml(r,start)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+totT(r)*1000)}</b></div>`;
+    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(totT(r))}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',',')} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}${r.xc?xcNote(r):offNote(r)}${rodeo(r)>3?`<br><small style="color:#C0392B">⚠️ Da una vuelta: ${Math.round(rodeo(r))} veces la distancia en línea recta</small>`:''}${stagesHtml(r,start)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+totT(r)*1000)}</b></div>`;
   }
   const cmp=RT.alt?`<h3>Comparar para ${MI[RT.sel]}</h3><div class="row">`+PREFS.filter(([k])=>!(RT.sel==='car'&&k==='flat')).map(([k,e])=>{
     const a=RT.alt[k];if(!a||a.err)return '';
@@ -3874,6 +3933,9 @@ async function calcRoutes(g,keep){
     const r=findRoute(g,m,from,RT.to,S.pref);RT.res[m]=r;
     if(!r.err)r.hzs=navInit(r,m,hz).hzs;
   }
+  /* a pie sin camino útil (sin red, muy lejos de la red o con una vuelta enorme): probar a campo traviesa */
+  {const rf=RT.res.foot,bad=!rf||rf.err||rf.dist/Math.max(1,D)>2.5||(rf.offFrom||0)>500||(rf.offTo||0)>500;
+   if(bad&&D<=30000){const xc=await crossCountry(from,RT.to);if(xc&&!xc.err){if(rf&&!rf.err)xc.landAlt=rf;xc.hzs=[];RT.res.foot=xc;}}}
   RT.res.kayak=await waterRouteFor('kayak',from,RT.to);
   RT.res.swim=D>60000?{err:'lejos'}:await waterRouteFor('swim',from,RT.to);
   if(stopsList().length)await applyStops(g,from,hz);
@@ -3881,14 +3943,21 @@ async function calcRoutes(g,keep){
   RT.calcFrom=from;
   const ok=m=>RT.res[m]&&!RT.res[m].err;
   RT.sel=keep&&RT.sel&&ok(RT.sel)?RT.sel:(ok(S.routeMode)?S.routeMode:RMODES.find(ok)||S.routeMode);
-  /* si por tierra hay que dar una vuelta enorme y por el agua no, se muestra la del kayak */
-  if(!keep&&!isWater(RT.sel)&&ok('kayak')){
-    const rl=rodeo(RT.res[RT.sel]),rk=rodeo(RT.res.kayak);
-    if(rl>2.5&&rk<rl/2){toast(`Muestro la ruta en kayak: ${MN[RT.sel].toLowerCase()} hay que dar una vuelta de ${fmtD(RT.res[RT.sel].dist)}`,6000);RT.sel='kayak';}
+  /* si el modo de siempre no sirve (sin camino o con una vuelta enorme), se muestra la mejor opción directa: a campo traviesa o en kayak */
+  if(!keep){
+    const cur=RT.res[RT.sel],bad=!ok(RT.sel)||(!isWater(RT.sel)&&rodeo(cur)>2.5);
+    if(bad){
+      const c=['foot','kayak'].filter(k=>k!==RT.sel&&ok(k)&&(k==='kayak'||RT.res.foot.xc)&&rodeo(RT.res[k])<2).sort((a,b)=>totT(RT.res[a])-totT(RT.res[b]));
+      if(c.length){
+        const why=cur&&!cur.err?`${MN[RT.sel].toLowerCase()} hay que dar una vuelta de ${fmtD(cur.dist)}`:`${MN[RT.sel].toLowerCase()} no hay camino`;
+        toast(`Muestro ${c[0]==='kayak'?'la ruta en kayak':'la ruta a pie a campo traviesa'}: ${why}`,6000);RT.sel=c[0];
+      }
+    }
   }
   if(g&&!isWater(RT.sel))computeAlt(g);
   resetCands();
-  drawRoute(true);showRoutes();
+  if(keep){drawRoute(true);showRoutes();}
+  else{closeSheet();RT.pExp=false;drawRoute(true);}
 }
 async function findAlts(){
   if(isWater(RT.sel)||stopsList().length){toast('Por el agua o con paradas no se buscan alternativas',3500);return;}
@@ -6324,8 +6393,8 @@ $('#evCut').onclick=evCut;
 /* Desde el editor de puntos: una línea que da la vuelta (costa de un lago o dique) se convierte en área.
    La línea queda y el área se arma con ella: si después corregís la línea, el área se actualiza. */
 async function evToArea(){
-  if(!EV.on||EV.closed)return;
-  const pts=EV.pts;
+  if(!EV.on||(EV.closed&&!EV.ringPath))return;
+  const pts=EV.ringPath?EV.pts.concat([EV.pts[0]]):EV.pts;
   if(pts.length<3){toast('Hacen falta al menos 3 puntos para un área',3500);return;}
   const gap=hav(pts[0],pts[pts.length-1]);
   if(gap>PB_TOL&&!confirm(`Las puntas de la línea están a ${fmtLen(gap)}. ¿Cerrar el área con una línea recta entre ellas?`))return;
@@ -6786,14 +6855,17 @@ async function openVEdit(id){
   const e=await DB.get('kv','edit:'+id);
   if(!e||!e.pts){showFix();return;}
   EV.water=e.kind==='rio'?await loadWater(e.id):null;
-  EV.on=true;EV.id=id;EV.e=e;EV.closed=e.type==='area';EV.pts=e.pts.map(p=>[p[0],p[1]]);EV.sels=new Set();EV.undo=[];EV.dirty=false;EV.lasso=false;
+  EV.on=true;EV.id=id;EV.e=e;EV.closed=e.type==='area';EV.pts=e.pts.map(p=>[p[0],p[1]]);
+  /* línea cerrada (o casi: puntas a menos de 40 m): se edita como un anillo y el cierre no se separa */
+  EV.ringPath=e.type==='path'&&EV.pts.length>=4&&hav(EV.pts[0],EV.pts[EV.pts.length-1])<=40;
+  if(EV.ringPath){EV.pts.pop();EV.closed=true;}EV.sels=new Set();EV.undo=[];EV.dirty=false;EV.lasso=false;
   closeSheet();hidePin();setFollow(false);
   $('#vedit').hidden=false;$('#vedit').classList.remove('min');
   map.fitBounds(L.latLngBounds(EV.pts),{padding:[40,200],maxZoom:19});
   evDraw();
 }
 function closeVEdit(){
-  EV.on=false;EV.e=null;EV.pts=[];EV.sels=new Set();EV.lasso=false;
+  EV.on=false;EV.e=null;EV.pts=[];EV.sels=new Set();EV.lasso=false;EV.ringPath=false;
   $('#vedit').hidden=true;evLayer.clearLayers();evLine.clearLayers();evLasso.clearLayers();
   try{map.dragging.enable();}catch(e){}
 }
@@ -6812,7 +6884,8 @@ function evColor(){return EV.e.type==='area'?'#2E7D5B':(KCOL[EV.e.kind]||'#B0157
 function evDrawLine(){
   evLine.clearLayers();
   const c=evColor();
-  if(EV.closed)L.polygon(EV.pts,{color:c,weight:3,fillColor:c,fillOpacity:.12,interactive:false}).addTo(evLine);
+  if(EV.closed&&!EV.ringPath)L.polygon(EV.pts,{color:c,weight:3,fillColor:c,fillOpacity:.12,interactive:false}).addTo(evLine);
+  else if(EV.ringPath){const r=EV.pts.concat([EV.pts[0]]);L.polyline(r,{color:'#fff',weight:7,opacity:.85,interactive:false}).addTo(evLine);L.polyline(r,{color:c,weight:3.5,interactive:false}).addTo(evLine);}
   else{
     L.polyline(EV.pts,{color:'#fff',weight:7,opacity:.85,interactive:false}).addTo(evLine);
     L.polyline(EV.pts,{color:c,weight:3.5,interactive:false}).addTo(evLine);
@@ -6877,7 +6950,7 @@ function updEvUi(){
   $('#evNone').disabled=!ns;
   $('#evBetween').disabled=ns<2;
   $('#evCut').disabled=EV.closed||ns!==1;
-  {const b=$('#evArea');if(b){b.hidden=EV.closed;if(!EV.closed&&EV.pts.length>2){const g=hav(EV.pts[0],EV.pts[EV.pts.length-1]);b.textContent=g<=PB_TOL?'⬛ Cerrar como área':'⬛ Hacer área';b.classList.toggle('on',g<=PB_TOL);}}}
+  {const b=$('#evArea');if(b){b.hidden=EV.closed&&!EV.ringPath;if(EV.ringPath){b.textContent='⬛ Cerrar como área';b.classList.add('on');}else if(!EV.closed&&EV.pts.length>2){const g=hav(EV.pts[0],EV.pts[EV.pts.length-1]);b.textContent=g<=PB_TOL?'⬛ Cerrar como área':'⬛ Hacer área';b.classList.toggle('on',g<=PB_TOL);}}}
 }
 function evDelete(){
   if(!EV.sels.size)return;
@@ -6926,8 +6999,10 @@ function evBetween(){
 async function evSave(){
   const e=EV.e;
   e.pts=EV.pts.map(p=>[+p[0].toFixed(7),+p[1].toFixed(7)]);
+  if(EV.ringPath&&e.pts.length)e.pts.push(e.pts[0].slice());
   await DB.put('kv','edit:'+e.id,e);
   if(!NOROUTE.has(e.kind)||e.type==='area')dropGraph();
+  try{kayakDrop();}catch(er){}
   const na=e.type==='path'?await rebuildAreasFor(e.id):0;
   vecInvalidate();closeVEdit();await drawEdits();
   toast(na?`Puntos guardados · ${na} área${na>1?'s':''} actualizada${na>1?'s':''}`:'Puntos guardados',3000);
@@ -7054,7 +7129,13 @@ function closeTrace(){
 }
 function traceTap(e){
   if(!TR.on||TR.mode!=='taps')return;
-  const raw=[e.latlng.lat,e.latlng.lng],sn=traceSnap(raw);
+  const raw=[e.latlng.lat,e.latlng.lng];
+  /* línea: tocar sobre el primer punto cierra el contorno (queda unido: al editarlo, el punto de cierre se mueve junto) */
+  if(TR.shape!=='area'&&TR.pts.length>=3){
+    const a=map.latLngToContainerPoint(TR.pts[0]),b=map.latLngToContainerPoint(e.latlng);
+    if(Math.hypot(a.x-b.x,a.y-b.y)<24){TR.pts.push([TR.pts[0][0],TR.pts[0][1]]);TR.snapped.push(false);TR.strokes.push(1);drawTrace();toast('Contorno cerrado ✔',2500);traceSave();return;}
+  }
+  const sn=traceSnap(raw);
   TR.pts.push(sn||raw);TR.snapped.push(!!sn);TR.strokes.push(1);drawTrace();
 }
 function traceUndo(){
@@ -7066,11 +7147,13 @@ async function traceSave(){
   const area=TR.shape==='area';
   if(TR.pts.length<(area?3:2))return;
   const pts=TR.pts.map(p=>[+p[0].toFixed(7),+p[1].toFixed(7)]);
+  /* línea que termina casi donde empezó: se une exacto (contorno cerrado) */
+  if(!area&&pts.length>=4&&hav(pts[0],pts[pts.length-1])<=Math.max(25,mppNow()*24))pts[pts.length-1]=pts[0].slice();
   const e=area
     ?{type:'area',id:uid(),kind:TR.akind,name:$('#trName').value.trim(),pts,props:JSON.parse(JSON.stringify(TR.aprops||{})),created:Date.now()}
     :{type:'path',id:uid(),kind:TR.kind,name:$('#trName').value.trim(),oneway:TR.oneway,pts,props:JSON.parse(JSON.stringify(TR.props||{})),created:Date.now()};
   await DB.put('kv','edit:'+e.id,e);
-  dropGraph();vecInvalidate();
+  dropGraph();vecInvalidate();try{kayakDrop();}catch(er){}
   let msg='Guardado';
   if(area)msg=areaRestricted(e)?'Área guardada: las rutas la van a evitar':'Área guardada';
   else if(!NOROUTE.has(TR.kind))try{
