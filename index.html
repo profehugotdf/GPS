@@ -3997,7 +3997,8 @@ async function calcRoutes(g,keep){
   {const rf=RT.res.foot,bad=!rf||rf.err||rf.dist/Math.max(1,D)>2.5||(rf.offFrom||0)>500||(rf.offTo||0)>500;
    if(bad&&D<=30000){const xc=await crossCountry(from,RT.to);if(xc&&!xc.err){if(rf&&!rf.err)xc.landAlt=rf;xc.hzs=[];RT.res.foot=xc;}}}
   RT.res.kayak=await waterRouteFor('kayak',from,RT.to);
-  RT.res.swim=D>60000?{err:'lejos'}:await waterRouteFor('swim',from,RT.to);
+  RT.res.swim=D>25000?{err:'lejos'}:await waterRouteFor('swim',from,RT.to);
+  if(RT.res.swim&&!RT.res.swim.err&&RT.res.swim.dist>40000)RT.res.swim={err:'lejos'};
   if(stopsList().length)await applyStops(g,from,hz);
   if(D>100000)toast('Ruta calculada',1800);
   RT.calcFrom=from;
@@ -6526,7 +6527,10 @@ async function kayakWG(){
     const shore=segIndex(pairs(coasts).concat(ringPairs(lands)).concat(ringPairs(lakes.map(l=>l.pts)).filter(edgeOk)));
     /* islas: costas cerradas o casi (la abertura es chica comparada con el contorno) */
     const closedish=c=>{if(c.length<4)return false;let per=0;for(let i=1;i<c.length;i++)per+=hav(c[i-1],c[i]);return hav(c[0],c[c.length-1])<=Math.max(60,Math.min(500,per*.15));};
-    const landR=ringsIndex(coasts.filter(closedish).concat(lands));
+    /* una costa cerrada es isla solo si NO es el contorno de un área de agua (el contorno de una laguna o embalse también es una costa cerrada) */
+    const lakeEdge=segIndex(ringPairs(lakes.map(l=>l.pts)));
+    const isIsland=c=>{if(!lakeEdge.n)return true;const st=Math.max(1,Math.floor(c.length/60));let n=0,near=0;for(let i=0;i<c.length;i+=st){n++;if(lakeEdge.dist(c[i],60)<40)near++;}return near/n<.5;};
+    const landR=ringsIndex(coasts.filter(c=>closedish(c)&&isIsland(c)).concat(lands));
     WGC={key,wg:buildWaterGraph(rivers,lakes,{coasts:coasts.concat(lands.map(l=>l.concat([l[0]]))),land,landR}),land,landR,shore,rivers:rivers.length,lakes:lakes.length};
   }
   return WGC;
@@ -6669,7 +6673,7 @@ async function applyStops(g,from,hz){
     if(cur&&cur.err&&['sinagua','sinred'].includes(cur.err))continue;
     if(m==='foot'&&D>150000){RT.res[m]={err:'lejos'};continue;}
     if(m==='bike'&&D>600000){RT.res[m]={err:'lejos'};continue;}
-    if(m==='swim'&&D>60000){RT.res[m]={err:'lejos'};continue;}
+    if(m==='swim'&&D>25000){RT.res[m]={err:'lejos'};continue;}
     if(!isWater(m)&&!g)continue;
     const legs=[];let bad=null;
     for(let i=0;i<pts.length-1&&!bad;i++){
