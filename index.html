@@ -6629,6 +6629,8 @@ async function osmWaterDownload(){
    - un río del otro origen que queda casi entero encima (≥70 % a menos de 50 m) se quita;
    - si queda encima solo en parte (y es de OpenStreetMap), se recorta la parte repetida y se conserva el resto. */
 const rioIsOsm=e=>!!(e.group&&e.group.src==='osm');
+const rioOrigin=e=>!e.group?'dibujado por vos':e.group.src==='osm'?'de OpenStreetMap':'importado ('+(e.group.name||'archivo')+')';
+const dupLayer=L.layerGroup().addTo(map);
 function rioDense(pts,step){const out=[pts[0]];for(let i=1;i<pts.length;i++){const a=pts[i-1],b=pts[i],n=Math.max(1,Math.ceil(hav(a,b)/step));for(let k=1;k<=n;k++)out.push([a[0]+(b[0]-a[0])*k/n,a[1]+(b[1]-a[1])*k/n]);}return out;}
 async function findRiverDups(prefer){
   prefer=prefer||S.dupPrefer||'mine';
@@ -6637,16 +6639,22 @@ async function findRiverDups(prefer){
   const keepMine=prefer==='mine',keep=rios.filter(e=>rioIsOsm(e)!==keepMine),drop=rios.filter(e=>rioIsOsm(e)===keepMine);
   if(!keep.length||!drop.length)return [];
   const ix=segIndex(keep.flatMap(o=>o.pts.slice(1).map((p,i)=>[o.pts[i],p])));
+  const bbOf=pts=>{let a=90,b=-90,c=180,d=-180;for(const p of pts){if(p[0]<a)a=p[0];if(p[0]>b)b=p[0];if(p[1]<c)c=p[1];if(p[1]>d)d=p[1];}return [a,c,b,d];};
+  const kbb=keep.map(k=>({k,bb:bbOf(k.pts)}));
   const out=[];
   for(const e of drop){
     const P=rioDense(e.pts,40),near=P.map(p=>ix.dist(p,60)<50),c=near.filter(Boolean).length/P.length;
-    if(c>=.7)out.push({e,c,act:'del',len:polyLen(e.pts,false)});
+    /* con cuál de los que se conservan se superpone (para mostrarlo) */
+    let over=[];
+    if(c>=.05){const eb=bbOf(e.pts),m=.001;
+      over=kbb.filter(x=>!(x.bb[0]>eb[2]+m||x.bb[2]<eb[0]-m||x.bb[1]>eb[3]+m||x.bb[3]<eb[1]-m)).map(x=>{const ki=segIndex(x.k.pts.slice(1).map((p,i)=>[x.k.pts[i],p]));let n=0;for(let i=0;i<P.length;i+=3)if(ki.dist(P[i],60)<50)n++;return {k:x.k,n};}).filter(x=>x.n>0).sort((a,b)=>b.n-a.n).slice(0,2).map(x=>x.k);}
+    if(c>=.7)out.push({e,c,act:'del',len:polyLen(e.pts,false),over});
     else if(c>=.05&&rioIsOsm(e)){
       /* tramos que quedan lejos de lo que conservás (con el punto vecino, para que sigan unidos) */
       const runs=[];let cur=null;
       P.forEach((p,i)=>{if(!near[i]){if(!cur){cur=i>0?[P[i-1]]:[];runs.push(cur);}cur.push(p);}else if(cur){cur.push(p);cur=null;}});
       const keepRuns=runs.filter(r=>r.length>1&&polyLen(r,false)>=150).map(r=>simplifyDP(r,5));
-      out.push({e,c,act:'trim',runs:keepRuns,len:polyLen(e.pts,false)});
+      out.push({e,c,act:'trim',runs:keepRuns,len:polyLen(e.pts,false),over});
     }
   }
   return out;
@@ -6660,15 +6668,24 @@ async function showRiverDups(){
   const chips=`<label>Quedarme con</label><div class="chips"><button data-act="dp" data-v="mine" class="${pref==='mine'?'on':''}">✍️ Lo que dibujé yo</button><button data-act="dp" data-v="osm" class="${pref==='osm'?'on':''}">🌐 OpenStreetMap</button></div>
     <p class="mut">${pref==='mine'?'Tu dibujo manda (por ejemplo, el canal que calcaste entre los bancos de arena): de OpenStreetMap se quita o se recorta lo que repite tu río, y se conserva lo que sigue más allá.':'OpenStreetMap manda: se quitan tus dibujos que quedaron casi enteros encima de un río bajado.'}</p>`;
   if(!d.length){openSheet('Ríos repetidos',chips+'<p>No hay ríos repetidos con esta elección.</p><div class="row"><button class="btn" data-act="back">Volver</button></div>',onA);return;}
-  const h=chips+d.map((x,i)=>`<div class="card"><b>🏞️ ${esc(x.e.name||'Río sin nombre')}</b> · ${rioIsOsm(x.e)?'de OpenStreetMap':'dibujado por vos'}<br><small class="mut">${fmtLen(x.len)} · ${Math.round(x.c*100)} % encima del otro · ${x.act==='del'?'se quita entero':x.runs.length?`se recorta y quedan ${x.runs.length} tramo${x.runs.length>1?'s':''} (${fmtLen(x.runs.reduce((a,r)=>a+polyLen(r,false),0))})`:'se quita (lo que sobra es muy corto)'}</small>
+  const h=chips+`<p><b>En la lista están solo los que se van a quitar o recortar (${pref==='mine'?'los de OpenStreetMap':'tus dibujos'}). ${pref==='mine'?'Tus dibujos no aparecen porque no se tocan.':''}</b> Con 👁️ Ver los mirás en el mapa: <span style="color:#D0392B">rojo</span> = el que se va, <span style="color:#1E9E5A">verde</span> = el que se queda.</p>`+d.map((x,i)=>`<div class="card"><b>🏞️ ${esc(x.e.name||'Río sin nombre')}</b> · ${rioOrigin(x.e)}<br><small class="mut">Repite a: ${x.over.length?x.over.map(k=>`<b>${esc(k.name||'río sin nombre')}</b> (${rioOrigin(k)}, ${fmtLen(polyLen(k.pts,false))})`).join(' y '):'—'}<br>${fmtLen(x.len)} · ${Math.round(x.c*100)} % encima · ${x.act==='del'?'se quita entero':x.runs.length?`se recorta y quedan ${x.runs.length} tramo${x.runs.length>1?'s':''} (${fmtLen(x.runs.reduce((a,r)=>a+polyLen(r,false),0))})`:'se quita (lo que sobra es muy corto)'}</small>
       <div class="row"><button class="btn sm" data-act="dv" data-i="${i}">👁️ Ver</button><button class="btn sm danger" data-act="dx" data-i="${i}">${x.act==='del'?'🗑️ Quitar':'✂️ Recortar'}</button></div></div>`).join('')+
     `<div class="row" style="margin-top:8px"><button class="btn primary" data-act="dall">🧹 Aplicar a los ${d.length}</button><button class="btn" data-act="back">Volver</button></div>
     <p class="mut">Revisá después que tu río tenga marcado el sentido de la corriente (tocalo → propiedades): sin eso, el kayak no cuenta la corriente a favor ni en contra.</p>`;
+  dupLayer.clearLayers();
   openSheet('Ríos repetidos',h,onA);
   async function onA(a,dd,el){
     if(a==='back')showFix();
     else if(a==='dp'){S.dupPrefer=dd.v;saveS();showRiverDups();}
-    else if(a==='dv'){const x=d[+dd.i];closeSheet();setFollow(false);map.fitBounds(L.latLngBounds(x.e.pts),{padding:[40,40]});toast('Volvé con Más → Correcciones → 🧹 Ríos repetidos',4000);}
+    else if(a==='dv'){
+      const x=d[+dd.i];dupLayer.clearLayers();
+      for(const k of x.over){L.polyline(k.pts,{color:'#fff',weight:11,opacity:.9,interactive:false}).addTo(dupLayer);L.polyline(k.pts,{color:'#1E9E5A',weight:7,interactive:false}).addTo(dupLayer);}
+      L.polyline(x.e.pts,{color:'#D0392B',weight:4,dashArray:'8 6',interactive:false}).addTo(dupLayer);
+      if(x.act==='trim')for(const r of x.runs)L.polyline(r,{color:'#F2A900',weight:5,interactive:false}).addTo(dupLayer);
+      closeSheet();setFollow(false);map.fitBounds(L.latLngBounds(x.e.pts.concat(...x.over.map(k=>k.pts))),{padding:[40,40]});
+      toast(`🔴 se va · 🟢 se queda${x.act==='trim'?' · 🟡 lo que se conserva del recorte':''}. Volvé con Más → Correcciones → 🧹 Ríos repetidos`,8000);
+      clearTimeout(showRiverDups._t);showRiverDups._t=setTimeout(()=>dupLayer.clearLayers(),30000);
+    }
     else if(a==='dx'||a==='dall'){
       if(!armed(el))return;
       const sel=a==='dall'?d:[d[+dd.i]];
