@@ -2414,21 +2414,22 @@ function buildWaterGraph(rivers,lakes,o){
     if(o.coasts&&o.coasts.length){
       const chains=[];let tot=0;
       for(const cl of o.coasts){let ch=[];for(const p of cl){if(p[0]<bb[0]||p[0]>bb[2]||p[1]<bb[1]||p[1]>bb[3]||!pip(p[0],p[1],R)){if(ch.length)chains.push(ch);ch=[];continue;}if(ch.length)tot+=hav(ch[ch.length-1],p);ch.push(p);}if(ch.length)chains.push(ch);}
-      const sp=Math.max(250,tot/400),isl=[];
-      for(const ch of chains){
+      const sp=Math.max(250,tot/400),isl=[],chainOf=new Map();
+      for(const [ci,ch] of chains.entries()){
         /* todos los vértices quedan unidos por la orilla (así no se corta camino por tierra); solo algunos, cada ~250 m, sirven para cruzar */
         let prev=-1,last=null;
         ch.forEach((p,i)=>{
-          const n=nodeFor(p);if(prev>=0&&prev!==n)edge(prev,n,'shore',0,0,nm);prev=n;
+          const n=nodeFor(p);if(prev>=0&&prev!==n)edge(prev,n,'isle',0,0,nm);prev=n;
           if(last&&hav(last,p)<sp&&i<ch.length-1)return;
-          if(n>=riverNodes&&!ring.includes(n))isl.push(n);last=p;
+          if(n>=riverNodes&&!ring.includes(n)){isl.push(n);if(!chainOf.has(n))chainOf.set(n,ci);}last=p;
         });
       }
       const cand=vis.concat(isl);
       for(const a of isl){
         const p=[lat[a],lon[a]];
-        const nb=cand.filter(b=>b!==a&&!adj[a].some(e=>e.to===b)).map(b=>({b,d:hav(p,[lat[b],lon[b]])})).filter(x=>x.d<3000).sort((x,y)=>x.d-y.d).slice(0,12);
-        for(const {b} of nb){const q=[lat[b],lon[b]];if(segInside(p,q,R)&&!(o.land&&o.land.cross(p,q,60)))edge(a,b,'lake',0,0,nm,true);}
+        /* dos puntos de la misma isla no se unen en línea recta (cruzaría la isla): se va por su orilla */
+        const nb=cand.filter(b=>b!==a&&!adj[a].some(e=>e.to===b)&&!(chainOf.has(b)&&chainOf.get(b)===chainOf.get(a))).map(b=>({b,d:hav(p,[lat[b],lon[b]])})).filter(x=>x.d<3000).sort((x,y)=>x.d-y.d).slice(0,12);
+        for(const {b} of nb){const q=[lat[b],lon[b]];if(segInside(p,q,R)&&!(o.land&&o.land.cross(p,q,60))&&!(o.landR&&o.landR.through(p,q,20)))edge(a,b,'lake',0,0,nm,true);}
       }
       vis.push(...new Set(isl));
     }
@@ -2461,16 +2462,30 @@ function segIndex(raw){
       return best;
     },
     /* ¿la recta p–q corta algún tramo? (se ignoran tol metros en cada punta: las puntas suelen estar sobre la orilla) */
-    cross(p,q,tol){
+    cross(p,q,tol,tol2){
       if(!segs.length)return false;
-      const L=hav(p,q);if(L<2*tol)return false;
+      if(tol2==null)tol2=tol;
+      const L=hav(p,q);if(L<=tol+tol2)return false;
       const cl=Math.cos(p[0]*Math.PI/180),X=a=>a[1]*cl,Y=a=>a[0],ids=new Set(),n=Math.ceil(L/(cellM/2))+1;
       for(let k=0;k<=n;k++){const t=k/n,la=p[0]+(q[0]-p[0])*t,lo=p[1]+(q[1]-p[1])*t,ci=Math.floor(la/CA),cj=Math.floor(lo/CO);
         for(let i=ci-1;i<=ci+1;i++)for(let j=cj-1;j<=cj+1;j++){const l=cells.get(key(i,j));if(l)for(const s of l)ids.add(s);}}
-      const tt=tol/L,px=X(p),py=Y(p),rx=X(q)-px,ry=Y(q)-py;
+      const tt=tol/L,tt2=tol2/L,px=X(p),py=Y(p),rx=X(q)-px,ry=Y(q)-py;
       for(const k of ids){const a=segs[k][0],b=segs[k][1],sx=X(b)-X(a),sy=Y(b)-Y(a),den=rx*sy-ry*sx;if(Math.abs(den)<1e-15)continue;
         const ax=X(a)-px,ay=Y(a)-py,t=(ax*sy-ay*sx)/den,u=(ax*ry-ay*rx)/den;
-        if(t>tt&&t<1-tt&&u>=0&&u<=1)return true;}
+        if(t>tt&&t<1-tt2&&u>=0&&u<=1)return true;}
+      return false;
+    }};
+}
+/* Tierra cerrada (islas con costa cerrada y áreas de tierra): ¿una recta pasa por adentro? (se ignoran tol metros en las puntas) */
+function ringsIndex(rings){
+  const R=rings.map(r=>{let a=90,b=-90,c=180,d=-180;for(const p of r){if(p[0]<a)a=p[0];if(p[0]>b)b=p[0];if(p[1]<c)c=p[1];if(p[1]>d)d=p[1];}return {r,bb:[a,c,b,d]};});
+  const inside=p=>R.some(x=>p[0]>=x.bb[0]&&p[0]<=x.bb[2]&&p[1]>=x.bb[1]&&p[1]<=x.bb[3]&&pip(p[0],p[1],x.r));
+  return {n:R.length,inside,
+    through(p,q,tol,tol2){
+      if(!R.length)return false;
+      if(tol2==null)tol2=tol;
+      const L=hav(p,q),n=Math.max(2,Math.ceil(L/30));
+      for(let k=1;k<n;k++){const t=k/n;if(t*L<tol||(1-t)*L<tol2)continue;if(inside([p[0]+(q[0]-p[0])*t,p[1]+(q[1]-p[1])*t]))return true;}
       return false;
     }};
 }
@@ -2499,6 +2514,7 @@ function findWaterRoute(WG,from,to,o){
     return best;
   };
   const inLake=P=>WG.lakes.find(lk=>pip(P[0],P[1],lk.pts));
+  const lakeOf=sn=>WG.lakes.find(lk=>{if(!lk._rs)lk._rs=new Set(lk.ring);return lk._rs.has(sn.u)&&lk._rs.has(sn.v);});
   const xadj=new Map(),addX=(u,e)=>{let l=xadj.get(u);if(!l){l=[];xadj.set(u,l);}l.push(e);};
   let SP,TP,walkS=0,walkT=0;
   /* origen */
@@ -2511,7 +2527,10 @@ function findWaterRoute(WG,from,to,o){
     addX(S,{to:sn.u,len:sn.t*L,kind:sn.e.kind,flow:-sn.e.flow,cur:sn.e.cur,name:sn.e.name});
     addX(S,{to:sn.v,len:(1-sn.t)*L,kind:sn.e.kind,flow:sn.e.flow,cur:sn.e.cur,name:sn.e.name});
     xadj.set('segS',sn);
-  }
+    /* si se entra al agua por la orilla de un lago o bahía, desde ahí también se puede cruzar en línea recta (no solo costear) */
+    const lk=!o.noCross&&lakeOf(sn);
+    if(lk){xadj.set('lakeS',lk);for(const n of lk.portals.concat(lk.vis)){if(n===sn.u||n===sn.v)continue;const q=[lat[n],lon[n]];if(segInside(SP,q,lk.pts))addX(S,{to:n,len:hav(SP,q),kind:'lake',flow:0,cur:0,name:lk.name,cross:true});}}
+  }else xadj.set('lakeS',ls);
   /* destino */
   const lt=inLake(T);let tnear=null;
   if(lt){TP=T;for(const n of (o.noCross?nearLake(lt,T):lt.portals.concat(lt.vis))){const q=[lat[n],lon[n]];if(o.noCross||segInside(T,q,lt.pts))addX(n,{to:TT,len:hav(T,q),kind:'lake',flow:0,cur:0,name:lt.name,cross:false});}tnear=lt.portals.length+lt.vis.length?1:null;}
@@ -2520,20 +2539,31 @@ function findWaterRoute(WG,from,to,o){
     TP=tn.pt;walkT=tn.d;const L=tn.e.len;
     addX(tn.u,{to:TT,len:tn.t*L,kind:tn.e.kind,flow:tn.e.flow,cur:tn.e.cur,name:tn.e.name});
     addX(tn.v,{to:TT,len:(1-tn.t)*L,kind:tn.e.kind,flow:-tn.e.flow,cur:tn.e.cur,name:tn.e.name});
+    const lk=!o.noCross&&lakeOf(tn);
+    if(lk){xadj.set('lakeT',lk);for(const n of lk.portals.concat(lk.vis)){if(n===tn.u||n===tn.v)continue;const q=[lat[n],lon[n]];if(segInside(q,TP,lk.pts))addX(n,{to:TT,len:hav(q,TP),kind:'lake',flow:0,cur:0,name:lk.name,cross:false});}}
     const sn=xadj.get('segS');
     if(sn&&((sn.u===tn.u&&sn.v===tn.v)||(sn.u===tn.v&&sn.v===tn.u))){       /* origen y destino sobre el mismo tramo */
       const tS=sn.t,tT=sn.u===tn.u?tn.t:1-tn.t,fl=tT>tS?sn.e.flow:-sn.e.flow;
       addX(S,{to:TT,len:Math.abs(tT-tS)*sn.e.len,kind:sn.e.kind,flow:fl,cur:sn.e.cur,name:sn.e.name});
     }
   }
+  if(lt&&tnear)xadj.set('lakeT',lt);
+  /* salida y llegada en el mismo lago y a la vista: cruce directo */
+  {const a=xadj.get('lakeS'),b=xadj.get('lakeT');if(!o.noCross&&a&&a===b&&SP&&TP&&segInside(SP,TP,a.pts))addX(S,{to:TT,len:hav(SP,TP),kind:'lake',flow:0,cur:0,name:a.name,cross:true});}
   const sp=e=>e.kind==='river'?Math.max(0.3,vP+(e.cur||0)*(e.flow||0)):vP;
   /* preferencia costera: cada km por encima de 250 m de la orilla pesa W veces más (no cambia el tiempo real, solo qué camino se elige) */
-  const W=o.coastW||0,shore=o.shore,land=o.land,pc=new WeakMap();
+  const W=o.coastW||0,shore=o.shore,land=o.land,landR=o.landR,pc=new WeakMap();
+  /* si la salida o la llegada están en tierra (por ejemplo, el faro sobre su isla), se permite cruzar tierra solo hasta la orilla más cercana */
+  const tolEnd=P=>landR&&landR.inside(P)&&land?Math.min(1500,land.dist(P,1500)+40):40;
+  const tS=tolEnd(F),tT=tolEnd(T);
   const pen=(u,e)=>{
     if(e.kind==='river'||e.kind==='portage')return 1;
     let v=pc.get(e);if(v!=null)return v;
     const a=vx(u),b=vx(e.to);
-    if(land&&e.kind==='lake'&&land.cross(a,b,(u===S||e.to===TT)?400:60)){pc.set(e,Infinity);return Infinity;}
+    if(e.kind==='shore'&&landR&&landR.through(a,b,20,20)){pc.set(e,Infinity);return Infinity;}
+    if(e.kind==='lake'){
+      const t1=u===S?tS:null,t2=e.to===TT?tT:null;
+      if((land&&land.cross(a,b,t1??60,t2??60))||(landR&&landR.through(a,b,t1??20,t2??20))){pc.set(e,Infinity);return Infinity;}}
     v=1;
     if(W&&shore&&shore.n){const n=Math.min(30,Math.max(2,Math.ceil(e.len/150)));let s=0;
       for(let k=0;k<n;k++){const t=(k+.5)/n,d=shore.dist([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t],3000);s+=1+W*Math.max(0,d-250)/1000;}v=s/n;}
@@ -2566,7 +2596,9 @@ function findWaterRoute(WG,from,to,o){
   const sum=k=>legs.filter(l=>k(l)).reduce((a,l)=>a+l.len,0);
   const hard=legs.filter(l=>l.kind==='river'&&l.flow<0&&(l.cur||0)>0&&(vP-l.cur)<vP*0.5).reduce((a,l)=>a+l.len,0);
   const r={mode:o.mode||'kayak',hard,time,dist:sum(()=>true),water:sum(l=>l.kind!=='portage'),portage:sum(l=>l.kind==='portage'),
-    down:sum(l=>l.kind==='river'&&l.flow>0&&l.cur>0),up:sum(l=>l.kind==='river'&&l.flow<0&&l.cur>0),lake:sum(l=>l.kind==='lake'||l.kind==='shore'),coords:clean,legs};
+    down:sum(l=>l.kind==='river'&&l.flow>0&&l.cur>0),up:sum(l=>l.kind==='river'&&l.flow<0&&l.cur>0),lake:sum(l=>l.kind==='lake'||l.kind==='shore'||l.kind==='isle'),coords:clean,legs};
+  if(land||landR){const ok=(a,b,t1,t2)=>!((land&&land.cross(a,b,t1,t2))||(landR&&landR.through(a,b,Math.max(20,t1),Math.max(20,t2))));
+    for(let i=2;i<clean.length-1;i++){const a=clean[i-1],b=clean[i];if(!ok(a,b,i===2?tS:60,i===clean.length-2?tT:60)){r.landX=[(a[0]+b[0])/2,(a[1]+b[1])/2];break;}}}
   if(shore&&shore.n&&r.lake>0){let mx=0;for(let i=1;i<clean.length;i++){const a=clean[i-1],b=clean[i],n=Math.min(60,Math.max(1,Math.ceil(hav(a,b)/200)));for(let k=0;k<=n;k++){const t=k/n;mx=Math.max(mx,shore.dist([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t],10000));}}r.maxOff=mx;r.coastal=!!W;}
   /* pasos: el cambio de río o lago y los tramos a pie */
   const steps=[];let acc=0,cur=null;
@@ -5756,14 +5788,14 @@ function areaLine(e){
   return a.length?'<br>'+esc(a.join(' · ')):'';
 }
 function areaForm(st,title,onSave,onBack){
-  st.props=st.props||{};st.props.restrict=Object.assign({foot:false,bike:false,car:false},st.props.restrict);
+  st.props=st.props||{};st.props.restrict=Object.assign({foot:false,bike:false,car:false,kayak:false},st.props.restrict);
   const q=st.props,r=q.restrict,chk=(id,v,txt)=>`<label class="chk"><input type="checkbox" id="${id}" ${v?'checked':''}> ${txt}</label>`;
   openSheet(title,`
     <label>Tipo</label>
     <div class="chips">${Object.entries(AREA_UI).map(([k,[ic,n]])=>`<button data-act="ak" data-k="${k}" class="${k===st.akind?'on':''}">${ic} ${n}</button>`).join('')}</div>
     <label for="an">Nombre (etiqueta en el mapa)</label><input class="in" id="an" value="${esc(st.name||'')}">
     <label>No se puede entrar con (las rutas la evitan)</label>
-    <div class="chips-chk">${chk('rf',r.foot,'🚶 Peatones')}${chk('rb',r.bike,'🚴 Bicis')}${chk('rc',r.car,'🚗 Autos')}</div>
+    <div class="chips-chk">${chk('rf',r.foot,'🚶 Peatones')}${chk('rb',r.bike,'🚴 Bicis')}${chk('rc',r.car,'🚗 Autos')}${chk('rk',r.kayak,'🛶 Kayak y nado (no la cruza ni desembarca)')}</div>
     <label for="az">Se ve en el mapa de calles desde el zoom (vacío = automático)</label><input class="in" id="az" type="number" min="5" max="19" value="${q.minz||''}">
     <label for="anote">Notas</label><textarea class="in" id="anote" rows="2">${esc(q.note||'')}</textarea>
     <label for="atags">Otras etiquetas (una por línea, clave=valor)</label><textarea class="in" id="atags" rows="2">${esc(q.tags||'')}</textarea>
@@ -5778,7 +5810,7 @@ function areaForm(st,title,onSave,onBack){
       else if(a==='ok'){
         const o=st.props;
         if(!o.minz)delete o.minz;if(!o.note)delete o.note;if(!o.tags)delete o.tags;
-        if(!(o.restrict.foot||o.restrict.bike||o.restrict.car))delete o.restrict;
+        if(!(o.restrict.foot||o.restrict.bike||o.restrict.car||o.restrict.kayak))delete o.restrict;
         onSave(st);
       }
       else if(a==='back')onBack&&onBack();
@@ -5789,6 +5821,7 @@ function areaForm(st,title,onSave,onBack){
       else if(t.id==='rf')r.foot=t.checked;
       else if(t.id==='rb')r.bike=t.checked;
       else if(t.id==='rc')r.car=t.checked;
+      else if(t.id==='rk')r.kayak=t.checked;
       else if(t.id==='az')q.minz=num(t.value);
       else if(t.id==='anote')q.note=t.value.trim();
       else if(t.id==='atags')q.tags=t.value;
@@ -6447,12 +6480,13 @@ async function kayakWG(){
   const rivers=[],lakes=[],coasts=[],lims=[],lands=[];let np=0,mx=0;
   for(const e of eds){
     if(e.type==='path'&&e.pts&&e.pts.length>1&&(e.kind==='costa'||e.kind==='limite')){(e.kind==='costa'?coasts:lims).push(e.pts);np+=e.pts.length;mx=Math.max(mx,e.created||0);}
-    if(e.type==='area'&&e.pts&&e.pts.length>=3&&!['agua','medida','cerrada','urbano','edificio'].includes(e.kind)){lands.push(e.pts);np+=e.pts.length;}
+    const kAv=e.props&&e.props.restrict&&e.props.restrict.kayak;
+    if(e.type==='area'&&e.pts&&e.pts.length>=3&&(kAv||!['agua','medida','cerrada','urbano','edificio'].includes(e.kind))){lands.push(e.pts);np+=e.pts.length+(kAv?1:0);}
     if(e.type==='path'&&e.kind==='rio'&&e.pts&&e.pts.length>1){
       const q=e.props||{},fl=q.flow===1?1:q.flow===-1?-1:0,ww=q.ww||'river';
       const cur=fl?(S.kCur==null?2:S.kCur)/3.6*(ww==='canal'?0:ww==='stream'?0.6:1):0;
       rivers.push({pts:fl===-1?e.pts.slice().reverse():e.pts,name:e.name||'',flow:fl?1:0,cur});np+=e.pts.length;mx=Math.max(mx,e.created||0);
-    }else if(e.type==='area'&&e.kind==='agua'&&e.pts&&e.pts.length>=3){lakes.push({pts:e.pts,name:e.name||''});np+=e.pts.length;mx=Math.max(mx,e.created||0);}
+    }else if(e.type==='area'&&e.kind==='agua'&&!kAv&&e.pts&&e.pts.length>=3){lakes.push({pts:e.pts,name:e.name||''});np+=e.pts.length;mx=Math.max(mx,e.created||0);}
   }
   const key=`${rivers.length}|${lakes.length}|${np}|${mx}|${S.kCur}`;
   if(WGC.key!==key){
@@ -6462,7 +6496,10 @@ async function kayakWG(){
     const land=segIndex(pairs(coasts).concat(ringPairs(lands))),limI=segIndex(pairs(lims));
     const edgeOk=([a,b])=>!(limI.n&&limI.dist([(a[0]+b[0])/2,(a[1]+b[1])/2],300)<200);
     const shore=segIndex(pairs(coasts).concat(ringPairs(lands)).concat(ringPairs(lakes.map(l=>l.pts)).filter(edgeOk)));
-    WGC={key,wg:buildWaterGraph(rivers,lakes,{coasts:coasts.concat(lands.map(l=>l.concat([l[0]]))),land}),land,shore,rivers:rivers.length,lakes:lakes.length};
+    /* islas: costas cerradas o casi (la abertura es chica comparada con el contorno) */
+    const closedish=c=>{if(c.length<4)return false;let per=0;for(let i=1;i<c.length;i++)per+=hav(c[i-1],c[i]);return hav(c[0],c[c.length-1])<=Math.max(60,per*.15);};
+    const landR=ringsIndex(coasts.filter(closedish).concat(lands));
+    WGC={key,wg:buildWaterGraph(rivers,lakes,{coasts:coasts.concat(lands.map(l=>l.concat([l[0]]))),land,landR}),land,landR,shore,rivers:rivers.length,lakes:lakes.length};
   }
   return WGC;
 }
@@ -6473,7 +6510,7 @@ async function waterRouteFor(mode,from,to){
   if(!c.wg||!c.wg.nodes)return {err:'sinagua'};
   const o=mode==='swim'
     ?{mode:'swim',vPaddle:swimV(S.swimSec||120),vWalk:1.2,maxSnap:1500,noCross:!!S.swimShore}
-    :{mode:'kayak',vPaddle:(S.vKayak||7)/3.6,vWalk:1.0,maxSnap:8000,land:c.land,shore:c.shore,coastW:S.kCoast!==false?4:0};
+    :{mode:'kayak',vPaddle:(S.vKayak||7)/3.6,vWalk:1.0,maxSnap:8000,land:c.land,landR:c.landR,shore:c.shore,coastW:S.kCoast!==false?4:0};
   const r=findWaterRoute(c.wg,from,to,o);
   if(!r.err)r.hzs=[];
   return r;
@@ -6493,7 +6530,8 @@ function kayakLine(r){
     :`<br><small class="mut">A ${String(S.vKayak||7).replace('.',',')} km/h de remada${cur}. No cuenta represas, rápidos ni saltos: revisá el río antes de salir.</small>`;
   const off=!sw&&r.maxOff!=null?`<br>${r.coastal?'🏝️ Costera':'➡️ Directa'}: ${r.maxOff>1500?`<span style="color:#C0392B"><b>se aleja hasta ${fmtD(r.maxOff)} de la costa</b></span>`:`se aleja como máximo ${fmtD(Math.max(10,Math.round(r.maxOff/10)*10))} de la costa`}`:'';
   const chips=!sw&&r.maxOff!=null?`<div class="chips" style="margin-top:6px"><button data-act="kc" data-v="1" class="${S.kCoast!==false?'on':''}">🏝️ Costera (más segura)</button><button data-act="kc" data-v="0" class="${S.kCoast===false?'on':''}">➡️ Directa</button></div>`:'';
-  return head+off+walk+hard+note+chips;
+  const lx=r.landX?`<br><span style="color:#C0392B"><b>⚠️ Un tramo pasa por tierra</b> (cerca de ${r.landX[0].toFixed(4)}, ${r.landX[1].toFixed(4)}). Revisá que la costa de esa isla esté cerrada y adentro del área de agua.</span>`:'';
+  return head+off+lx+walk+hard+note+chips;
 }
 /* ríos y lagos de OpenStreetMap en la zona que se ve */
 async function osmWaterDownload(){
