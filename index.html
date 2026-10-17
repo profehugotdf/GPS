@@ -4252,7 +4252,7 @@ async function showFix(){
     <div class="row"><button class="btn primary" data-act="cap">📐 Elegir la zona en el mapa</button></div>
     <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar 25 × 25 km centrados':'Bajar 25 × 25 km centrados'}</button>${nets.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button><button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div><p id="netmsg" class="mut"></p>`;
   h+=`<h3>Dibujo vectorial (costas, límites, ríos…)</h3>
-    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">✍️<br>Calcar o dibujar</button><button class="btn big" data-act="geoimp">📥<br>Importar GeoJSON</button><button class="btn big" data-act="osmcl">🌊<br>Costas y límites de OpenStreetMap</button><button class="btn big" data-act="meas">📏<br>Medir</button><button class="btn big" data-act="perim">⬛<br>Armar un área con tramos</button><button class="btn big" data-act="osmw">🏞️<br>Ríos y lagos de OpenStreetMap</button></div>`;
+    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">✍️<br>Calcar o dibujar</button><button class="btn big" data-act="geoimp">📥<br>Importar GeoJSON</button><button class="btn big" data-act="osmcl">🌊<br>Costas y límites de OpenStreetMap</button><button class="btn big" data-act="meas">📏<br>Medir</button><button class="btn big" data-act="perim">⬛<br>Armar un área con tramos</button><button class="btn big" data-act="osmw">🏞️<br>Ríos y lagos de OpenStreetMap</button><button class="btn big" data-act="rdup">🧹<br>Ríos repetidos</button></div>`;
   if(nets.length)h+=`<h3>Corregir las calles</h3>
     <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="pickway">↔️<br>Sentido o cierre de una calle</button><button class="btn big" data-act="nodes">🚫<br>Giros prohibidos y barreras</button></div>`;
   const gs=groupsOf(edits),singles=edits.filter(e=>!e.group);
@@ -4276,6 +4276,7 @@ async function showFix(){
     else if(a==='meas')openMeasure();
     else if(a==='perim')openPerim();
     else if(a==='osmw')osmWaterDownload();
+    else if(a==='rdup')showRiverDups();
     else if(a==='evx')openVEdit(d.id);
     else if(a==='gview'){const it=edits.filter(x=>x.group&&x.group.id===d.id);closeSheet();setFollow(false);map.fitBounds(L.latLngBounds(it.flatMap(x=>x.pts)),{padding:[40,40]});}
     else if(a==='gdel'){if(armed(el)){for(const x of edits.filter(x=>x.group&&x.group.id===d.id))await DB.del('kv','edit:'+x.id);vecInvalidate();await drawEdits();toast('Quitado');showFix();}}
@@ -6617,11 +6618,66 @@ async function osmWaterDownload(){
       else if(a==='go'){
         const items=w.rivers.map(r=>({t:'path',kind:'rio',name:r.name,pts:r.pts,props:{flow:1,ww:r.ww}})).concat(w.lakes.map(l=>({t:'area',kind:'agua',name:l.name,pts:l.pts})));
         await saveGeoItems(items,tol,'Ríos y lagos (OSM)','osm','© OpenStreetMap');kayakDrop();
+        try{const dd=await findRiverDups();if(dd.length)setTimeout(()=>{toast(`Hay ${dd.length} río${dd.length>1?'s':''} repetido${dd.length>1?'s':''} con lo que ya tenías`,4000);showRiverDups();},1500);}catch(er){}
       }
     });
   show();
 }
 
+/* ---------- Ríos repetidos: el mismo río dibujado a mano y bajado de OpenStreetMap ---------- */
+/* Se compara lo dibujado por vos con lo bajado de OpenStreetMap. Según con cuál te quedes:
+   - un río del otro origen que queda casi entero encima (≥70 % a menos de 50 m) se quita;
+   - si queda encima solo en parte (y es de OpenStreetMap), se recorta la parte repetida y se conserva el resto. */
+const rioIsOsm=e=>!!(e.group&&e.group.src==='osm');
+function rioDense(pts,step){const out=[pts[0]];for(let i=1;i<pts.length;i++){const a=pts[i-1],b=pts[i],n=Math.max(1,Math.ceil(hav(a,b)/step));for(let k=1;k<=n;k++)out.push([a[0]+(b[0]-a[0])*k/n,a[1]+(b[1]-a[1])*k/n]);}return out;}
+async function findRiverDups(prefer){
+  prefer=prefer||S.dupPrefer||'mine';
+  const rios=(await DB.all('kv','edit:')).filter(e=>e.type==='path'&&e.kind==='rio'&&e.pts&&e.pts.length>1);
+  if(rios.length<2)return [];
+  const keepMine=prefer==='mine',keep=rios.filter(e=>rioIsOsm(e)!==keepMine),drop=rios.filter(e=>rioIsOsm(e)===keepMine);
+  if(!keep.length||!drop.length)return [];
+  const ix=segIndex(keep.flatMap(o=>o.pts.slice(1).map((p,i)=>[o.pts[i],p])));
+  const out=[];
+  for(const e of drop){
+    const P=rioDense(e.pts,40),near=P.map(p=>ix.dist(p,60)<50),c=near.filter(Boolean).length/P.length;
+    if(c>=.7)out.push({e,c,act:'del',len:polyLen(e.pts,false)});
+    else if(c>=.05&&rioIsOsm(e)){
+      /* tramos que quedan lejos de lo que conservás (con el punto vecino, para que sigan unidos) */
+      const runs=[];let cur=null;
+      P.forEach((p,i)=>{if(!near[i]){if(!cur){cur=i>0?[P[i-1]]:[];runs.push(cur);}cur.push(p);}else if(cur){cur.push(p);cur=null;}});
+      const keepRuns=runs.filter(r=>r.length>1&&polyLen(r,false)>=150).map(r=>simplifyDP(r,5));
+      out.push({e,c,act:'trim',runs:keepRuns,len:polyLen(e.pts,false)});
+    }
+  }
+  return out;
+}
+async function applyRiverDup(x){
+  await DB.del('kv','edit:'+x.e.id);
+  if(x.act==='trim')for(const r of x.runs){const n=Object.assign({},x.e,{id:uid(),pts:r.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]),created:Date.now()});await DB.put('kv','edit:'+n.id,n);}
+}
+async function showRiverDups(){
+  const pref=S.dupPrefer||'mine',d=await findRiverDups(pref);
+  const chips=`<label>Quedarme con</label><div class="chips"><button data-act="dp" data-v="mine" class="${pref==='mine'?'on':''}">✍️ Lo que dibujé yo</button><button data-act="dp" data-v="osm" class="${pref==='osm'?'on':''}">🌐 OpenStreetMap</button></div>
+    <p class="mut">${pref==='mine'?'Tu dibujo manda (por ejemplo, el canal que calcaste entre los bancos de arena): de OpenStreetMap se quita o se recorta lo que repite tu río, y se conserva lo que sigue más allá.':'OpenStreetMap manda: se quitan tus dibujos que quedaron casi enteros encima de un río bajado.'}</p>`;
+  if(!d.length){openSheet('Ríos repetidos',chips+'<p>No hay ríos repetidos con esta elección.</p><div class="row"><button class="btn" data-act="back">Volver</button></div>',onA);return;}
+  const h=chips+d.map((x,i)=>`<div class="card"><b>🏞️ ${esc(x.e.name||'Río sin nombre')}</b> · ${rioIsOsm(x.e)?'de OpenStreetMap':'dibujado por vos'}<br><small class="mut">${fmtLen(x.len)} · ${Math.round(x.c*100)} % encima del otro · ${x.act==='del'?'se quita entero':x.runs.length?`se recorta y quedan ${x.runs.length} tramo${x.runs.length>1?'s':''} (${fmtLen(x.runs.reduce((a,r)=>a+polyLen(r,false),0))})`:'se quita (lo que sobra es muy corto)'}</small>
+      <div class="row"><button class="btn sm" data-act="dv" data-i="${i}">👁️ Ver</button><button class="btn sm danger" data-act="dx" data-i="${i}">${x.act==='del'?'🗑️ Quitar':'✂️ Recortar'}</button></div></div>`).join('')+
+    `<div class="row" style="margin-top:8px"><button class="btn primary" data-act="dall">🧹 Aplicar a los ${d.length}</button><button class="btn" data-act="back">Volver</button></div>
+    <p class="mut">Revisá después que tu río tenga marcado el sentido de la corriente (tocalo → propiedades): sin eso, el kayak no cuenta la corriente a favor ni en contra.</p>`;
+  openSheet('Ríos repetidos',h,onA);
+  async function onA(a,dd,el){
+    if(a==='back')showFix();
+    else if(a==='dp'){S.dupPrefer=dd.v;saveS();showRiverDups();}
+    else if(a==='dv'){const x=d[+dd.i];closeSheet();setFollow(false);map.fitBounds(L.latLngBounds(x.e.pts),{padding:[40,40]});toast('Volvé con Más → Correcciones → 🧹 Ríos repetidos',4000);}
+    else if(a==='dx'||a==='dall'){
+      if(!armed(el))return;
+      const sel=a==='dall'?d:[d[+dd.i]];
+      for(const x of sel)await applyRiverDup(x);
+      try{kayakDrop();}catch(er){}vecInvalidate();await drawEdits();
+      toast(sel.length>1?`Listo: ${sel.length} ríos corregidos`:'Listo',3000);showRiverDups();
+    }
+  }
+}
 /* ---------- ¿El río está unido al agua? (para el kayak) ---------- */
 const KJOIN={lake:300,river:60};       /* las mismas distancias que usa la red de agua */
 async function loadWater(selfId){
