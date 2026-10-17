@@ -171,6 +171,10 @@ body.night svg rect[fill="#0E2A36"]{fill:#7FA2B3}
 body.night svg text{fill:#93A9B2}
 body.night #map{background:#0b151b}
 body.night .leaflet-tile-pane{filter:brightness(.6) contrast(1.05) saturate(.85)}
+/* nombres en castellano sobre el mapa de fondo (Malvinas) */
+.nmfix{font:italic 700 13px system-ui;color:#4B4B6E;background:rgba(242,239,233,.94);border-radius:6px;padding:1px 6px;white-space:nowrap;transform:translate(-50%,-50%);display:inline-block;box-shadow:0 0 6px 4px rgba(242,239,233,.9);pointer-events:none}
+.nmfix.big{font-size:16px}.nmfix.city{font:600 12px system-ui;color:#333;font-style:normal}
+body.night .nmfix{color:#D8D8EE;background:rgba(40,44,52,.94);box-shadow:0 0 6px 4px rgba(40,44,52,.9)}
 body.night.inv .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.85) contrast(.9)}
 body.night .leaflet-ovl-pane img{filter:brightness(.7)}
 body.night .leaflet-control-attribution{background:rgba(15,30,39,.75)!important;color:#93A9B2}
@@ -2776,6 +2780,22 @@ const CachedTiles=L.TileLayer.extend({
 const map=L.map('map',{zoomControl:false,preferCanvas:true,maxZoom:21,rotate:(!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function')&&(S.orient!=='north'||S.fingerRotate!==false)),bearing:0,touchRotate:(!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function')&&S.fingerRotate!==false),shiftKeyRotate:false,rotateControl:false}).setView([-54.8019,-68.3030],13);
 map.attributionControl.setPrefix(false);
 let baseLayer=null;
+/* Nombres que el mapa de fondo trae en inglés: se superpone el nombre en castellano (tapando el original lo más posible) */
+const NAMEFIX=[
+  {t:'Islas Malvinas',ll:[-51.78,-59.35],z0:4,z1:9,cls:'big'},
+  {t:'Isla Soledad',ll:[-51.80,-58.70],z0:8,z1:11},
+  {t:'Isla Gran Malvina',ll:[-51.75,-60.05],z0:8,z1:11},
+  {t:'Puerto Argentino',ll:[-51.692,-57.858],z0:7,z1:13,cls:'city'}
+];
+const nameFixLayer=L.layerGroup().addTo(map);
+function drawNameFix(){
+  nameFixLayer.clearLayers();
+  const z=map.getZoom();
+  for(const n of NAMEFIX)if(z>=n.z0&&z<=n.z1)
+    L.marker(n.ll,{interactive:false,keyboard:false,zIndexOffset:-500,icon:L.divIcon({className:'',html:`<span class="nmfix ${n.cls||''}">${n.t}</span>`,iconSize:[0,0]})}).addTo(nameFixLayer);
+}
+map.on('zoomend',drawNameFix);
+drawNameFix();
 function setLayer(k){
   if(!LAYERS[k])k='sat';
   S.layer=k;saveS();
@@ -5296,7 +5316,7 @@ const GB_LBL=[
 [0,'Océano Pacífico',-8,-140],[0,'Océano Pacífico',32,-155],[0,'Océano Atlántico',-25,-17],[0,'Océano Atlántico',28,-42],[0,'Océano Índico',-20,80],[0,'Océano Ártico',86,0],[0,'Océano Austral',-62,-90],[0,'Mar Caribe',15,-75],[0,'Mar Mediterráneo',35,18],
 [1,'Argentina',-38,-64.5],[1,'Chile',-35,-71.3],[1,'Uruguay',-32.8,-56],[1,'Paraguay',-23.2,-58.4],[1,'Bolivia',-16.7,-64.7],[1,'Perú',-9.2,-74.5],[1,'Brasil',-10,-52],[1,'Ecuador',-1.4,-78.4],[1,'Colombia',4,-73],[1,'Venezuela',7,-66],[1,'Guyana',5,-59],[1,'México',23.5,-102],[1,'EE.UU.',39,-98],[1,'Canadá',58,-100],[1,'Cuba',21.7,-79],[1,'Guatemala',15.5,-90.3],[1,'Panamá',8.5,-80.5],[1,'Groenlandia',72,-41],[1,'Islandia',65,-18.5],[1,'Reino Unido',54,-2.5],[1,'Irlanda',53.2,-8],[1,'Francia',46.6,2.4],[1,'España',40.2,-3.6],[1,'Portugal',39.5,-8],[1,'Italia',42.8,12.5],[1,'Alemania',51,10.3],[1,'Polonia',52,19.4],[1,'Ucrania',49,31.5],[1,'Turquía',39,35],[1,'Rusia',61,95],[1,'Suecia',62,15],[1,'Noruega',61,9],[1,'Finlandia',64.5,26],[1,'Marruecos',31.8,-6.5],[1,'Argelia',28,2.6],[1,'Libia',27,17],[1,'Egipto',26.5,29.8],[1,'Nigeria',9.1,8.7],[1,'Etiopía',8.6,39.6],[1,'Kenia',0.5,37.9],[1,'R.D. del Congo',-2.9,23.6],[1,'Angola',-12.3,17.5],[1,'Sudáfrica',-29,24.5],[1,'Tanzania',-6.3,34.8],[1,'Mali',17.5,-3.5],[1,'Sudán',15.5,30],[1,'Arabia Saudita',24,45],[1,'Irán',32.5,54.3],[1,'Irak',33,43.7],[1,'India',22,79],[1,'Pakistán',30,69.4],[1,'Afganistán',33.9,66],[1,'Kazajistán',48,67],[1,'China',35.5,103],[1,'Mongolia',46.8,103],[1,'Japón',36.5,138],[1,'Corea del Sur',36.3,127.8],[1,'Vietnam',15.5,107],[1,'Tailandia',15.3,101],[1,'Indonesia',-2.5,117],[1,'Filipinas',12.5,122],[1,'Australia',-25.5,134],[1,'Nueva Zelanda',-41,172.5],[1,'Madagascar',-19.5,46.7],[1,'Antártida',-79,40],
 [2,'Buenos Aires',-34.6,-58.4],[2,'Santiago',-33.45,-70.67],[2,'Lima',-12.05,-77.04],[2,'Bogotá',4.71,-74.07],[2,'São Paulo',-23.55,-46.63],[2,'Río de Janeiro',-22.9,-43.2],[2,'Montevideo',-34.9,-56.2],[2,'Asunción',-25.3,-57.6],[2,'La Paz',-16.5,-68.15],[2,'Brasilia',-15.8,-47.9],[2,'Caracas',10.5,-66.9],[2,'Quito',-0.18,-78.47],[2,'Ciudad de México',19.43,-99.13],[2,'Nueva York',40.7,-74],[2,'Los Ángeles',34,-118.2],[2,'Chicago',41.9,-87.6],[2,'Miami',25.8,-80.2],[2,'Toronto',43.65,-79.4],[2,'La Habana',23.1,-82.4],[2,'Londres',51.5,-0.1],[2,'París',48.86,2.35],[2,'Madrid',40.4,-3.7],[2,'Roma',41.9,12.5],[2,'Berlín',52.5,13.4],[2,'Moscú',55.75,37.6],[2,'Estambul',41,29],[2,'El Cairo',30,31.2],[2,'Lagos',6.5,3.4],[2,'Johannesburgo',-26.2,28],[2,'Nairobi',-1.29,36.8],[2,'Dubái',25.2,55.3],[2,'Mumbai',19.07,72.88],[2,'Delhi',28.6,77.2],[2,'Bangkok',13.75,100.5],[2,'Pekín',39.9,116.4],[2,'Shanghái',31.2,121.5],[2,'Tokio',35.7,139.7],[2,'Seúl',37.57,126.98],[2,'Singapur',1.35,103.8],[2,'Yakarta',-6.2,106.8],[2,'Sídney',-33.87,151.2],[2,'Melbourne',-37.8,145],[2,'Auckland',-36.85,174.76],[2,'Ciudad del Cabo',-33.9,18.4],
-[3,'Ushuaia',-54.8,-68.3],[3,'Río Grande',-53.79,-67.7],[3,'Río Gallegos',-51.62,-69.22],[3,'Punta Arenas',-53.16,-70.91],[3,'Islas Malvinas',-51.75,-59.5],[3,'Comodoro Rivadavia',-45.86,-67.5],[3,'Trelew',-43.25,-65.3],[3,'Puerto Madryn',-42.77,-65.04],[3,'Bariloche',-41.13,-71.31],[3,'Neuquén',-38.95,-68.06],[3,'Bahía Blanca',-38.72,-62.27],[3,'Mar del Plata',-38,-57.55],[3,'La Plata',-34.92,-57.95],[3,'Rosario',-32.95,-60.65],[3,'Córdoba',-31.42,-64.18],[3,'Mendoza',-32.89,-68.84],[3,'San Juan',-31.54,-68.54],[3,'San Luis',-33.3,-66.34],[3,'Santa Rosa',-36.62,-64.29],[3,'Paraná',-31.73,-60.53],[3,'Santa Fe',-31.63,-60.7],[3,'Corrientes',-27.47,-58.83],[3,'Posadas',-27.37,-55.9],[3,'Formosa',-26.19,-58.17],[3,'Salta',-24.78,-65.41],[3,'Jujuy',-24.19,-65.3],[3,'Tucumán',-26.82,-65.22],[3,'Santiago del Estero',-27.79,-64.26],[3,'Catamarca',-28.47,-65.78],[3,'La Rioja',-29.41,-66.86],[3,'Iguazú',-25.6,-54.57],[3,'Concepción',-36.83,-73.05],[3,'Valparaíso',-33.05,-71.6],[3,'Puerto Montt',-41.47,-72.94],[3,'Cusco',-13.52,-71.97],[3,'Guayaquil',-2.2,-79.9],[3,'Medellín',6.25,-75.57],[3,'Salvador',-12.97,-38.5],[3,'Recife',-8.05,-34.9],[3,'Manaus',-3.12,-60.02],[3,'Porto Alegre',-30.03,-51.23],[3,'Santa Cruz de la Sierra',-17.8,-63.18]];
+[3,'Ushuaia',-54.8,-68.3],[3,'Río Grande',-53.79,-67.7],[3,'Río Gallegos',-51.62,-69.22],[3,'Punta Arenas',-53.16,-70.91],[1,'Islas Malvinas',-51.75,-59.3],[3,'Comodoro Rivadavia',-45.86,-67.5],[3,'Trelew',-43.25,-65.3],[3,'Puerto Madryn',-42.77,-65.04],[3,'Bariloche',-41.13,-71.31],[3,'Neuquén',-38.95,-68.06],[3,'Bahía Blanca',-38.72,-62.27],[3,'Mar del Plata',-38,-57.55],[3,'La Plata',-34.92,-57.95],[3,'Rosario',-32.95,-60.65],[3,'Córdoba',-31.42,-64.18],[3,'Mendoza',-32.89,-68.84],[3,'San Juan',-31.54,-68.54],[3,'San Luis',-33.3,-66.34],[3,'Santa Rosa',-36.62,-64.29],[3,'Paraná',-31.73,-60.53],[3,'Santa Fe',-31.63,-60.7],[3,'Corrientes',-27.47,-58.83],[3,'Posadas',-27.37,-55.9],[3,'Formosa',-26.19,-58.17],[3,'Salta',-24.78,-65.41],[3,'Jujuy',-24.19,-65.3],[3,'Tucumán',-26.82,-65.22],[3,'Santiago del Estero',-27.79,-64.26],[3,'Catamarca',-28.47,-65.78],[3,'La Rioja',-29.41,-66.86],[3,'Iguazú',-25.6,-54.57],[3,'Concepción',-36.83,-73.05],[3,'Valparaíso',-33.05,-71.6],[3,'Puerto Montt',-41.47,-72.94],[3,'Cusco',-13.52,-71.97],[3,'Guayaquil',-2.2,-79.9],[3,'Medellín',6.25,-75.57],[3,'Salvador',-12.97,-38.5],[3,'Recife',-8.05,-34.9],[3,'Manaus',-3.12,-60.02],[3,'Porto Alegre',-30.03,-51.23],[3,'Santa Cruz de la Sierra',-17.8,-63.18]];
 function gbLabels(ctx){
   const h=GB.D-1,boxes=[],wc=gbLabels.wc||(gbLabels.wc={});
   const ok=[t=>h>.7,t=>h>.28&&h<5,t=>h<2.4,t=>h<.5];
