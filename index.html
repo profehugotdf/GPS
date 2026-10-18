@@ -6654,7 +6654,9 @@ async function findRiverDups(prefer){
       const runs=[];let cur=null;
       P.forEach((p,i)=>{if(!near[i]){if(!cur){cur=i>0?[P[i-1]]:[];runs.push(cur);}cur.push(p);}else if(cur){cur.push(p);cur=null;}});
       const keepRuns=runs.filter(r=>r.length>1&&polyLen(r,false)>=150).map(r=>simplifyDP(r,5));
-      out.push({e,c,act:'trim',runs:keepRuns,len:polyLen(e.pts,false),over});
+      /* un afluente que solo toca tu río en la desembocadura no es un repetido: se lista solo si de verdad se saca un tramo */
+      const L=polyLen(e.pts,false),cut=L-keepRuns.reduce((a,r)=>a+polyLen(r,false),0);
+      if(c*L>=300&&cut>=200)out.push({e,c,act:'trim',runs:keepRuns,len:L,over,cut});
     }
   }
   return out;
@@ -6668,9 +6670,11 @@ async function showRiverDups(){
   const chips=`<label>Quedarme con</label><div class="chips"><button data-act="dp" data-v="mine" class="${pref==='mine'?'on':''}">✍️ Lo que dibujé yo</button><button data-act="dp" data-v="osm" class="${pref==='osm'?'on':''}">🌐 OpenStreetMap</button></div>
     <p class="mut">${pref==='mine'?'Tu dibujo manda (por ejemplo, el canal que calcaste entre los bancos de arena): de OpenStreetMap se quita o se recorta lo que repite tu río, y se conserva lo que sigue más allá.':'OpenStreetMap manda: se quitan tus dibujos que quedaron casi enteros encima de un río bajado.'}</p>`;
   if(!d.length){openSheet('Ríos repetidos',chips+'<p>No hay ríos repetidos con esta elección.</p><div class="row"><button class="btn" data-act="back">Volver</button></div>',onA);return;}
-  const h=chips+`<p><b>En la lista están solo los que se van a quitar o recortar (${pref==='mine'?'los de OpenStreetMap':'tus dibujos'}). ${pref==='mine'?'Tus dibujos no aparecen porque no se tocan.':''}</b> Con 👁️ Ver los mirás en el mapa: <span style="color:#D0392B">rojo</span> = el que se va, <span style="color:#1E9E5A">verde</span> = el que se queda.</p>`+d.map((x,i)=>`<div class="card"><b>🏞️ ${esc(x.e.name||'Río sin nombre')}</b> · ${rioOrigin(x.e)}<br><small class="mut">Repite a: ${x.over.length?x.over.map(k=>`<b>${esc(k.name||'río sin nombre')}</b> (${rioOrigin(k)}, ${fmtLen(polyLen(k.pts,false))})`).join(' y '):'—'}<br>${fmtLen(x.len)} · ${Math.round(x.c*100)} % encima · ${x.act==='del'?'se quita entero':x.runs.length?`se recorta y quedan ${x.runs.length} tramo${x.runs.length>1?'s':''} (${fmtLen(x.runs.reduce((a,r)=>a+polyLen(r,false),0))})`:'se quita (lo que sobra es muy corto)'}</small>
+  const nd=d.filter(x=>x.act==='del').length,nt=d.length-nd;
+  const top=`<div class="card"><b>${d.length} río${d.length>1?'s':''} para corregir</b>: ${nd?`${nd} se quita${nd>1?'n':''}`:''}${nd&&nt?' y ':''}${nt?`${nt} se recorta${nt>1?'n':''}`:''}.<div class="row" style="margin-top:8px"><button class="btn primary" data-act="dall">🧹 Corregir todos de una vez</button></div></div>`;
+  const h=chips+top+`<p><b>En la lista están solo los que se van a quitar o recortar (${pref==='mine'?'los de OpenStreetMap':'tus dibujos'}). ${pref==='mine'?'Tus dibujos no aparecen porque no se tocan.':''}</b> Con 👁️ Ver los mirás en el mapa: <span style="color:#D0392B">rojo</span> = el que se va, <span style="color:#1E9E5A">verde</span> = el que se queda.</p>`+d.map((x,i)=>`<div class="card"><b>🏞️ ${esc(x.e.name||'Río sin nombre')}</b> · ${rioOrigin(x.e)}<br><small class="mut">Repite a: ${x.over.length?x.over.map(k=>`<b>${esc(k.name||'río sin nombre')}</b> (${rioOrigin(k)}, ${fmtLen(polyLen(k.pts,false))})`).join(' y '):'—'}<br>${fmtLen(x.len)} · ${Math.round(x.c*100)} % encima · ${x.act==='del'?'se quita entero':x.runs.length?`se recorta y quedan ${x.runs.length} tramo${x.runs.length>1?'s':''} (${fmtLen(x.runs.reduce((a,r)=>a+polyLen(r,false),0))})`:'se quita (lo que sobra es muy corto)'}</small>
       <div class="row"><button class="btn sm" data-act="dv" data-i="${i}">👁️ Ver</button><button class="btn sm danger" data-act="dx" data-i="${i}">${x.act==='del'?'🗑️ Quitar':'✂️ Recortar'}</button></div></div>`).join('')+
-    `<div class="row" style="margin-top:8px"><button class="btn primary" data-act="dall">🧹 Aplicar a los ${d.length}</button><button class="btn" data-act="back">Volver</button></div>
+    `<div class="row" style="margin-top:8px"><button class="btn primary" data-act="dall">🧹 Corregir todos (${d.length})</button><button class="btn" data-act="back">Volver</button></div>
     <p class="mut">Revisá después que tu río tenga marcado el sentido de la corriente (tocalo → propiedades): sin eso, el kayak no cuenta la corriente a favor ni en contra.</p>`;
   dupLayer.clearLayers();
   openSheet('Ríos repetidos',h,onA);
