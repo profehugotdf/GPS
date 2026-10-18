@@ -4151,6 +4151,7 @@ async function showCircuitEdit(id){
     ${warn.map(w=>`<p class="mut">${w.startsWith('ℹ️')?'':'⚠️ '}${esc(w)}</p>`).join('')}
     <div class="row" style="margin-top:8px"><button class="btn primary" data-act="gadd">＋ Agregar puerta</button><button class="btn" data-act="here">📍 En mi posición</button></div>
     <p class="mut">Cada puerta se ubica tocando el mapa. Elegís el rol (largada, parcial, llegada o largada/llegada), el ancho, si cuenta en un solo sentido o en los dos, y el giro de 0 a 359°. Las puertas se recorren en el orden de esta lista.</p>
+    ${tp!=='closed'&&c.gates.length===1?`<div class="card">Esta puerta es solo de <b>largada</b>, así que no cuenta vueltas. Para que cada paso marque una vuelta tiene que ser <b>🔁 Largada/Llegada</b>.<div class="row" style="margin-top:6px"><button class="btn primary" data-act="tolap">🔁 Convertir en circuito de vueltas</button></div></div>`:''}
     ${tp==='closed'?`<label for="cnl">Cantidad de vueltas de la carrera (vacío = sin límite)</label><input class="in" id="cnl" type="number" min="1" max="500" inputmode="numeric" value="${c.nLaps||''}" placeholder="Ej: 10">
     <p class="mut">${hasLapFin(c)?'Con llegada aparte, la carrera termina al cruzarla; las vueltas sirven para avisarte la última.':'Al completar esa cantidad de vueltas termina la carrera: te canta “¡Última vuelta!” y al final el tiempo total.'}</p>`:''}
     <label class="chk"><input type="checkbox" id="cw" ${c.watch!==false?'checked':''}> Vigilar en cada grabación</label>
@@ -4172,6 +4173,7 @@ async function showCircuitEdit(id){
         await save();await resetRunsOf(id);showCircuitEdit(id);
       }
       else if(a==='ok')showCircuitDetail(id);
+      else if(a==='tolap'){await freezeGates(c);c.gates[0].role='startfinish';await save();await resetRunsOf(id);toast('Listo: cada paso por la puerta marca una vuelta. Abajo podés poner la cantidad de vueltas.',5000);showCircuitEdit(id);}
       else if(a==='del'&&armed(el)){await DB.del('kv','circuit:'+id);await resetRunsOf(id);editingCirc=null;refreshGates();showCircuits();}
     },
     async t=>{
