@@ -4079,6 +4079,8 @@ async function showCircuitDetail(id,act){
       <p class="mut">Tocá un sector para ponerle nombre (“Recta de la costa”, “Zona de curvas”) y corregir sus características. El viento se compara solo: al largar se mira el viento del momento y el rumbo de cada sector.${c.terrain&&c.terrain.n===nS?` Terreno ${c.terrain.src==='dem'?'calculado con la altura del terreno':c.terrain.src==='gps'?'calculado con la altura del GPS (aproximado)':'sin datos de altura'}${c.terrain.path==='line'?', en línea recta entre puertas':c.terrain.path==='track'?', sobre tu mejor vuelta':''}.`:''}</p>
       <div class="row"><button class="btn sm" data-act="terr">⛰️ ${c.terrain&&c.terrain.n===nS?'Volver a calcular':'Calcular'} terreno y curvas</button></div>`;
   }
+  if(circType(c)==='closed')h+=`<label for="dnl" style="margin-top:10px">🔁 Vueltas de la carrera (vacío = sin límite)</label><input class="in" id="dnl" type="number" min="1" max="500" inputmode="numeric" value="${c.nLaps||''}" placeholder="Ej: 10" style="max-width:140px">`;
+  else if(c.gates.length===1)h+=`<p class="mut" style="margin-top:10px">Esta puerta es solo de largada y no cuenta vueltas: en <b>Editar puertas</b> tocá <b>🔁 Convertir en circuito de vueltas</b>.</p>`;
   h+=`<div class="row" style="margin-top:10px"><button class="btn primary" data-act="go1">🏎️ ${REC.state==='idle'?'Salir a hacerlo ahora':'Cronometrar solo este'}</button></div>`;
   h+=`<div class="row" style="margin-top:10px"><button class="btn" data-act="edit">Editar puertas</button><button class="btn sm ${c.watch!==false?'primary':''}" data-act="watch">${c.watch!==false?'Vigilando ✓':'Sin vigilar'}</button><button class="btn" data-act="back">Volver</button></div>
     ${mine.length?'<button class="btn danger sm" data-act="reset">Reiniciar récords de este circuito</button>':''}`;
@@ -4100,7 +4102,7 @@ async function showCircuitDetail(id,act){
       for(const r of mine)await DB.del('kv','run:'+r.id);
       RUNS=RUNS.filter(r=>r.cid!==id);toast('Récords reiniciados');showCircuitDetail(id);
     }
-  });
+  },async t=>{if(t.id==='dnl')await setCircLaps(c,t.value);});
 }
 /* Nombre y características de un sector */
 async function showSectorEdit(id,i,act){
@@ -4179,8 +4181,15 @@ async function showCircuitEdit(id){
     async t=>{
       if(t.id==='cn'){c.name=t.value.trim()||c.name;await DB.put('kv','circuit:'+id,c);}
       else if(t.id==='cw'){c.watch=t.checked;await DB.put('kv','circuit:'+id,c);}
-      else if(t.id==='cnl'){const v=Math.round(+t.value);c.nLaps=v>0?Math.min(500,v):null;await DB.put('kv','circuit:'+id,c);toast(c.nLaps?`Carrera a ${c.nLaps} vuelta${c.nLaps>1?'s':''}`:'Vueltas sin límite',2500);}
+      else if(t.id==='cnl')await setCircLaps(c,t.value);
     });
+}
+/* cantidad de vueltas de la carrera; si ese circuito se está cronometrando, se aplica en el momento */
+async function setCircLaps(c,val){
+  const v=Math.round(+val);c.nLaps=v>0?Math.min(500,v):null;await DB.put('kv','circuit:'+c.id,c);
+  for(const t of REC.timers||[])if(t.circ.id===c.id){t.circ.nLaps=c.nLaps;t.gt.nLaps=t.gt.roles[0]==='startfinish'&&c.nLaps?c.nLaps:null;
+    if(t.gt.nLaps&&!t.gt.race&&t.gt.cur)t.gt.race={start:t.gt.cur.start,lap0:t.gt.laps.length};}
+  toast(c.nLaps?`Carrera a ${c.nLaps} vuelta${c.nLaps>1?'s':''}${REC.state!=='idle'?' (ya cuenta en esta grabación)':''}`:'Vueltas sin límite',3000);
 }
 /* Si cambian las puertas, las marcas viejas dejan de ser comparables */
 async function resetRunsOf(cid){
