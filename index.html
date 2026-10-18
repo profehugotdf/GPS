@@ -278,6 +278,30 @@ body.gbOn #tgt{z-index:1060;top:calc(var(--top) + 64px);max-width:calc(100% - 80
 #netpill[hidden]{display:none}
 #shpill{position:fixed;top:calc(var(--top) + 52px);right:12px;z-index:905;background:rgba(122,63,224,.9);color:#fff;border-radius:16px;padding:6px 12px;font:700 13px system-ui;box-shadow:0 1px 5px rgba(0,0,0,.35);border:0}
 #shpill.bad{background:rgba(190,90,0,.92)}
+
+.hcirc.isf1{display:block}
+.f1{margin-top:2px}
+.f1h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.f1h span{font-size:13px;color:var(--mut)}
+.f1h b{font:700 26px/1 var(--num);font-variant-numeric:tabular-nums}
+.f1h .d{font:700 20px/1 var(--num)}
+.f1 .good{color:#1E9E57}.f1 .bad{color:#D23B1E}
+.f1s{display:flex;gap:3px;margin-top:6px}
+.f1s i{flex:1;min-width:0;border-radius:5px;background:var(--foam);font:700 12px/1.2 var(--num);font-style:normal;font-variant-numeric:tabular-nums;text-align:center;padding:3px 1px;color:var(--ink);overflow:hidden;white-space:nowrap;min-height:14px}
+.f1s i small{display:block;font:700 10px/1.2 system-ui;opacity:.85}
+.f1s i.p{background:#8E3BD8;color:#fff}.f1s i.g{background:#1FA15A;color:#fff}.f1s i.y{background:#F2C200;color:#222}.f1s i.n{background:#7D8C92;color:#fff}
+.f1s i.run{box-shadow:inset 0 0 0 2px var(--ink);animation:f1r 1.2s infinite}
+@keyframes f1r{50%{opacity:.5}}
+.f1n{font-size:13px;margin-top:4px;display:flex;gap:4px 12px;flex-wrap:wrap}
+.f1n b{font-variant-numeric:tabular-nums}
+.secl{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}
+.secl button{border:2px solid var(--line);background:var(--foam);border-radius:12px;padding:6px;text-align:left;color:var(--ink);font:600 14px system-ui}
+.secl small{display:block;font-size:11px;color:var(--mut);font-weight:500}
+#fol .f1{margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.25)}
+#fol .f1h span{color:#fff;opacity:.85}#fol .f1h b{font-size:22px}
+#fol .f1s i{font-size:11px}#fol .f1s i:not(.p):not(.g):not(.y):not(.n){background:rgba(255,255,255,.18);color:#fff}
+#fol .f1 .good{color:#7CF0A8}#fol .f1 .bad{color:#FFB09C}
+#fol .f1s i.y{color:#222}#fol .f1s i.run{box-shadow:inset 0 0 0 2px #fff}
 #shpill[hidden],#fol[hidden]{display:none}
 #fol{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:906;display:flex;gap:8px;align-items:center;background:rgba(40,20,80,.62);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:8px 8px 8px 12px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45)}
 #fol .fb{flex:1;min-width:0}
@@ -2990,7 +3014,8 @@ function onFix(f){
   const a=Math.round(f.acc||0),cls=a<=10?'ok':a<=25?'mid':'bad';
   const pill=$('#pill');pill.className=cls;pill.lastElementChild.textContent=`GPS ±${a} m`;
   $('#hGps').textContent=`GPS ±${a} m`;
-  if(REC.state==='rec')ingest(f);
+  if(REC.state==='rec'){ingest(f);try{waTick();}catch(e){}}
+  try{waPump();}catch(e){}
   if(NAV.on)navOnFix(f);
   if(SH.on)try{shTick(f);}catch(e){}
 }
@@ -3050,7 +3075,7 @@ function cue(text,d,kind){
 }
 
 /* ---------- Actividades y récords ---------- */
-const ACT={walk:['🚶','Caminata'],run:['🏃','Correr'],bike:['🚴','Bici'],car:['🚗','Auto'],kayak:['🛶','Kayak']};
+const ACT={walk:['🚶','Caminata'],run:['🏃','Correr'],bike:['🚴','Bici'],car:['🚗','Auto'],kayak:['🛶','Kayak'],swim:['🏊','Natación']};
 let RUNS=[];
 const loadRuns=async()=>{RUNS=await DB.all('kv','run:');};
 const resOf=tr=>tr.res||(tr.laps&&tr.laps.length&&tr.circuitId?[{cid:tr.circuitId,name:'',type:'closed',laps:tr.laps}]:[]);
@@ -3114,19 +3139,25 @@ function makeTimer(circ){
     return b;
   };
   ent.gt=new GateTimer(circ,{
-    onStart:()=>{cue(circ.name+', largada',null,'gate');REC.last={txt:circ.name+' · largada',d:null};setGhost(ent);},
+    onStart:()=>{cue(circ.name+', largada',null,'gate');REC.last={txt:circ.name+' · largada',d:null};setGhost(ent);REC.lastEnt=ent;SH.tmDirty=true;
+      if((!secTypes(circ)||!circ.terrain.shape)&&nSecOf(circ)>=2&&!ent.terrBusy){ent.terrBusy=true;circTerrain(circ).catch(()=>{});}
+      entWind(ent);
+      ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});},
     onGate:(gi,rel,idx)=>{
       const r=ent.ref(false),d=r&&r.splits[idx-1]!=null?rel-r.splits[idx-1]:null;
       const marks=ent.gt.cur.marks,sec=rel-(idx>1?marks[idx-2]-ent.gt.cur.start:0);
       const sb=sectorBests(RUNS,circ.id,REC.act,null);
       for(const l of ent.gt.laps)lapSectors(l).forEach((s,i)=>{if(sb[i]==null||s<sb[i])sb[i]=s;});
       const gold=sb[idx-1]!=null&&sec<sb[idx-1];
-      REC.last={txt:`Puerta ${gi} ${fmtT(rel,true)}${gold?' ⚡':''}`,d};
+      REC.last={txt:`Puerta ${gi} ${fmtT(rel,true)}${gold?' ⚡':''}`,d};SH.tmDirty=true;
+      try{const cs=ent.gt.cur,secs=cs.marks.map((m,i,a)=>m-(i?a[i-1]:cs.start));waSector(ent,secs,ent.ref(false),ent.gt.laps.length+1);}catch(e){}
       cue(`Puerta ${gi}${gold?', sector récord':''}`,d,'gate');
     },
     onLap:lap=>{
       const r=ent.ref(true),d=r?lap.time-r.time:null,pb=!!r&&lap.time<r.time;
-      lap.pb=pb;
+      lap.pb=pb;REC.lastEnt=ent;SH.tmDirty=true;
+      try{waSector(ent,lapSectors(lap),r,lap.n);}catch(e){}
+      if(ent.gt.cur){ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});}
       const nm=circ.type==='p2p'?'':`Vuelta ${lap.n}, `;
       REC.last={txt:`${circ.type==='p2p'?'Tramo':'Vuelta '+lap.n} ${fmtT(lap.time,true)}${pb?' 🏆':''}`,d};
       if(pb){toast(`🏆 ¡Nuevo récord en ${circ.name}!`,5000);cue(`¡Nuevo récord! ${nm}${spoken(lap.time)}`,d,'lap');}
@@ -3138,9 +3169,140 @@ function makeTimer(circ){
 }
 const activeTimer=()=>{let b=null;for(const t of REC.timers)if(t.gt.cur&&(!b||t.gt.cur.start>b.gt.cur.start))b=t;return b;};
 
+/* ====================== ⌚ AVISOS AL RELOJ ======================
+   El teléfono va en la boya (o en el bolsillo) y no se ve la pantalla: Rumbo manda notificaciones que el reloj repite
+   (Garmin Connect, Wear OS, etc.). El reloj vibra siempre igual con cada notificación, así que el código va por cantidad:
+   1 aviso = vas igual o mejor en ese tramo · 3 avisos seguidos = vas peor. */
+const WA={id:5000,chan:false,q:[],warned:false,last:null,next:null};
+const waCfg=()=>Object.assign({on:false,gates:true,every:0,only:'all',tol:1,n:3,gap:3},S.watch||{});
+function waPump(){
+  if(!WA.q.length)return;
+  const now=Date.now();
+  for(const it of WA.q.filter(x=>x.at<=now)){WA.q.splice(WA.q.indexOf(it),1);it.fn();}
+}
+setInterval(waPump,1000);
+async function waPost(title,body){
+  const LN=isNative()?plugin('LocalNotifications'):null;
+  if(!LN){toast(`⌚ ${title}${body?' · '+body:''}`,3500);return false;}
+  try{
+    if(!WA.chan){try{await LN.createChannel({id:'reloj',name:'Avisos al reloj',description:'Ritmo por tramos, para que los repita el reloj',importance:5,visibility:1,vibration:true});}catch(e){}WA.chan=true;}
+    const id=++WA.id;
+    await LN.schedule({notifications:[{id,title,body:body||'',channelId:'reloj',autoCancel:true}]});
+    /* se borran solas al rato, para no llenar la barra de notificaciones */
+    WA.q.push({at:Date.now()+120000,fn:()=>{LN.cancel({notifications:[{id}]}).catch(()=>{});}});
+    return true;
+  }catch(e){
+    if(!WA.warned){WA.warned=true;toast('No pude mandar el aviso al reloj: hace falta la versión nueva de la app (con notificaciones) y darle permiso',6000);}
+    return false;
+  }
+}
+/* good: igual o mejor. Mejor = 1 aviso; peor = varios seguidos, separados unos segundos para que el reloj vibre cada vez */
+function waSignal(good,title,body,force){
+  const c=waCfg();
+  if(!force&&(!c.on||c.only==='bad'&&good))return;
+  WA.last={good,title,body,t:Date.now()};
+  WA.q=WA.q.filter(x=>!x.rep);   /* un aviso nuevo corta las repeticiones del anterior, para no mezclarlos */
+  waPost(`${good?'✅':'⚠️'} ${title}`,body);
+  if(!good)for(let k=1;k<c.n;k++)WA.q.push({rep:true,at:Date.now()+k*c.gap*1000,fn:()=>waPost(`⚠️ ${title} (${k+1}/${c.n})`,body)});
+}
+/* perfil de distancia-tiempo de la vuelta de referencia, para comparar cada N metros */
+async function waProfile(ent){
+  ent.prof=null;
+  const r=ent.ref(false);if(!r||!r.t0||!r.tid)return;
+  let all=r.tid===REC.id?REC.pts:ghostCache[r.tid];
+  if(!all){const tr=await DB.get('kv','track:'+r.tid);all=tr?tr.pts:null;if(all)ghostCache[r.tid]=all;}
+  if(!all)return;
+  const pts=all.filter(p=>p[2]>=r.t0-1000&&p[2]<=r.t0+r.time+1000);if(pts.length<2)return;
+  const D=[0],T=[pts[0][2]-r.t0];
+  for(let i=1;i<pts.length;i++){D.push(D[i-1]+hav(pts[i-1],pts[i]));T.push(pts[i][2]-r.t0);}
+  ent.prof={D,T,time:r.time};
+}
+function profTimeAt(pf,d){
+  if(!pf||d>pf.D[pf.D.length-1])return null;
+  let i=1;while(i<pf.D.length-1&&pf.D[i]<d)i++;
+  const a=pf.D[i-1],b=pf.D[i],t=b>a?(d-a)/(b-a):0;
+  return pf.T[i-1]+(pf.T[i]-pf.T[i-1])*t;
+}
+const waTol=()=>waCfg().tol*1000;
+/* al pasar una puerta: el sector recién terminado contra el mismo sector de tu récord */
+function waSector(ent,secs,ref,lapN){
+  const c=waCfg();if(!c.on||!c.gates||!ref)return;
+  const i=secs.length-1,rs=lapSectors(ref);if(rs[i]==null)return;
+  const d=secs[i]-rs[i],nm=secNames(ent.circ)[i];
+  const cum=secs.reduce((a,b)=>a+b,0)-rs.slice(0,i+1).reduce((a,b)=>a+b,0);
+  waSignal(d<=waTol(),`S${i+1}${nm?' '+nm:''} ${fmtDelta(d)}`,`${ent.circ.type==='p2p'?'Tramo':'Vuelta '+lapN} · total ${fmtDelta(cum)}`);
+}
+/* cada N metros, desde la última puerta de largada (con circuito) o desde que empezaste a grabar (sin circuito) */
+function waTick(){
+  const c=waCfg();if(!c.on||!c.every||REC.state!=='rec'||!lastFix)return;
+  const N=c.every,now=lastFix.t,at=activeTimer();
+  if(at&&at.gt.cur&&at.d0!=null){
+    const dl=REC.dist-at.d0;
+    if(at.wNext==null)at.wNext=N;
+    if(dl>=at.wNext){
+      at.wNext=(Math.floor(dl/N)+1)*N;
+      const rt=profTimeAt(at.prof,dl);
+      if(rt==null)return;
+      const delta=now-at.gt.cur.start-rt,tr=delta-(at.wPrev||0);at.wPrev=delta;
+      if(WA.last&&Date.now()-WA.last.t<20000)return;   /* recién avisó una puerta: no se pisan */
+      waSignal(tr<=waTol(),`${Math.round(dl)} m: tramo ${fmtDelta(tr)}`,`contra tu récord · total ${fmtDelta(delta)}`);
+    }
+    return;
+  }
+  if(at)return;
+  /* sin circuito: cada tramo de N metros contra tu promedio de hoy */
+  if(!WA.next||WA.next.rec!==REC.id){WA.next={rec:REC.id,d:Math.ceil((REC.dist+1)/N)*N,t0:now,d0:REC.dist};return;}
+  if(REC.dist>=WA.next.d){
+    const n=WA.next,dt=now-n.t0,dd=REC.dist-n.d0,el=elapsed();
+    const pace=dd>0?dt/dd:null,avg=REC.dist>0?el/REC.dist:null;
+    WA.next={rec:REC.id,d:(Math.floor(REC.dist/N)+1)*N,t0:now,d0:REC.dist};
+    if(pace==null||avg==null||REC.dist<N*1.5)return;
+    const diff=(pace-avg)*N;
+    waSignal(diff<=waTol(),`${fmtD(REC.dist)}: ${fmtPace100(pace*100/1000)}`,`${fmtDelta(diff)} cada ${N} m contra tu promedio`);
+  }
+}
+async function waPermission(){
+  const LN=isNative()?plugin('LocalNotifications'):null;if(!LN)return 'web';
+  try{let p=await LN.checkPermissions();if(p.display!=='granted')p=await LN.requestPermissions();return p.display;}catch(e){return 'missing';}
+}
+function showWatch(){
+  const c=waCfg(),ch=(id,cur,opts)=>`<div class="chips">${opts.map(([k,n])=>`<button data-act="${id}" data-k="${k}" class="${String(k)===String(cur)?'on':''}">${n}</button>`).join('')}</div>`;
+  openSheet('⌚ Avisos al reloj',`
+    <p class="mut">Para cuando no podés mirar el teléfono (por ejemplo, nadando con el teléfono en la boya). Rumbo manda notificaciones y el reloj las repite y vibra: <b>1 vibración = vas igual o mejor</b> en ese tramo, <b>${c.n} vibraciones seguidas = vas peor</b>. Si levantás la muñeca, ves el detalle.</p>
+    <label class="chk"><input type="checkbox" id="wOn" ${c.on?'checked':''}> Mandar avisos mientras grabo</label>
+    <label class="chk"><input type="checkbox" id="wG" ${c.gates?'checked':''}> Al pasar cada puerta (sector contra tu récord)</label>
+    <label>Además, cada</label>${ch('wE',c.every,[[0,'No'],[50,'50 m'],[100,'100 m'],[200,'200 m'],[250,'250 m'],[500,'500 m'],[1000,'1 km']])}
+    <p class="mut">Con circuito, cada tramo se compara con tu récord en el mismo punto de la vuelta. Sin circuito, con tu ritmo promedio de esa salida.</p>
+    <label>Avisar</label>${ch('wO',c.only,[['all','Siempre'],['bad','Solo si voy peor']])}
+    <label>Margen para considerar “igual”</label>${ch('wT',c.tol,[[0.5,'½ s'],[1,'1 s'],[2,'2 s'],[5,'5 s']])}
+    <p class="mut">Si en ese tramo perdiste menos que esto, cuenta como igual (el GPS en el agua tiene algo de error).</p>
+    <label>Cuando voy peor, cuántos avisos</label>${ch('wN',c.n,[[2,'2'],[3,'3'],[4,'4']])}
+    <div class="row" style="margin-top:10px"><button class="btn" data-act="t1">Probar ✅ (1)</button><button class="btn" data-act="t3">Probar ⚠️ (${c.n})</button></div>
+    <p class="mut">En el reloj Garmin: Garmin Connect → el reloj → Notificaciones y alertas → que muestre las de Rumbo, y activalas también <b>durante la actividad</b>. El Bluetooth no pasa bajo el agua: el aviso llega cuando el reloj sale en la brazada, con unos segundos de atraso. Probalo primero en tierra con los botones de arriba.</p>`,
+    async(a,d)=>{
+      const s=Object.assign({},waCfg());
+      if(a==='wE')s.every=+d.k;else if(a==='wO')s.only=d.k;else if(a==='wT')s.tol=+d.k;else if(a==='wN')s.n=+d.k;
+      else if(a==='t1'||a==='t3'){
+        const p=await waPermission();if(p==='denied'){toast('Rumbo no tiene permiso para notificaciones: activalo en los ajustes del teléfono',5000);return;}
+        if(a==='t1')waSignal(true,'Prueba: vas bien','Así llega cuando vas igual o mejor',true);
+        else waSignal(false,'Prueba: vas peor','Así llega cuando vas peor',true);
+        return;
+      }
+      S.watch=s;saveS();showWatch();
+    },
+    async t=>{
+      const s=Object.assign({},waCfg());
+      if(t.id==='wOn'){s.on=t.checked;if(s.on){const p=await waPermission();if(p==='denied')toast('Falta el permiso de notificaciones para Rumbo',5000);else if(p==='missing')toast('Esta versión de la app todavía no puede mandar notificaciones: instalá la nueva',6000);}}
+      else if(t.id==='wG')s.gates=t.checked;
+      S.watch=s;saveS();
+    });
+}
+
 async function startRec(){
   unlockAudio();
-  const circs=(await DB.all('kv','circuit:')).filter(c=>c.gates.length&&c.watch!==false);
+  let circs=(await DB.all('kv','circuit:')).filter(c=>c.gates.length&&c.watch!==false);
+  if(S.focusCirc){const fc=await DB.get('kv','circuit:'+S.focusCirc);if(fc&&fc.gates.length)circs=[fc];}
+  Object.assign(REC,{lastEnt:null});
   Object.assign(REC,{state:'rec',id:uid(),t0:Date.now(),pausedMs:0,pauseAt:0,seg:0,pts:[],dist:0,speed:0,last:null,lastSave:Date.now(),act:S.act});
   REC.timers=circs.map(makeTimer);
   REC.poly=L.polyline([],{color:'#F04A1C',weight:5,opacity:.95}).addTo(map);
@@ -3191,8 +3353,20 @@ function tickHud(){
   $('#hS').textContent=fmtSp(REC.speed,S.speedMode);
   $('#hSU').textContent=SP_UNIT[S.speedMode];
   const c=$('#hCirc'),at=activeTimer();
-  if(at){
+  const f1e=at&&nSecOf(at.circ)>=2?at:!at&&REC.lastEnt&&REC.timers.includes(REC.lastEnt)&&REC.lastEnt.gt.laps.length&&nSecOf(REC.lastEnt.circ)>=2?REC.lastEnt:null;
+  if(f1e){
     c.hidden=false;
+    const now=lastFix?lastFix.t+(Date.now()-lastFixWall):Date.now();
+    c.innerHTML=f1Html(f1ModelRec(f1e),now)+(at?'':`<div class="f1n"><span>Vigilando: cruzá una largada para otra vuelta</span></div>`);
+    c.classList.add('isf1');
+    if(at&&ghost&&ghost.ent===at){
+      const el=now-at.gt.cur.start,p=posAt(ghost.pts,el);
+      if(p)ghost.mk.setLatLng(p);
+      if(el>ghost.time+8000)clearGhost();
+    }
+    if(!at)clearGhost();
+  }else if(at){
+    c.hidden=false;c.classList.remove('isf1');
     const gt=at.gt,now=lastFix?lastFix.t+(Date.now()-lastFixWall):Date.now(),b=at.ref(false),closed=at.circ.type!=='p2p';
     let h=`<span>${esc(at.circ.name)}</span><span>${closed?'Vuelta '+(gt.laps.length+1):'Tramo'}</span><b>${fmtT(now-gt.cur.start,true)}</b>`;
     if(b)h+=`<span>🏆 ${fmtT(b.time,true)}</span>`;
@@ -3204,13 +3378,17 @@ function tickHud(){
       if(el>ghost.time+8000)clearGhost();
     }
   }else if(REC.timers.length){
-    c.hidden=false;
+    c.hidden=false;c.classList.remove('isf1');
     c.innerHTML=`<span>${REC.last?esc(REC.last.txt)+' · ':''}Vigilando ${REC.timers.length} circuito${REC.timers.length>1?'s':''}: cruzá una largada</span>`;
     clearGhost();
   }else c.hidden=true;
   if(Date.now()-REC.lastSave>30000)autosave();
 }
 setInterval(tickHud,500);
+$('#hCirc').addEventListener('click',()=>{
+  const e=activeTimer()||REC.lastEnt;
+  if(e&&REC.state!=='idle'&&nSecOf(e.circ)>=2)showF1Table(f1ModelRec(e));
+});
 $('#hSpWrap').onclick=()=>{const m=['kmh','minkm','min500'];S.speedMode=m[(m.indexOf(S.speedMode)+1)%3];saveS();tickHud();};
 
 async function stopFlow(){
@@ -3240,7 +3418,7 @@ async function stopFlow(){
 }
 async function saveRec(name){
   const pts=REC.pts.slice();
-  const res=REC.timers.filter(t=>t.gt.laps.length).map(t=>({cid:t.circ.id,name:t.circ.name,type:t.circ.type,laps:t.gt.laps.map(l=>({n:l.n,start:l.start,time:l.time,splits:l.splits}))}));
+  const res=REC.timers.filter(t=>t.gt.laps.length).map(t=>({cid:t.circ.id,name:t.circ.name,type:t.circ.type,wind:t.wind||null,laps:t.gt.laps.map(l=>({n:l.n,start:l.start,time:l.time,splits:l.splits}))}));
   const tr={id:REC.id,name:name||'Salida '+fmtDate(REC.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),act:REC.act,res,src:'rec'};
   await commitRuns(tr);
   await DB.put('kv','track:'+tr.id,tr);
@@ -3253,7 +3431,8 @@ async function saveRec(name){
 async function endRec(){
   stopWatch();keepAwake(false);clearGhost();
   if(REC.poly){map.removeLayer(REC.poly);REC.poly=null;}
-  Object.assign(REC,{state:'idle',pts:[],timers:[],last:null,dist:0,speed:0});
+  Object.assign(REC,{state:'idle',pts:[],timers:[],last:null,lastEnt:null,dist:0,speed:0});
+  if(S.focusCirc){S.focusCirc=null;saveS();}
   await DB.del('kv','rec:current').catch(()=>{});
   $('#hud').classList.remove('on');updRecUi();refreshGates();
   setFollow(NAV.on);startWatch(NAV.on||SH.on,NAV.on?'Guiando la ruta':'Compartiendo tu posición');
@@ -3415,7 +3594,8 @@ function lapBlock(r){
   const bl=bestOf(laps).time,bs=[];
   for(let i=0;i<nS;i++)bs.push(Math.min(...secs.map(s=>s[i])));
   const theo=bs.reduce((a,b)=>a+b,0);
-  let h=`<h3>${esc(r.name||'Circuito')}</h3><div class="tblw"><table class="tbl"><tr><th>#</th><th>Tiempo</th>${bs.map((_,i)=>`<th>S${i+1}</th>`).join('')}</tr>`;
+  const htags=r.tags||(r.types?{terr:r.types}:{}),hg=pickGrp(htags,S.f1Group,null);
+  let h=`<h3>${esc(r.name||'Circuito')}</h3><div class="tblw"><table class="tbl"><tr><th>#</th><th>Tiempo</th>${bs.map((_,i)=>`<th>S${i+1}${hg?gIcon(hg,htags[hg][i]):''}</th>`).join('')}</tr>`;
   laps.forEach((l,i)=>{
     h+=`<tr><td>${l.pb?'🏆 ':''}${l.n}</td><td class="${l.time===bl?'bl':''}">${fmtT(l.time,true)}</td>${secs[i].map((s,j)=>`<td class="${s===bs[j]?'bs':''}">${fmtT(s,true)}${l.gold&&l.gold[j]?' ⚡':''}</td>`).join('')}</tr>`;
   });
@@ -3423,12 +3603,234 @@ function lapBlock(r){
   const pb=laps.find(l=>l.pb);
   if(pb)h+=`<p><b>🏆 ¡Récord!</b> ${fmtT(pb.time,true)}${pb.delta!=null?' ('+fmtDelta(pb.delta)+' contra tu marca anterior)':''}</p>`;
   if(laps.length>1)h+=`<p class="mut">Verde: mejor vuelta · Violeta: mejor sector de esta salida · ⚡ mejor sector de siempre · Vuelta teórica: <b>${fmtT(theo,true)}</b></p>`+barChart(laps.map(l=>l.time),laps.map(l=>l.n),laps.findIndex(l=>l.time===bl));
+  h+=secExtraHtml(r,laps,nS);
   return h;
 }
 const fmtDelta=ms=>(ms<0?'−':'+')+(Math.abs(ms)/1000).toFixed(1)+' s';
+/* ====================== SECTORES TIPO FÓRMULA 1 ====================== */
+/* Cada sector entre puertas puede tener nombre y varias características para comparar: terreno, trazado, viento y corriente */
+const TERR={up:['⬆️','Subida','Subidas'],down:['⬇️','Bajada','Bajadas'],flat:['➡️','Plano','Planos'],roll:['〰️','Ondulado','Ondulados']};
+const TERR_ORD=['up','flat','roll','down'];
+const SECG={
+  terr:{n:'Terreno',v:TERR},
+  shape:{n:'Trazado',v:{straight:['📏','Recta','Rectas'],curvy:['🌀','Curvas','Curvas']}},
+  wind:{n:'Viento',v:{head:['🌬️','Viento en contra','Viento en contra'],tail:['🍃','Viento a favor','Viento a favor'],cross:['↔️','Viento de costado','Viento de costado']}},
+  curr:{n:'Corriente',v:{fav:['🌊','Corriente a favor','Corriente a favor'],con:['🚧','Corriente en contra','Corriente en contra'],cross:['↗️','Corriente cruzada','Corriente cruzada']}}
+};
+const SECG_ORD=['terr','shape','wind','curr'];
+const nSecOf=c=>{const n=c.gates.length;return circType(c)==='closed'?n:Math.max(0,n-1);};
+const secInfo=c=>{const n=nSecOf(c),s=(c.secs||[]).slice(0,n);while(s.length<n)s.push({});return s.map(x=>x||{});};
+function secTypes(c){
+  const t=c.terrain,n=nSecOf(c);
+  if(!t||t.n!==n)return null;
+  return t.kind.map((k,i)=>(t.man&&t.man[i])||k);
+}
+/* viento relativo a tu marcha: comparando el rumbo del sector con de dónde viene el viento */
+function windRel(brg,w){
+  if(brg==null||!w||!(w.spd>=6))return null;
+  const d=Math.abs((((brg-w.dir)%360)+540)%360-180);
+  return d<=60?'head':d>=120?'tail':'cross';
+}
+function secTags(c,wind){
+  const n=nSecOf(c),t=c.terrain&&c.terrain.n===n?c.terrain:null,si=secInfo(c),o={};
+  o.terr=secTypes(c);
+  const sh=si.map((s,i)=>s.shape||(t&&t.shape?t.shape[i]:null));o.shape=sh.some(Boolean)?sh:null;
+  const cu=si.map(s=>s.curr||null);o.curr=cu.some(Boolean)?cu:null;
+  const wi=t&&t.brg?t.brg.map(b=>windRel(b,wind)):null;o.wind=wi&&wi.some(Boolean)?wi:null;
+  return o;
+}
+const secNames=c=>secInfo(c).map(s=>s.name||'');
+function pickGrp(tags,pref,act){
+  if(pref&&tags[pref])return pref;
+  if(act==='kayak'&&tags.wind)return 'wind';
+  if(act==='kayak'&&tags.curr)return 'curr';
+  return SECG_ORD.find(g=>tags[g])||null;
+}
+function sectorKind(d,g,l,net){
+  if(!(d>0))return 'flat';
+  const up=g/d,dn=l/d,gr=net/d;
+  if(gr>0.015&&dn<up*0.5)return 'up';
+  if(gr<-0.015&&up<dn*0.5)return 'down';
+  if(up>0.015&&dn>0.015)return 'roll';
+  if(gr>0.015)return 'up';
+  if(gr<-0.015)return 'down';
+  return 'flat';
+}
+/* corta una línea entre dos distancias medidas desde su inicio */
+function cutLine(P,cum,s0,s1){
+  const at=s=>{let i=1;while(i<P.length-1&&cum[i]<s)i++;const t=cum[i]>cum[i-1]?Math.max(0,Math.min(1,(s-cum[i-1])/(cum[i]-cum[i-1]))):0;return {i,p:[P[i-1][0]+(P[i][0]-P[i-1][0])*t,P[i-1][1]+(P[i][1]-P[i-1][1])*t]};};
+  const a=at(s0),b=at(s1),out=[a.p];
+  for(let i=a.i;i<b.i;i++)out.push([P[i][0],P[i][1]]);
+  out.push(b.p);return out;
+}
+/* trazas de cada sector: tu mejor vuelta grabada, o la ruta con la que se armó el recorrido, o líneas rectas entre puertas */
+async function sectorPaths(c){
+  const n=nSecOf(c);if(n<1)return null;
+  const runs=RUNS.filter(r=>r.cid===c.id&&r.splits&&r.splits.length===n).sort((a,b)=>a.time-b.time);
+  for(const r of runs.slice(0,3)){
+    const tr=await DB.get('kv','track:'+r.tid);if(!tr||!tr.pts)continue;
+    const b=[r.t0,...r.splits.map(s=>r.t0+s)],ss=[];let ok=true;
+    for(let i=0;i<n;i++){const p=tr.pts.filter(q=>q[2]>=b[i]-1500&&q[2]<=b[i+1]+1500);if(p.length<2){ok=false;break;}ss.push(p);}
+    if(ok)return {src:'track',segs:ss};
+  }
+  const roles=gateRoles(c),G=c.gates.map((g,i)=>upgradeGate(g,roles[i]).c);
+  if(c.path&&c.path.length>1){
+    const P=c.path,cum=[0];for(let i=1;i<P.length;i++)cum.push(cum[i-1]+hav(P[i-1],P[i]));
+    let prev=0;const s=G.map(g=>{let best=null;for(let i=1;i<P.length;i++){if(cum[i]<prev)continue;const pr=projSeg(P[i-1],P[i],g),d=cum[i-1]+pr.t*(cum[i]-cum[i-1]);if(!best||pr.d<best.d-1)best={d:pr.d,s:d};}prev=best?best.s:prev;return prev;});
+    if(circType(c)==='closed')s.push(cum[cum.length-1]);
+    const segs=[];for(let i=0;i<n;i++)segs.push(cutLine(P,cum,s[i],s[i+1]));
+    return {src:'path',segs};
+  }
+  const segs=[];for(let i=0;i<n;i++)segs.push([G[i],G[(i+1)%G.length]]);
+  return {src:'line',segs};
+}
+/* curvas: cuánto gira el camino cada 100 m (se mira cada 40 m para no confundir el ruido del GPS con curvas) */
+function shapeOf(pts){
+  const d=polyLen(pts,false);if(d<80)return {k:'straight',turn:0};
+  const R=[],n=Math.floor(d/40);for(let k=0;k<=n;k++){const p=pointAlong(pts,k*40);R.push([p.lat,p.lon]);}
+  let tot=0,h0=null;
+  for(let j=1;j<R.length;j++){if(hav(R[j-1],R[j])<5)continue;const h=bearingTo(R[j-1],R[j]);if(h0!=null){const dd=Math.abs((((h-h0)%360)+540)%360-180);if(dd>=12)tot+=dd;}h0=h;}
+  return {k:tot/(d/100)>=15?'curvy':'straight',turn:Math.round(tot)};
+}
+async function circTerrain(c,o){
+  o=o||{};const n=nSecOf(c);if(n<1)return null;
+  const sp=await sectorPaths(c);if(!sp)return null;
+  const all=[];for(const s of sp.segs)for(const p of s)all.push([p[0],p[1]]);
+  const z=13,list=demTilesAlong(all,z,20);
+  let dem=null;
+  if(list.length&&list.length<=60){
+    const falta=await demMissing(list,z);
+    const ok=!falta||(o.ask?await netAllowed('bajar la altura del terreno'):(S.dataMode==='allow'&&navigator.onLine!==false));
+    if(ok)try{dem=await fetchDemList(list,z);}catch(e){dem=null;}
+  }
+  const kind=[],info=[],shape=[],brg=[];let usedDem=false,usedGps=false;
+  for(let i=0;i<n;i++){
+    const s=sp.segs[i].map(p=>[p[0],p[1]]),d=polyLen(s,false);
+    const a=s[0],b=s[s.length-1];brg.push(hav(a,b)>Math.max(40,d*0.15)?Math.round(bearingTo(a,b)):null);
+    if(sp.src==='line')shape.push(null);else{const q=shapeOf(s);shape.push(q.k);}
+    let g=null,l=null,net=null;
+    if(dem&&d>20){const p=reliefProfile(s,(la,lo)=>sampleDem(dem,z,la,lo),{step:15});if(!p.error){g=p.gain;l=p.loss;net=p.end-p.start;usedDem=true;}}
+    if(g==null&&sp.src==='track'){
+      const al=sp.segs[i].map(p=>p[4]).filter(v=>v!=null);
+      if(al.length>2){g=0;l=0;let ref=al[0];for(const v of al)if(Math.abs(v-ref)>=3){if(v>ref)g+=v-ref;else l+=ref-v;ref=v;}net=al[al.length-1]-al[0];usedGps=true;}
+    }
+    if(g==null){kind.push('flat');info.push({d:Math.round(d),nz:1});continue;}
+    kind.push(sectorKind(d,g,l,net));info.push({d:Math.round(d),g:Math.round(g),l:Math.round(l),net:Math.round(net)});
+  }
+  const man=c.terrain&&c.terrain.n===n&&c.terrain.man||[];
+  c.terrain={n,kind,info,man,shape,brg,src:usedDem?'dem':usedGps?'gps':'none',path:sp.src,at:Date.now()};
+  await DB.put('kv','circuit:'+c.id,c);
+  return c.terrain;
+}
+
+/* --- panel en vivo --- */
+const sgnS=fmtDelta;
+const gIcon=(g,k)=>g&&k&&SECG[g]&&SECG[g].v[k]?SECG[g].v[k][0]:'';
+/* m: {name,closed,nSec,tags:{terr,shape,wind,curr},names,act,hist:{time,splits},sb:[],laps:[{n,start,time,splits}],cur:{n,start,marks}} */
+function f1Calc(m,now){
+  const n=m.nSec,laps=m.laps||[];
+  let L=null,live=false;
+  if(m.cur&&m.cur.start!=null){L={n:m.cur.n,start:m.cur.start,splits:(m.cur.marks||[]).map(x=>x-m.cur.start)};live=true;}
+  else if(laps.length)L=laps[laps.length-1];
+  if(!L||!n)return null;
+  /* referencia: tu récord (de antes o de esta misma salida), sin contar la vuelta que se muestra */
+  let ref=m.hist&&m.hist.splits&&m.hist.splits.length===n?m.hist:null;
+  const sb=(m.sb||[]).slice(0,n);
+  for(const l of laps){
+    if(l.n>=L.n||!l.splits||l.splits.length!==n)continue;
+    if(!ref||l.time<ref.time)ref=l;
+    lapSectors(l).forEach((s,i)=>{if(sb[i]==null||s<sb[i])sb[i]=s;});
+  }
+  const tags=m.tags||(m.types?{terr:m.types}:{}),grp=pickGrp(tags,m.grp,m.act),vals=grp?tags[grp]:[];
+  const rs=ref?lapSectors(ref):[],sec=lapSectors(L),cells=[];
+  for(let i=0;i<n;i++){
+    const k=vals[i]||null;
+    if(i<sec.length){const t=sec[i],d=rs[i]!=null?t-rs[i]:null;cells.push({i,k,t,d,col:sb[i]!=null&&t<sb[i]?'p':d==null?'n':d<0?'g':'y'});}
+    else if(live&&i===sec.length)cells.push({i,k,run:true,el:Math.max(0,now-L.start-(L.splits[i-1]||0)),ref:rs[i],sb:sb[i]});
+    else cells.push({i,k});
+  }
+  const done=sec.length,el=live?Math.max(0,now-L.start):L.time;
+  const cd=ref&&done?L.splits[done-1]-ref.splits[done-1]:null;
+  const byT={};
+  for(const c of cells)if(c.d!=null&&c.k){const b=byT[c.k]=byT[c.k]||{d:0,n:0};b.d+=c.d;b.n++;}
+  return {L,live,ref,cells,el,cd,pred:live&&ref&&cd!=null?ref.time+cd:null,byT,done,n,grp,tags};
+}
+function f1Html(m,now){
+  const c=f1Calc(m,now);if(!c)return '';
+  const g=c.grp,ic=k=>gIcon(g,k),lab=c.n<=10,val=c.n<=5,nm=i=>m.names&&m.names[i]?' · '+esc(m.names[i]):'';
+  let h=`<div class="f1" data-f1="1"><div class="f1h"><span>${esc(m.name)} · ${m.closed?'Vuelta '+c.L.n:'Tramo'}${c.live?'':' ✓'}</span><b>${fmtT(c.el,true)}</b>`;
+  if(c.cd!=null)h+=`<span class="d ${c.cd<0?'good':'bad'}">${sgnS(c.cd)}</span>`;
+  if(c.pred)h+=`<span>→ ${fmtT(c.pred,true)}</span>`;
+  h+=`</div><div class="f1s">`+c.cells.map(x=>`<i class="${x.run?'run':x.col||''}">${lab?`<small>S${x.i+1}${ic(x.k)}</small>`:`<small>${c.n<=16?ic(x.k):''}</small>`}${val?(x.t!=null?fmtT(x.t,true):x.run?fmtT(x.el):'&nbsp;'):''}</i>`).join('')+`</div>`;
+  const run=c.cells.find(x=>x.run),last=c.done?c.cells[c.done-1]:null,nl=[];
+  if(last&&last.t!=null)nl.push(`<span>S${last.i+1}${nm(last.i)} ${ic(last.k)} <b>${fmtT(last.t,true)}</b>${last.d!=null?` <span class="${last.d<0?'good':'bad'}">${sgnS(last.d)}</span>`:''}${last.col==='p'?' ⚡':''}</span>`);
+  if(run)nl.push(`<span>Ahora S${run.i+1}${nm(run.i)} ${ic(run.k)} ${fmtT(run.el)}${run.ref!=null?` / ${fmtT(run.ref)}`:''}</span>`);
+  if(nl.length)h+=`<div class="f1n">${nl.join('')}</div>`;
+  const tk=g?Object.keys(SECG[g].v).filter(k=>c.byT[k]):[];
+  if(tk.length&&c.ref)h+=`<div class="f1n">${tk.map(k=>`<span>${SECG[g].v[k][0]} ${SECG[g].v[k][2]} <b class="${c.byT[k].d<0?'good':'bad'}">${sgnS(c.byT[k].d)}</b></span>`).join('')}</div>`;
+  return h+'</div>';
+}
+/* tiempo de cada vuelta sumado por característica: para ver dónde mejorás */
+function groupTable(laps,vals,g){
+  if(!vals||!laps.length)return '';
+  const ks=Object.keys(SECG[g].v).filter(k=>vals.includes(k));if(ks.length<2)return '';
+  const rows=laps.filter(l=>l.splits&&l.splits.length===vals.length).map(l=>{const s=lapSectors(l),o={};for(const k of ks)o[k]=0;s.forEach((v,i)=>{if(o[vals[i]]!=null)o[vals[i]]+=v;});return {l,o};});
+  if(!rows.length)return '';
+  const best={};for(const k of ks)best[k]=Math.min(...rows.map(r=>r.o[k]));
+  const cnt=k=>vals.filter(t=>t===k).length;
+  return `<h3>Por ${SECG[g].n.toLowerCase()}</h3><div class="tblw"><table class="tbl"><tr><th>#</th>${ks.map(k=>`<th>${SECG[g].v[k][0]} ${SECG[g].v[k][2]} (${cnt(k)})</th>`).join('')}</tr>`+
+    rows.map(r=>`<tr><td>${r.l.n}</td>${ks.map(k=>`<td class="${rows.length>1&&r.o[k]===best[k]?'bs':''}">${fmtT(r.o[k],true)}</td>`).join('')}</tr>`).join('')+`</table></div>`;
+}
+const terrainTable=(laps,types)=>groupTable(laps,types,'terr');
+/* bloque para las tablas: nombres de sectores, tablas por característica y comparación con el récord anterior */
+function secExtraHtml(r,laps,nS){
+  const tags=r.tags||(r.types?{terr:r.types}:{});let h='';
+  if(r.names&&r.names.some(Boolean))h+=`<p class="mut">${r.names.map((x,i)=>x?`S${i+1} ${esc(x)}`:'').filter(Boolean).join(' · ')}</p>`;
+  for(const g of SECG_ORD)if(tags[g]&&tags[g].length===nS)h+=groupTable(laps,tags[g],g);
+  const b=bestOf(laps),pv=r.prev&&r.prev.splits&&r.prev.splits.length===nS?lapSectors(r.prev):null;
+  if(b&&pv){
+    const sb=lapSectors(b),lines=[];
+    for(const g of SECG_ORD){
+      const v=tags[g];if(!v||v.length!==nS)continue;const o={};
+      sb.forEach((x,i)=>{if(v[i])o[v[i]]=(o[v[i]]||0)+x-pv[i];});
+      const ks=Object.keys(SECG[g].v).filter(k=>o[k]!=null);
+      if(ks.length)lines.push(ks.map(k=>`${SECG[g].v[k][0]} ${SECG[g].v[k][2]} <b style="color:${o[k]<0?'var(--kelp)':'var(--buoy)'}">${fmtDelta(o[k])}</b>`).join(' · '));
+    }
+    if(lines.length)h+=`<p>Tu mejor vuelta de hoy contra tu récord anterior (${fmtT(r.prev.time,true)}):<br>${lines.join('<br>')}</p>`;
+  }
+  if(r.wind)h+=`<p class="mut">Viento al largar: ${Math.round(r.wind.spd)} km/h del ${compassWord(r.wind.dir)}.</p>`;
+  return h;
+}
+function showF1Table(m){
+  const laps=(m.laps||[]).filter(l=>l.splits&&l.splits.length===m.nSec);
+  const c=f1Calc(m,Date.now()),gs=SECG_ORD.filter(g=>m.tags&&m.tags[g]);
+  let h=`<p class="mut">Colores de cada sector: <b style="color:#8E3BD8">violeta</b> mejor de siempre · <b style="color:#1FA15A">verde</b> más rápido que en tu récord · <b style="color:#C9A000">amarillo</b> más lento · gris sin comparación.</p>`;
+  if(gs.length>1)h+=`<label>En el panel, comparar por</label><div class="chips">${gs.map(g=>`<button data-act="grp" data-k="${g}" class="${c&&c.grp===g?'on':''}">${SECG[g].n}</button>`).join('')}</div>`;
+  if(c)h+=f1Html(m,Date.now());
+  h+=laps.length?lapBlock({name:m.name,laps,tags:m.tags,names:m.names,wind:m.wind}):'<p class="mut">Todavía no hay vueltas completas.</p>';
+  openSheet('🏎️ Sectores',h,(a,d)=>{if(a==='grp'){S.f1Group=d.k;saveS();showF1Table(Object.assign({},m,{grp:d.k}));if(typeof FOL!=='undefined'&&FOL.on)folPanel();}});
+}
+function f1ModelRec(ent){
+  const c=ent.circ,gt=ent.gt;
+  if(!ent.base){const b=bestBy(RUNS,c.id,REC.act,null);ent.base={hist:b?{time:b.time,splits:b.splits}:null,sb:sectorBests(RUNS,c.id,REC.act,null)};}
+  return {id:c.id,name:c.name,closed:circType(c)==='closed',nSec:nSecOf(c),tags:secTags(c,ent.wind),names:secNames(c),wind:ent.wind||null,act:REC.act,grp:S.f1Group||null,
+    hist:ent.base.hist,sb:ent.base.sb,
+    laps:gt.laps.map(l=>({n:l.n,start:l.start,time:l.time,splits:l.splits})),
+    cur:gt.cur?{n:gt.laps.length+1,start:gt.cur.start,marks:gt.cur.marks.slice()}:null};
+}
+/* viento del momento para comparar sectores (si hay internet, o el último clima consultado cerca) */
+async function entWind(ent){
+  if(ent.wind||!lastFix)return;
+  try{const w=await wxGet(lastFix.lat,lastFix.lon);const cu=w&&w.sum&&w.sum.cur;if(cu&&cu.wind_direction_10m!=null)ent.wind={dir:cu.wind_direction_10m,spd:cu.wind_speed_10m||0};}catch(e){}
+}
 async function showTrackDetail(id){
   const tr=await DB.get('kv','track:'+id);if(!tr){showTracks();return;}
-  const s=tr.stats,res=resOf(tr).filter(r=>r.laps.length),u=SP_UNIT[S.speedMode];
+  const s=tr.stats,res0=resOf(tr).filter(r=>r.laps.length),u=SP_UNIT[S.speedMode],res=[];
+  for(const r of res0){
+    const c=await DB.get('kv','circuit:'+r.cid).catch(()=>null);
+    let prev=null;for(const x of RUNS)if(x.cid===r.cid&&x.act===tr.act&&x.tid!==tr.id&&x.t0<tr.t0&&(!prev||x.time<prev.time))prev=x;
+    res.push(Object.assign({},r,{tags:c?secTags(c,r.wind):null,names:c?secNames(c):null,prev}));
+  }
   openSheet('Track',`<input class="in" id="tn" value="${esc(tr.name)}" aria-label="Nombre">
     <p class="mut">${fmtDate(tr.t0)}</p>
     <div class="chips">${Object.entries(ACT).map(([k,[e,n]])=>`<button data-act="act" data-k="${k}" class="${k===(tr.act||'bike')?'on':''}">${e} ${n}</button>`).join('')}</div>
@@ -3588,12 +3990,29 @@ async function showCircuitDetail(id,act){
     const ev=recent.slice(0,15).reverse();
     if(ev.length>1)h+=`<h3>Evolución</h3>`+barChart(ev.map(r=>r.time),ev.map((_,i)=>i+1),ev.findIndex(r=>r.time===best.time));
   }
+  const nS=nSecOf(c);
+  if(nS>=2){
+    const tg=secTags(c,null),si=secInfo(c),inf=c.terrain&&c.terrain.n===nS?c.terrain.info:[];
+    h+=`<h3>Sectores</h3><div class="secl">${si.map((x,i)=>{const f=inf[i]||{},ch=['terr','shape','curr'].filter(g=>tg[g]&&tg[g][i]).map(g=>SECG[g].v[tg[g][i]][0]+' '+SECG[g].v[tg[g][i]][1]);
+      return `<button data-act="sed" data-i="${i}"><b>S${i+1}${x.name?' · '+esc(x.name):''}</b><small>${ch.join(' · ')||'sin datos'}${f.d?` · ${fmtD(f.d)}`:''}${f.g!=null?` · ↑${f.g} ↓${f.l} m`:''}</small></button>`;}).join('')}</div>
+      <p class="mut">Tocá un sector para ponerle nombre (“Recta de la costa”, “Zona de curvas”) y corregir sus características. El viento se compara solo: al largar se mira el viento del momento y el rumbo de cada sector.${c.terrain&&c.terrain.n===nS?` Terreno ${c.terrain.src==='dem'?'calculado con la altura del terreno':c.terrain.src==='gps'?'calculado con la altura del GPS (aproximado)':'sin datos de altura'}${c.terrain.path==='line'?', en línea recta entre puertas':c.terrain.path==='track'?', sobre tu mejor vuelta':''}.`:''}</p>
+      <div class="row"><button class="btn sm" data-act="terr">⛰️ ${c.terrain&&c.terrain.n===nS?'Volver a calcular':'Calcular'} terreno y curvas</button></div>`;
+  }
+  h+=`<div class="row" style="margin-top:10px"><button class="btn primary" data-act="go1">🏎️ ${REC.state==='idle'?'Salir a hacerlo ahora':'Cronometrar solo este'}</button></div>`;
   h+=`<div class="row" style="margin-top:10px"><button class="btn" data-act="edit">Editar puertas</button><button class="btn sm ${c.watch!==false?'primary':''}" data-act="watch">${c.watch!==false?'Vigilando ✓':'Sin vigilar'}</button><button class="btn" data-act="back">Volver</button></div>
     ${mine.length?'<button class="btn danger sm" data-act="reset">Reiniciar récords de este circuito</button>':''}`;
   openSheet('Circuito',h,async(a,d,el)=>{
     if(a==='actf')showCircuitDetail(id,d.k);
     else if(a==='tr')showTrackDetail(d.id);
     else if(a==='edit')showCircuitEdit(id);
+    else if(a==='terr'){el.textContent='Calculando…';const t=await circTerrain(c,{ask:true}).catch(()=>null);if(!t)toast('No se pudo calcular el terreno',3500);showCircuitDetail(id,act);}
+    else if(a==='sed')showSectorEdit(id,+d.i,act);
+    else if(a==='go1'){
+      S.focusCirc=id;saveS();closeSheet();
+      if(!secTypes(c)&&nSecOf(c)>=2)circTerrain(c).catch(()=>{});
+      if(REC.state==='idle')await startRec();
+      else{if(!REC.timers.some(t=>t.circ.id===id))REC.timers.push(makeTimer(c));refreshGates();toast(`🏎️ Cronometrando ${c.name}`,3000);}
+    }
     else if(a==='watch'){c.watch=c.watch===false;await DB.put('kv','circuit:'+id,c);showCircuitDetail(id,act);}
     else if(a==='back')showCircuits();
     else if(a==='reset'&&armed(el)){
@@ -3601,6 +4020,33 @@ async function showCircuitDetail(id,act){
       RUNS=RUNS.filter(r=>r.cid!==id);toast('Récords reiniciados');showCircuitDetail(id);
     }
   });
+}
+/* Nombre y características de un sector */
+async function showSectorEdit(id,i,act){
+  const c=await DB.get('kv','circuit:'+id);if(!c)return;
+  const n=nSecOf(c);c.secs=secInfo(c);const x=c.secs[i];
+  const t=c.terrain&&c.terrain.n===n?c.terrain:null,auto={terr:t?t.kind[i]:null,shape:t&&t.shape?t.shape[i]:null};
+  const cur={terr:t&&t.man&&t.man[i]||null,shape:x.shape||null,curr:x.curr||null};
+  const chips=(g,opts,autoK)=>`<label>${SECG[g].n}</label><div class="chips">${g!=='curr'?`<button data-act="v" data-g="${g}" data-k="" class="${!cur[g]?'on':''}">Automático${autoK?' ('+SECG[g].v[autoK][1].toLowerCase()+')':''}</button>`:`<button data-act="v" data-g="${g}" data-k="" class="${!cur[g]?'on':''}">No cuenta</button>`}${opts.map(k=>`<button data-act="v" data-g="${g}" data-k="${k}" class="${cur[g]===k?'on':''}">${SECG[g].v[k][0]} ${SECG[g].v[k][1]}</button>`).join('')}</div>`;
+  const f=t&&t.info[i]||{};
+  openSheet(`Sector ${i+1} de ${n}`,`<label for="snm">Nombre</label><input class="in" id="snm" value="${esc(x.name||'')}" placeholder="Ej: Recta de la costa">
+    <p class="mut">${f.d?fmtD(f.d):''}${f.g!=null?` · ↑${f.g} ↓${f.l} m`:''}${t&&t.brg&&t.brg[i]!=null?` · rumbo ${compassWord(t.brg[i])}`:''}</p>
+    ${chips('terr',TERR_ORD,auto.terr)}${chips('shape',['straight','curvy'],auto.shape)}${chips('curr',['fav','con','cross'],null)}
+    <p class="mut">La corriente se pone a mano, según la pista y la marea que elijas para entrenar o competir. Si cambia mucho, podés armar dos circuitos con las mismas puertas (por ejemplo “Bahía con bajante” y “Bahía con creciente”).</p>
+    <div class="row" style="margin-top:10px">${i>0?'<button class="btn" data-act="prev">‹ Anterior</button>':''}${i<n-1?'<button class="btn" data-act="next">Siguiente ›</button>':''}<button class="btn primary" data-act="back">Listo</button></div>`,
+    async(a,d)=>{
+      const nmEl=$('#snm');if(nmEl)c.secs[i].name=nmEl.value.trim().slice(0,40);
+      if(a!=='v')await DB.put('kv','circuit:'+id,c);
+      if(a==='v'){
+        if(d.g==='terr'){if(!c.terrain||c.terrain.n!==n){toast('Primero calculá el terreno (o esperá a que se calcule)',3500);return;}c.terrain.man=c.terrain.man||[];c.terrain.man[i]=d.k||null;}
+        else c.secs[i][d.g]=d.k||null;
+        await DB.put('kv','circuit:'+id,c);showSectorEdit(id,i,act);
+      }
+      else if(a==='prev')showSectorEdit(id,i-1,act);
+      else if(a==='next')showSectorEdit(id,i+1,act);
+      else if(a==='back')showCircuitDetail(id,act);
+    },
+    async el=>{if(el.id==='snm'){c.secs[i].name=el.value.trim().slice(0,40);await DB.put('kv','circuit:'+id,c);}});
 }
 async function showBadges(){
   const tracks=await DB.all('kv','track:');
@@ -4180,7 +4626,8 @@ function showSaveRoute(){
         const gates=[mk(Math.min(15,total*.1),'start')];
         if(step)for(let d=step;d<total-Math.max(150,step*.4);d+=step)gates.push(mk(d,'split'));
         gates.push(mk(Math.max(total-15,total*.9),'finish'));
-        const c={id:uid(),name:$('#sn').value.trim()||'Recorrido',type:'p2p',gates,watch:true};
+        let path=r.coords.map(p=>[p[0],p[1]]);for(const tol of [2,5,10,20,40])if(path.length>1500)path=simplifyDP(r.coords,tol);
+        const c={id:uid(),name:$('#sn').value.trim()||'Recorrido',type:'p2p',gates,watch:true,path:path.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)])};
         await DB.put('kv','circuit:'+c.id,c);
         toast('Recorrido guardado 🏁',3500);showCircuitDetail(c.id);
       }
@@ -8656,7 +9103,7 @@ const shBase=()=>{
 const shLink=()=>shBase()+'#seguir='+SH.topic+'.'+SH.keyB;
 
 /* --- quien comparte --- */
-const SH={on:false,topic:'',key:null,keyB:'',mode:'race',name:'',sid:'',seq:0,queue:[],lastSample:0,lastSend:0,sending:false,start:0,fails:0,lastOk:0,bat:null,course:null};
+const SH={tmDirty:false,circ:null,metaOk:false,on:false,topic:'',key:null,keyB:'',mode:'race',name:'',sid:'',seq:0,queue:[],lastSample:0,lastSend:0,sending:false,start:0,fails:0,lastOk:0,bat:null,course:null};
 try{if(navigator.getBattery)navigator.getBattery().then(b=>{const u=()=>{SH.bat=Math.round(b.level*100);};u();b.addEventListener('levelchange',u);});}catch(e){}
 function shCourse(){
   const r=RT.res&&RT.res[RT.sel];
@@ -8668,6 +9115,7 @@ function shCourse(){
 async function shMeta(){
   const m={k:'m',sid:SH.sid,name:SH.name,mode:SH.mode,start:SH.start,v:1};
   if(SH.course)m.course=SH.course;
+  if(SH.circ)m.circ=SH.circ;
   let body=await shSeal(m,SH.key);
   while(body.length>3900&&m.course&&m.course.pts.length>20){m.course.pts=m.course.pts.filter((_,i,a)=>i%2===0||i===a.length-1);body=await shSeal(m,SH.key);}
   await shPost(SH.topic,body);
@@ -8712,20 +9160,35 @@ function shTick(f,force){
   }
   let every=M.send;if(SH.bat!=null&&SH.bat<20)every=Math.max(every,120);
   if(SH.fails)every=Math.min(300,every*Math.min(4,1+SH.fails));
-  if(SH.queue.length&&!SH.sending&&(force||now-SH.lastSend>=every*1000-400))shFlush();
+  if((SH.queue.length||SH.tmDirty)&&!SH.sending&&(force||SH.tmDirty&&!SH.fails||now-SH.lastSend>=every*1000-400))shFlush();
+}
+/* cronometraje por sectores que viaja con las posiciones (si estás grabando con un circuito) */
+function shTiming(){
+  if(REC.state==='idle')return null;
+  const e=activeTimer()||REC.lastEnt||(REC.timers.length===1?REC.timers[0]:null);
+  if(!e||nSecOf(e.circ)<2)return null;
+  const m=f1ModelRec(e),c=e.circ,roles=gateRoles(c);
+  const circ={id:c.id,name:c.name,closed:m.closed,nSec:m.nSec,tags:m.tags,names:m.names,act:m.act,hist:m.hist,sb:m.sb,
+    gates:c.gates.map((g,i)=>{const u=upgradeGate(g,roles[i]);return {c:[+u.c[0].toFixed(6),+u.c[1].toFixed(6)],w:Math.round(u.w),brg:Math.round(u.brg)};})};
+  return {circ,tm:{cid:c.id,tags:m.tags,names:m.names,wind:m.wind,laps:m.laps.slice(-20),cur:m.cur}};
 }
 async function shFlush(){
-  if(!SH.on||SH.sending||!SH.queue.length)return;
+  if(!SH.on||SH.sending||!(SH.queue.length||SH.tmDirty))return;
   SH.sending=true;SH.lastSend=Date.now();
   try{
-    if(SH.fails&&!SH.metaOk){await shMeta();}
-    while(SH.queue.length){
-      const n=Math.min(SH.queue.length,60),pts=SH.queue.slice(0,n);
-      await shPost(SH.topic,await shSeal({k:'p',sid:SH.sid,seq:++SH.seq,pts,bat:SH.bat},SH.key));
-      SH.queue.splice(0,n);SH.fails=0;SH.metaOk=true;SH.lastOk=Date.now();
-    }
+    const T=shTiming();
+    if(T&&(!SH.circ||SH.circ.id!==T.circ.id)){SH.circ=T.circ;SH.metaOk=false;}
+    if(!SH.metaOk&&(SH.fails||SH.circ))await shMeta();
+    SH.metaOk=true;
+    do{
+      const n=Math.min(SH.queue.length,60),pts=SH.queue.slice(0,n),msg={k:'p',sid:SH.sid,seq:++SH.seq,pts,bat:SH.bat};
+      if(T)msg.tm=T.tm;
+      SH.tmDirty=false;
+      await shPost(SH.topic,await shSeal(msg,SH.key));
+      SH.queue.splice(0,n);SH.fails=0;SH.lastOk=Date.now();
+    }while(SH.queue.length);
     shSave();
-  }catch(e){SH.fails++;}
+  }catch(e){SH.fails++;SH.metaOk=false;}
   SH.sending=false;shPill();
 }
 setInterval(()=>{if(SH.on){shTick(null);shPill();}},5000);
@@ -8796,7 +9259,7 @@ async function folStart(topic,keyB){
   folStop(true);
   if(!window.crypto||!crypto.subtle){toast('Este navegador no permite abrir el seguimiento (hace falta https)',6000);return;}
   try{FOL.key=await shKeyFrom(b64u.dec(keyB));}catch(e){toast('El link de seguimiento no es válido',5000);return;}
-  Object.assign(FOL,{on:true,topic,meta:null,pts:[],seen:new Set(),lastId:'',ended:false,lastMsg:0,fit:false});
+  Object.assign(FOL,{on:true,topic,meta:null,pts:[],seen:new Set(),lastId:'',ended:false,lastMsg:0,fit:false,tm:null,tmSeq:0});
   S.follow={topic,keyB};saveS();
   $('#fol').hidden=false;folPanel();
   setFollow(false);
@@ -8813,8 +9276,8 @@ async function folHandle(id,msg){
   if(!msg||FOL.seen.has(id))return;
   FOL.seen.add(id);if(id)FOL.lastId=id;
   let o;try{o=await shOpen(msg,FOL.key);}catch(e){return;}
-  if(o.k==='m'){if(!FOL.meta||o.course||!FOL.meta.course)FOL.meta=o;}
-  else if(o.k==='p'){for(const p of o.pts||[])FOL.pts.push(p);if(o.bat!=null)FOL.bat=o.bat;FOL.ended=false;}
+  if(o.k==='m'){FOL.meta=Object.assign({},FOL.meta||{},o);}
+  else if(o.k==='p'){for(const p of o.pts||[])FOL.pts.push(p);if(o.bat!=null)FOL.bat=o.bat;FOL.ended=false;if(o.tm&&(o.seq||0)>=(FOL.tmSeq||0)){FOL.tm=o.tm;FOL.tmSeq=o.seq||0;}}
   else if(o.k==='e')FOL.ended=true;
   FOL.lastMsg=Date.now();
 }
@@ -8888,7 +9351,8 @@ function folStats(){
 function folDraw(){
   if(!FOL.on)return;
   folLayer.clearLayers();
-  const c=FOL.meta&&FOL.meta.course;
+  const c=FOL.meta&&FOL.meta.course,fc=FOL.meta&&FOL.meta.circ;
+  if(fc&&fc.gates)fc.gates.forEach((g,i)=>{const e=gateAt(g.c,g.brg,Math.max(g.w,20));L.polyline([e.a,e.b],{color:'#fff',weight:7,interactive:false}).addTo(folLayer);L.polyline([e.a,e.b],{color:i===0?'#1FA15A':'#8E3BD8',weight:4,interactive:false}).addTo(folLayer);});
   if(c&&c.pts.length>1){L.polyline(c.pts,{color:'#fff',weight:9,opacity:.8,interactive:false}).addTo(folLayer);L.polyline(c.pts,{color:'#F2A900',weight:5,dashArray:'10 7',interactive:false}).addTo(folLayer);}
   const ll=FOL.pts.map(p=>[p[0],p[1]]);
   if(ll.length>1){L.polyline(ll,{color:'#fff',weight:8,opacity:.85,interactive:false}).addTo(folLayer);L.polyline(ll,{color:'#7A3FE0',weight:4.5,interactive:false}).addTo(folLayer);}
@@ -8917,8 +9381,14 @@ function folPanel(){
   let eta='';
   if(FOL.ended)eta='🏁 Terminó de compartir';
   else if(st.eta)eta=`🏁 Llega a las ${hhmm(st.eta)}${st.nextKm.length?' · '+st.nextKm.map(([k,t])=>`km ${k}: ${hhmm(t)}`).join(' · '):''}`;
-  el.innerHTML=`<div class="fb" data-f="c"><div class="t">📡 ${nm} <small class="${late?'late':''}">${late?'⚠️ ':''}${agoT}</small></div><div class="s">${lines.join(' · ')}</div>${eta?`<div class="s">${eta}</div>`:''}</div>
+  const fm=folF1();
+  el.innerHTML=`<div class="fb" data-f="c"><div class="t">📡 ${nm} <small class="${late?'late':''}">${late?'⚠️ ':''}${agoT}</small></div><div class="s">${lines.join(' · ')}</div>${eta?`<div class="s">${eta}</div>`:''}${fm?f1Html(fm,FOL.ended?st.tl*1000:Date.now()):''}</div>
     <div class="rb"><button data-f="g" class="${FOL.tgt?'on':''}" aria-label="Ir hacia">🎯</button><button data-f="c" aria-label="Centrar">⌖</button><button data-f="x" aria-label="Dejar de seguir">✕</button></div>`;
+}
+function folF1(){
+  const c=FOL.meta&&FOL.meta.circ,t=FOL.tm;
+  if(!c||!t||t.cid!==c.id)return null;
+  return Object.assign({},c,{tags:t.tags||c.tags||(t.types?{terr:t.types}:null),names:t.names||c.names,wind:t.wind||null,grp:S.f1Group||null,laps:t.laps||[],cur:t.cur||null});
 }
 function showFollowAsk(){
   openSheet('👀 Seguir a alguien',`<p class="mut">Pegá el link de seguimiento que te mandaron (empieza con https y tiene "#seguir=").</p>
@@ -8932,6 +9402,7 @@ function showFollowAsk(){
     });
 }
 document.addEventListener('click',e=>{
+  if(e.target.closest('#fol .f1')){const m=folF1();if(m){showF1Table(m);return;}}
   const b=e.target.closest('#fol [data-f]');if(!b)return;
   const f=b.dataset.f;
   if(f==='x'){folStop();toast('Dejaste de seguir',2500);}
@@ -8953,8 +9424,9 @@ function showMoreMenu(){
     <button class="btn big" data-act="globe">🌍<br>Globo</button>
     <button class="btn big" data-act="share">📡<br>${SH.on?'Compartiendo':'Compartir en vivo'}</button>
     <button class="btn big" data-act="follow">👀<br>Seguir a alguien</button>
+    <button class="btn big" data-act="watch">⌚<br>Avisos al reloj${waCfg().on?' ✓':''}</button>
     <button class="btn big" data-act="set">⚙️<br>Ajustes</button></div>`,
-    a=>{if(a==='share')showShare();else if(a==='follow')showFollowAsk();else if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
+    a=>{if(a==='watch')showWatch();else if(a==='share')showShare();else if(a==='follow')showFollowAsk();else if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
 }
 function showMore(){
   const chips=(id,cur,opts)=>`<div class="chips">${opts.map(([k,n])=>`<button data-act="${id}" data-k="${k}" class="${k===cur?'on':''}">${n}</button>`).join('')}</div>`;
