@@ -276,6 +276,24 @@ body.gbOn #tgt{z-index:1060;top:calc(var(--top) + 64px);max-width:calc(100% - 80
 #gbp .row{margin-top:8px}
 #netpill{position:fixed;top:calc(var(--top) + 8px);right:12px;z-index:905;background:rgba(14,42,54,.85);color:#fff;border-radius:16px;padding:6px 12px;font:700 13px system-ui;box-shadow:0 1px 5px rgba(0,0,0,.35)}
 #netpill[hidden]{display:none}
+#shpill{position:fixed;top:calc(var(--top) + 52px);right:12px;z-index:905;background:rgba(122,63,224,.9);color:#fff;border-radius:16px;padding:6px 12px;font:700 13px system-ui;box-shadow:0 1px 5px rgba(0,0,0,.35);border:0}
+#shpill.bad{background:rgba(190,90,0,.92)}
+#shpill[hidden],#fol[hidden]{display:none}
+#fol{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:906;display:flex;gap:8px;align-items:center;background:rgba(40,20,80,.62);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:8px 8px 8px 12px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45)}
+#fol .fb{flex:1;min-width:0}
+#fol .t{font:800 16px system-ui}
+#fol .t small{font-weight:600;opacity:.85;margin-left:6px}
+#fol .t small.late{color:#FFC46B;opacity:1}
+#fol .s{font:600 13px/1.35 system-ui;opacity:.95}
+#fol .rb{display:grid;grid-template-columns:44px 44px;gap:6px}
+#fol .rb button[data-f=x]{grid-column:span 2;height:30px;width:auto}
+#fol .rb button{width:44px;height:44px;border-radius:22px;border:0;background:rgba(255,255,255,.18);color:#fff;font:700 18px system-ui}
+#fol .rb button.on{background:#F2A900;color:#111}
+.folmk{position:relative;transform:translate(-50%,-50%);display:flex;align-items:center;gap:4px;white-space:nowrap}
+.folmk span{display:block;width:20px;height:20px;border-radius:50%;background:#7A3FE0;border:3px solid #fff;box-shadow:0 0 0 6px rgba(122,63,224,.3),0 1px 4px rgba(0,0,0,.5);animation:folp 2s infinite}
+.folmk.end span{background:#666;animation:none}
+.folmk b{position:absolute;left:24px;background:rgba(255,255,255,.92);color:#2a1660;border-radius:8px;padding:1px 6px;font:800 12px system-ui}
+@keyframes folp{0%,100%{box-shadow:0 0 0 4px rgba(122,63,224,.35),0 1px 4px rgba(0,0,0,.5)}50%{box-shadow:0 0 0 12px rgba(122,63,224,.08),0 1px 4px rgba(0,0,0,.5)}}
 
 #meas{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
 #meas[hidden]{display:none}
@@ -510,6 +528,8 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 
 <button id="fNorth" hidden aria-label="Norte arriba">N⬆</button>
 <div id="netpill" hidden></div>
+<button id="shpill" hidden onclick="showShare()"></button>
+<div id="fol" hidden></div>
 <div id="rtp" hidden></div>
 <div id="tgt" hidden><div id="tgtArrow">➤</div><div><div id="tgtD">—</div><div id="tgtSub"></div><div id="tgtM"></div></div></div>
 <div id="fabs">
@@ -2972,6 +2992,7 @@ function onFix(f){
   $('#hGps').textContent=`GPS ±${a} m`;
   if(REC.state==='rec')ingest(f);
   if(NAV.on)navOnFix(f);
+  if(SH.on)try{shTick(f);}catch(e){}
 }
 async function startWatch(bg,msg){
   stopWatch();
@@ -3235,7 +3256,7 @@ async function endRec(){
   Object.assign(REC,{state:'idle',pts:[],timers:[],last:null,dist:0,speed:0});
   await DB.del('kv','rec:current').catch(()=>{});
   $('#hud').classList.remove('on');updRecUi();refreshGates();
-  setFollow(NAV.on);startWatch(NAV.on,'Guiando la ruta');
+  setFollow(NAV.on);startWatch(NAV.on||SH.on,NAV.on?'Guiando la ruta':'Compartiendo tu posición');
 }
 $('#recbtn').onclick=()=>{if(REC.state==='idle')startRec();else pauseRec();};
 $('#hStop').onclick=stopFlow;
@@ -4483,7 +4504,7 @@ function endNav(){
   NAV.on=false;NAV.N=null;clearTimeout(NAV.endT);NAV.endT=null;rtPanel();
   $('#nav').hidden=true;
   keepAwake(REC.state!=='idle'&&S.keepAwake);
-  if(REC.state==='idle'){setFollow(false);startWatch(false);}
+  if(REC.state==='idle'){setFollow(false);startWatch(SH.on,'Compartiendo tu posición');}
   toast('Guía terminada');
 }
 async function markHere(k){
@@ -8597,6 +8618,328 @@ $('#fNorth').onclick=()=>{
 };
 
 function applyNavOp(){document.documentElement.style.setProperty('--navA',String(S.navOp==null?.42:S.navOp));}
+/* ---------- 📡 Seguimiento en vivo: compartir tu posición y seguir a otros ----------
+   Transporte: ntfy.sh (gratis, sin cuentas). Cada mensaje va cifrado (AES-GCM); la clave viaja solo en el link (#…),
+   así el servidor guarda texto ilegible. Los mensajes quedan unas horas en ntfy, por eso quien abre el link tarde ve todo el recorrido. */
+const NTFY='https://ntfy.sh/';
+const SH_MODES={meet:{n:'🤝 Encuentro',d:'cada 10 s · para reencontrarse',sample:10,send:10},race:{n:'🏃 Carrera',d:'cada 15 s · para que te sigan en una carrera',sample:15,send:15},trip:{n:'🛶 Travesía',d:'un punto cada 20 s, enviados cada 2 min · ahorra batería',sample:20,send:120}};
+const b64u={
+  enc(buf){const b=buf instanceof Uint8Array?buf:new Uint8Array(buf);let s='';for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');},
+  dec(str){str=String(str).replace(/-/g,'+').replace(/_/g,'/');while(str.length%4)str+='=';const s=atob(str),b=new Uint8Array(s.length);for(let i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return b;}
+};
+async function shZip(u8,inflate){
+  if(typeof CompressionStream==='undefined'||typeof DecompressionStream==='undefined')return null;
+  const cs=inflate?new DecompressionStream('deflate-raw'):new CompressionStream('deflate-raw');
+  return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(cs)).arrayBuffer());
+}
+async function shSeal(obj,key){
+  let data=new TextEncoder().encode(JSON.stringify(obj)),z=0;
+  const c=await shZip(data);if(c&&c.length<data.length){data=c;z=1;}
+  const iv=crypto.getRandomValues(new Uint8Array(12)),ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,data));
+  const out=new Uint8Array(13+ct.length);out[0]=z;out.set(iv,1);out.set(ct,13);return b64u.enc(out);
+}
+async function shOpen(str,key){
+  const b=b64u.dec(str),iv=b.slice(1,13),ct=b.slice(13);
+  let data=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv},key,ct));
+  if(b[0]===1)data=await shZip(data,true);
+  return JSON.parse(new TextDecoder().decode(data));
+}
+const shKeyFrom=raw=>crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['encrypt','decrypt']);
+async function shPost(topic,body){
+  const r=await fetch(NTFY+topic,{method:'POST',body,headers:{'Content-Type':'text/plain'}});
+  if(!r.ok)throw new Error('ntfy '+r.status);
+}
+const shBase=()=>{
+  if(!isNative()&&/^https?:/.test(location.protocol)&&!/localhost|127\.0\.0\.1/.test(location.hostname))return location.origin+location.pathname;
+  return S.shareBase||'https://profehugotdf.github.io/GPS/';
+};
+const shLink=()=>shBase()+'#seguir='+SH.topic+'.'+SH.keyB;
+
+/* --- quien comparte --- */
+const SH={on:false,topic:'',key:null,keyB:'',mode:'race',name:'',sid:'',seq:0,queue:[],lastSample:0,lastSend:0,sending:false,start:0,fails:0,lastOk:0,bat:null,course:null};
+try{if(navigator.getBattery)navigator.getBattery().then(b=>{const u=()=>{SH.bat=Math.round(b.level*100);};u();b.addEventListener('levelchange',u);});}catch(e){}
+function shCourse(){
+  const r=RT.res&&RT.res[RT.sel];
+  if(!r||r.err||!r.coords||r.coords.length<2)return null;
+  let pts=r.coords.map(p=>[+p[0].toFixed(5),+p[1].toFixed(5)]);
+  for(const tol of [3,8,15,30,60,120]){if(pts.length<=220)break;pts=simplifyDP(r.coords,tol).map(p=>[+p[0].toFixed(5),+p[1].toFixed(5)]);}
+  return {pts,len:Math.round(r.dist),label:RT.to&&RT.to.label||'',mode:RT.sel};
+}
+async function shMeta(){
+  const m={k:'m',sid:SH.sid,name:SH.name,mode:SH.mode,start:SH.start,v:1};
+  if(SH.course)m.course=SH.course;
+  let body=await shSeal(m,SH.key);
+  while(body.length>3900&&m.course&&m.course.pts.length>20){m.course.pts=m.course.pts.filter((_,i,a)=>i%2===0||i===a.length-1);body=await shSeal(m,SH.key);}
+  await shPost(SH.topic,body);
+}
+function shSave(){
+  S.share=SH.on?{topic:SH.topic,keyB:SH.keyB,mode:SH.mode,name:SH.name,sid:SH.sid,seq:SH.seq,start:SH.start}:null;saveS();
+  try{localStorage.setItem('rumbo.shq',JSON.stringify(SH.queue.slice(-2000)));}catch(e){}
+}
+async function shStart(o){
+  const raw=crypto.getRandomValues(new Uint8Array(16));
+  Object.assign(SH,{on:true,key:await shKeyFrom(raw),keyB:b64u.enc(raw),topic:'rumbo-'+b64u.enc(crypto.getRandomValues(new Uint8Array(12))),
+    mode:o.mode||'race',name:o.name||'',sid:uid(),seq:0,queue:[],lastSample:0,lastSend:0,start:Date.now(),fails:0,lastOk:0,course:o.course?shCourse():null});
+  shSave();
+  try{await shMeta();SH.lastOk=Date.now();}catch(e){SH.fails++;toast('Sin conexión por ahora: el seguimiento arranca igual y se envía cuando haya señal',5000);}
+  if(isNative()&&(!watch||watch.type!=='bg'))try{await startWatch(true,'Compartiendo tu posición');}catch(e){}
+  if(lastFix)shTick(lastFix,true);
+  shPill();
+}
+async function shResume(){
+  const s=S.share;if(!s||!s.topic||!s.keyB)return;
+  Object.assign(SH,{on:true,topic:s.topic,keyB:s.keyB,key:await shKeyFrom(b64u.dec(s.keyB)),mode:s.mode||'race',name:s.name||'',sid:s.sid||uid(),seq:s.seq||0,start:s.start||Date.now()});
+  try{SH.queue=JSON.parse(localStorage.getItem('rumbo.shq')||'[]');}catch(e){SH.queue=[];}
+  if(isNative()&&(!watch||watch.type!=='bg'))try{await startWatch(true,'Compartiendo tu posición');}catch(e){}
+  shPill();
+}
+async function shStop(){
+  if(!SH.on)return;
+  try{await shFlush(true);}catch(e){}
+  try{await shPost(SH.topic,await shSeal({k:'e',sid:SH.sid,t:Math.round(Date.now()/1000)},SH.key));}catch(e){}
+  SH.on=false;SH.queue=[];shSave();shPill();
+  if(isNative()&&REC.state==='idle'&&!NAV.on)startWatch(false);
+  toast('Dejaste de compartir tu posición',3000);
+}
+/* cada lectura del GPS (también con la pantalla apagada) y cada 5 s: guardar un punto y, si toca, enviar */
+function shTick(f,force){
+  if(!SH.on)return;
+  const now=Date.now(),M=SH_MODES[SH.mode]||SH_MODES.race;
+  if(f&&(force||now-SH.lastSample>=M.sample*1000-400)&&(f.acc==null||f.acc<=60)){
+    SH.queue.push([+f.lat.toFixed(6),+f.lon.toFixed(6),Math.round((f.t||now)/1000),Math.round(f.acc||0)]);
+    SH.lastSample=now;if(SH.queue.length>3000)SH.queue.splice(0,SH.queue.length-3000);
+    try{localStorage.setItem('rumbo.shq',JSON.stringify(SH.queue.slice(-2000)));}catch(e){}
+  }
+  let every=M.send;if(SH.bat!=null&&SH.bat<20)every=Math.max(every,120);
+  if(SH.fails)every=Math.min(300,every*Math.min(4,1+SH.fails));
+  if(SH.queue.length&&!SH.sending&&(force||now-SH.lastSend>=every*1000-400))shFlush();
+}
+async function shFlush(){
+  if(!SH.on||SH.sending||!SH.queue.length)return;
+  SH.sending=true;SH.lastSend=Date.now();
+  try{
+    if(SH.fails&&!SH.metaOk){await shMeta();}
+    while(SH.queue.length){
+      const n=Math.min(SH.queue.length,60),pts=SH.queue.slice(0,n);
+      await shPost(SH.topic,await shSeal({k:'p',sid:SH.sid,seq:++SH.seq,pts,bat:SH.bat},SH.key));
+      SH.queue.splice(0,n);SH.fails=0;SH.metaOk=true;SH.lastOk=Date.now();
+    }
+    shSave();
+  }catch(e){SH.fails++;}
+  SH.sending=false;shPill();
+}
+setInterval(()=>{if(SH.on){shTick(null);shPill();}},5000);
+function shPill(){
+  const p=$('#shpill');if(!p)return;
+  p.hidden=!SH.on;if(!SH.on)return;
+  const ago=SH.lastOk?Math.round((Date.now()-SH.lastOk)/1000):null,M=SH_MODES[SH.mode]||SH_MODES.race;
+  const bad=ago==null||ago>Math.max(60,M.send*3);
+  p.classList.toggle('bad',bad);
+  p.textContent=`📡 ${bad?(SH.queue.length?`sin señal · ${SH.queue.length} pts guardados`:'esperando señal'):'en vivo'}${ago!=null&&!bad?` · hace ${ago<60?ago+' s':Math.round(ago/60)+' min'}`:''}`;
+}
+async function shShareLink(){
+  const link=shLink(),txt=`${SH.name||'Te comparto'} mi posición en vivo (${(SH_MODES[SH.mode]||{}).n||''}): ${link}`;
+  try{
+    if(isNative()){await plugin('Share').share({title:'Seguime en vivo',text:txt,dialogTitle:'Compartir seguimiento'});return;}
+    if(navigator.share){await navigator.share({title:'Seguime en vivo',text:txt});return;}
+  }catch(e){if(/cancel|abort/i.test(e.message||e.name||''))return;}
+  try{await navigator.clipboard.writeText(link);toast('Link copiado',2500);}catch(e){prompt('Copiá el link:',link);}
+}
+function showShare(){
+  if(SH.on){
+    const M=SH_MODES[SH.mode]||SH_MODES.race,ago=SH.lastOk?Math.round((Date.now()-SH.lastOk)/1000):null;
+    openSheet('📡 Compartiendo tu posición',`<p><b>${M.n}</b> · ${M.d}<br><small class="mut">Desde las ${hhmm(SH.start)} · último envío ${ago==null?'todavía no':ago<60?`hace ${ago} s`:`hace ${Math.round(ago/60)} min`}${SH.queue.length?` · ${SH.queue.length} puntos esperando señal`:''}${SH.bat!=null?` · batería ${SH.bat} %`:''}</small></p>
+      <div class="row"><button class="btn primary" data-act="sl">📤 Mandar el link</button><button class="btn" data-act="cp">📋 Copiar</button></div>
+      <label>Cambiar el modo</label><div class="chips">${Object.entries(SH_MODES).map(([k,m])=>`<button data-act="md" data-k="${k}" class="${k===SH.mode?'on':''}">${m.n}</button>`).join('')}</div>
+      <div class="row" style="margin-top:12px"><button class="btn danger" data-act="stop">⏹ Dejar de compartir</button></div>
+      <p class="mut">El link deja de mostrar posiciones nuevas cuando dejás de compartir. Quien lo tiene ve tu recorrido de las últimas horas.</p>`,
+      async(a,d,el)=>{
+        if(a==='sl')shShareLink();
+        else if(a==='cp'){try{await navigator.clipboard.writeText(shLink());toast('Link copiado',2500);}catch(e){prompt('Copiá el link:',shLink());}}
+        else if(a==='md'){SH.mode=d.k;shSave();showShare();}
+        else if(a==='stop'){if(armed(el)){closeSheet();shStop();}}
+      });
+    return;
+  }
+  const hasRoute=!!shCourse(),st={mode:S.shareMode||'race',name:S.shareName||'',course:hasRoute};
+  const draw=()=>openSheet('📡 Compartir mi posición en vivo',`
+    <label for="shn">Tu nombre (lo ve quien te sigue)</label><input class="in" id="shn" value="${esc(st.name)}" placeholder="Ej: Hugo">
+    <label>Modo</label>${Object.entries(SH_MODES).map(([k,m])=>`<div class="card ${k===st.mode?'on':''}" data-act="md" data-k="${k}"><b>${m.n}</b><br><small class="mut">${m.d}</small></div>`).join('')}
+    ${hasRoute?`<label class="chk"><input type="checkbox" id="shc" ${st.course?'checked':''}> Mostrar también la ruta del mapa (el circuito de la carrera): así ven cuánto te falta y a qué hora llegás</label>`:`<p class="mut">Si querés que vean el circuito y la hora de llegada, primero abrí la ruta en Rutas (o importá el GPX de la carrera) y después compartí.</p>`}
+    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="go">📡 Empezar a compartir</button></div>
+    <p class="mut">Se envía por internet, cifrado: solo lo puede ver quien tenga el link. Sin señal, los puntos se guardan y se mandan cuando vuelve. Mantené el GPS activo; en el teléfono sigue funcionando con la pantalla apagada.</p>`,
+    async(a,d)=>{
+      if(a==='md'){st.mode=d.k;draw();}
+      else if(a==='go'){
+        S.shareMode=st.mode;S.shareName=st.name;saveS();
+        if(!window.crypto||!crypto.subtle){toast('Este navegador no permite cifrar: no se puede compartir',5000);return;}
+        closeSheet();await shStart(st);showShare();toast('Ya estás compartiendo. Mandá el link a quien quieras que te siga.',5000);
+      }
+    },
+    t=>{if(t.id==='shn')st.name=t.value.trim();else if(t.id==='shc')st.course=t.checked;});
+  draw();
+}
+
+/* --- quien sigue --- */
+const FOL={on:false,topic:'',key:null,meta:null,pts:[],seen:new Set(),lastId:'',ended:false,es:null,poll:0,lastMsg:0,tgt:false};
+const folLayer=L.layerGroup().addTo(map);
+function folParse(str){
+  const m=String(str||'').match(/seguir=([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)/);
+  return m?{topic:m[1],keyB:m[2]}:null;
+}
+async function folFromHash(){
+  const p=folParse(location.hash);if(!p)return;
+  if(FOL.on&&FOL.topic===p.topic)return;
+  await folStart(p.topic,p.keyB);
+}
+async function folStart(topic,keyB){
+  folStop(true);
+  if(!window.crypto||!crypto.subtle){toast('Este navegador no permite abrir el seguimiento (hace falta https)',6000);return;}
+  try{FOL.key=await shKeyFrom(b64u.dec(keyB));}catch(e){toast('El link de seguimiento no es válido',5000);return;}
+  Object.assign(FOL,{on:true,topic,meta:null,pts:[],seen:new Set(),lastId:'',ended:false,lastMsg:0,fit:false});
+  S.follow={topic,keyB};saveS();
+  $('#fol').hidden=false;folPanel();
+  setFollow(false);
+  await folPoll(true);
+  folLive();
+}
+function folStop(quiet){
+  if(FOL.es){try{FOL.es.close();}catch(e){}FOL.es=null;}
+  clearInterval(FOL.poll);FOL.poll=0;
+  if(FOL.on&&!quiet){S.follow=null;saveS();if(/seguir=/.test(location.hash))history.replaceState(null,'',location.pathname+location.search);}
+  FOL.on=false;folLayer.clearLayers();const f=$('#fol');if(f)f.hidden=true;
+}
+async function folHandle(id,msg){
+  if(!msg||FOL.seen.has(id))return;
+  FOL.seen.add(id);if(id)FOL.lastId=id;
+  let o;try{o=await shOpen(msg,FOL.key);}catch(e){return;}
+  if(o.k==='m'){if(!FOL.meta||o.course||!FOL.meta.course)FOL.meta=o;}
+  else if(o.k==='p'){for(const p of o.pts||[])FOL.pts.push(p);if(o.bat!=null)FOL.bat=o.bat;FOL.ended=false;}
+  else if(o.k==='e')FOL.ended=true;
+  FOL.lastMsg=Date.now();
+}
+async function folPoll(all){
+  try{
+    const r=await fetch(`${NTFY}${FOL.topic}/json?poll=1&since=${all||!FOL.lastId?'all':FOL.lastId}`);
+    if(!r.ok)throw new Error('http '+r.status);
+    const txt=await r.text();
+    for(const line of txt.split('\n')){if(!line.trim())continue;let j;try{j=JSON.parse(line);}catch(e){continue;}if(j.event==='message')await folHandle(j.id,j.message);}
+    FOL.netOk=true;
+  }catch(e){FOL.netOk=false;}
+  folSort();folDraw();
+}
+function folLive(){
+  if(!FOL.on)return;
+  try{
+    if(typeof EventSource!=='undefined'){
+      const es=new EventSource(`${NTFY}${FOL.topic}/sse${FOL.lastId?'?since='+FOL.lastId:''}`);
+      es.onmessage=async ev=>{let j;try{j=JSON.parse(ev.data);}catch(e){return;}if(j.event==='message'){await folHandle(j.id,j.message);folSort();folDraw();}};
+      es.onerror=()=>{};
+      FOL.es=es;
+    }
+  }catch(e){}
+  /* por las dudas (redes que cortan las conexiones largas), también se consulta cada 20 s */
+  FOL.poll=setInterval(()=>{if(FOL.on)folPoll(false);},20000);
+}
+setInterval(()=>{if(FOL.on)folPanel();},5000);
+function folSort(){
+  const m=new Map();for(const p of FOL.pts)m.set(p[2]+':'+p[0]+':'+p[1],p);
+  FOL.pts=[...m.values()].sort((a,b)=>a[2]-b[2]);
+}
+/* avance sobre el circuito: se proyecta cada punto buscando cerca del avance anterior (sirve para ida y vuelta) */
+function folProgress(){
+  const c=FOL.meta&&FOL.meta.course;if(!c||c.pts.length<2||!FOL.pts.length)return null;
+  const P=c.pts,cum=[0];for(let i=1;i<P.length;i++)cum.push(cum[i-1]+hav(P[i-1],P[i]));
+  let prog=0;const hist=[];
+  for(const q of FOL.pts){
+    const cand=[];let bd=1e9;
+    for(let i=1;i<P.length;i++){
+      if(cum[i]<prog-300||cum[i-1]>prog+3000)continue;
+      const pr=projSeg(P[i-1],P[i],[q[0],q[1]]),s=cum[i-1]+pr.t*(cum[i]-cum[i-1]);
+      cand.push({d:pr.d,s});if(pr.d<bd)bd=pr.d;
+    }
+    /* entre los tramos igual de cercanos (ida y vuelta por el mismo camino) se toma el que sigue hacia adelante */
+    let best=null;
+    for(const c of cand)if(c.d<=bd+25&&c.d<250&&c.s>=prog-50&&(!best||c.s<best.s))best=c;
+    if(best){prog=Math.max(prog,best.s);hist.push([q[2],prog]);}
+  }
+  return {prog,total:cum[cum.length-1],hist,cum};
+}
+function folStats(){
+  const pts=FOL.pts;if(!pts.length)return null;
+  const last=pts[pts.length-1];let dist=0;for(let i=1;i<pts.length;i++)dist+=hav([pts[i-1][0],pts[i-1][1]],[pts[i][0],pts[i][1]]);
+  const t0=pts[0][2],tl=last[2],pr=folProgress();
+  /* velocidad reciente: últimos ~5 min */
+  let i=pts.length-1;while(i>0&&tl-pts[i-1][2]<=300)i--;
+  let rd=0;for(let k=i+1;k<pts.length;k++)rd+=hav([pts[k-1][0],pts[k-1][1]],[pts[k][0],pts[k][1]]);
+  const rt=tl-pts[i][2],vRecent=rt>=60?rd/rt:null,vAvg=tl>t0?dist/(tl-t0):null;
+  let eta=null,nextKm=[];
+  if(pr&&pr.total>0){
+    let v=null;
+    if(pr.hist.length>1){let j=pr.hist.length-1;while(j>0&&tl-pr.hist[j-1][0]<=600)j--;const dt=tl-pr.hist[j][0];if(dt>=60)v=(pr.prog-pr.hist[j][1])/dt;}
+    if(!(v>0.3)&&pr.hist.length>1){const dt=tl-pr.hist[0][0];if(dt>0)v=(pr.prog-pr.hist[0][1])/dt;}
+    if(v>0.3){
+      const rem=pr.total-pr.prog;eta=(tl+rem/v)*1000;
+      for(let k=Math.floor(pr.prog/1000)+1;k*1000<pr.total&&nextKm.length<3;k++)nextKm.push([k,(tl+(k*1000-pr.prog)/v)*1000]);
+    }
+  }
+  return {last,dist,t0,tl,vRecent,vAvg,pr,eta,nextKm};
+}
+function folDraw(){
+  if(!FOL.on)return;
+  folLayer.clearLayers();
+  const c=FOL.meta&&FOL.meta.course;
+  if(c&&c.pts.length>1){L.polyline(c.pts,{color:'#fff',weight:9,opacity:.8,interactive:false}).addTo(folLayer);L.polyline(c.pts,{color:'#F2A900',weight:5,dashArray:'10 7',interactive:false}).addTo(folLayer);}
+  const ll=FOL.pts.map(p=>[p[0],p[1]]);
+  if(ll.length>1){L.polyline(ll,{color:'#fff',weight:8,opacity:.85,interactive:false}).addTo(folLayer);L.polyline(ll,{color:'#7A3FE0',weight:4.5,interactive:false}).addTo(folLayer);}
+  if(ll.length){
+    const nm=(FOL.meta&&FOL.meta.name)||'';
+    L.marker(ll[ll.length-1],{interactive:false,zIndexOffset:1800,icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="folmk${FOL.ended?' end':''}"><span></span>${nm?`<b>${esc(nm)}</b>`:''}</div>`})}).addTo(folLayer);
+    if(!FOL.fit){FOL.fit=true;map.fitBounds(L.latLngBounds(c&&c.pts.length>1?c.pts.concat(ll):ll),{padding:[60,60],maxZoom:16});}
+    if(FOL.tgt)setTarget(ll[ll.length-1][0],ll[ll.length-1][1],nm||'Seguido');
+  }else if(c&&!FOL.fit){FOL.fit=true;map.fitBounds(L.latLngBounds(c.pts),{padding:[60,60]});}
+  folPanel();
+}
+function folPanel(){
+  const el=$('#fol');if(!el||!FOL.on)return;
+  const m=FOL.meta,st=folStats(),M=m&&SH_MODES[m.mode];
+  const nm=m&&m.name?esc(m.name):'Seguimiento';
+  if(!st){el.innerHTML=`<div class="fb"><div class="t">📡 ${nm}</div><div class="s">${FOL.netOk===false?'No se pudo conectar: revisá internet':m?'Todavía sin posiciones. Aparecen apenas lleguen.':'Esperando datos… (si el link es viejo, puede que ya no haya nada)'}</div></div><div class="rb"><button data-f="x" aria-label="Dejar de seguir">✕</button></div>`;return;}
+  const ago=Math.max(0,Math.round(Date.now()/1000-st.tl)),agoT=ago<60?`hace ${ago} s`:ago<3600?`hace ${Math.round(ago/60)} min`:`hace ${(ago/3600).toFixed(1).replace('.',',')} h`;
+  const late=M?ago>Math.max(90,M.send*3):ago>180;
+  const v=st.vRecent||st.vAvg,run=m&&m.mode==='race';
+  const sp=v?(run&&v>0.5?`${Math.floor(1000/v/60)}:${String(Math.round(1000/v%60)).padStart(2,'0')} /km`:`${(v*3.6).toFixed(1).replace('.',',')} km/h`):'—';
+  const lines=[];
+  if(st.pr)lines.push(`${(st.pr.prog/1000).toFixed(2).replace('.',',')} de ${(st.pr.total/1000).toFixed(1).replace('.',',')} km del circuito`);
+  else lines.push(`${fmtD(st.dist)} recorridos`);
+  lines.push(`ritmo ${sp}`);
+  if(FOL.bat!=null)lines.push(`🔋 ${FOL.bat} %`);
+  let eta='';
+  if(FOL.ended)eta='🏁 Terminó de compartir';
+  else if(st.eta)eta=`🏁 Llega a las ${hhmm(st.eta)}${st.nextKm.length?' · '+st.nextKm.map(([k,t])=>`km ${k}: ${hhmm(t)}`).join(' · '):''}`;
+  el.innerHTML=`<div class="fb" data-f="c"><div class="t">📡 ${nm} <small class="${late?'late':''}">${late?'⚠️ ':''}${agoT}</small></div><div class="s">${lines.join(' · ')}</div>${eta?`<div class="s">${eta}</div>`:''}</div>
+    <div class="rb"><button data-f="g" class="${FOL.tgt?'on':''}" aria-label="Ir hacia">🎯</button><button data-f="c" aria-label="Centrar">⌖</button><button data-f="x" aria-label="Dejar de seguir">✕</button></div>`;
+}
+function showFollowAsk(){
+  openSheet('👀 Seguir a alguien',`<p class="mut">Pegá el link de seguimiento que te mandaron (empieza con https y tiene "#seguir=").</p>
+    <input class="in" id="fl" placeholder="https://…#seguir=…" autocomplete="off">
+    <div class="row" style="margin-top:8px"><button class="btn" data-act="pst">📋 Pegar</button><button class="btn primary" data-act="go">👀 Seguir</button></div>
+    ${FOL.on?'<div class="row"><button class="btn danger" data-act="stop">Dejar de seguir al actual</button></div>':''}`,
+    async a=>{
+      if(a==='pst'){try{$('#fl').value=await navigator.clipboard.readText();}catch(e){toast('No pude leer el portapapeles: pegalo a mano',3000);}}
+      else if(a==='stop'){folStop();closeSheet();}
+      else if(a==='go'){const p=folParse($('#fl').value);if(!p){toast('Ese link no es de seguimiento',3500);return;}closeSheet();await folStart(p.topic,p.keyB);}
+    });
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('#fol [data-f]');if(!b)return;
+  const f=b.dataset.f;
+  if(f==='x'){folStop();toast('Dejaste de seguir',2500);}
+  else if(f==='c'){const p=FOL.pts[FOL.pts.length-1];if(p){setFollow(false);map.setView([p[0],p[1]],Math.max(map.getZoom(),15));}}
+  else if(f==='g'){FOL.tgt=!FOL.tgt;if(FOL.tgt&&!watch)startWatch(false);if(!FOL.tgt)clearTarget();folDraw();toast(FOL.tgt?'🎯 La flecha te lleva hacia la última posición':'Flecha apagada',2500);}
+});
+addEventListener('hashchange',folFromHash);
+
 /* ---------- Más, ajustes y backup ---------- */
 function showMoreMenu(){
   openSheet('Más',`<div class="grid3">
@@ -8608,8 +8951,10 @@ function showMoreMenu(){
     <button class="btn big" data-act="back">🆘<br>Retorno seguro</button>
     <button class="btn big" data-act="wx">☁️<br>Clima</button>
     <button class="btn big" data-act="globe">🌍<br>Globo</button>
+    <button class="btn big" data-act="share">📡<br>${SH.on?'Compartiendo':'Compartir en vivo'}</button>
+    <button class="btn big" data-act="follow">👀<br>Seguir a alguien</button>
     <button class="btn big" data-act="set">⚙️<br>Ajustes</button></div>`,
-    a=>{if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
+    a=>{if(a==='share')showShare();else if(a==='follow')showFollowAsk();else if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
 }
 function showMore(){
   const chips=(id,cur,opts)=>`<div class="chips">${opts.map(([k,n])=>`<button data-act="${id}" data-k="${k}" class="${k===cur?'on':''}">${n}</button>`).join('')}</div>`;
@@ -8770,8 +9115,11 @@ $('#fAct').onclick=()=>{
   await loadOvl();
   updActBtn();updRecUi();
   applyNight();applyNavOp();updNetPill();if(map.options&&map.options.rotate){oriCalib();oriStart();}
-  startWatch(false);
+  const folH=folParse(location.hash);
+  if(!(folH&&!isNative()))startWatch(false);
   setTimeout(checkIntent,700);
+  try{await shResume();}catch(e){}
+  if(folH)folFromHash();else if(S.follow&&S.follow.topic)folStart(S.follow.topic,S.follow.keyB);
   restoreTarget();
   if(S.radarOn)setTimeout(()=>setRadar(true,true),1800);
   drawEdits();
