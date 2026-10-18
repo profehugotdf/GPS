@@ -471,7 +471,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="vedit" hidden>
   <div class="caph"><b id="evTtl">✏️ Editar puntos</b><span><button id="evMin" aria-label="Achicar">▾</button><button id="evX" aria-label="Cerrar">✕</button></span></div>
   <div id="evInfo"></div><small id="evWater" style="display:block;font-size:12.5px;line-height:1.35;margin-top:2px" hidden></small><small id="evHint"></small>
-  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evJoin" hidden>🔗 Unir al agua</button><button id="evArea">⬛ Hacer área</button><button id="evCut">✂️ Cortar aquí</button><button id="evSnapW" hidden>🧲 Copiar el borde del agua</button></div>
+  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evJoin" hidden>🔗 Unir al agua</button><button id="evMerge">🧩 Unir con el tramo vecino</button><button id="evArea">⬛ Hacer área</button><button id="evCut">✂️ Cortar aquí</button><button id="evSnapW" hidden>🧲 Copiar el borde del agua</button></div>
   <div class="nvb"><button id="evUndo">↶ Deshacer</button><button id="evDel">🗑️ Borrar</button><button id="evSimp">🧹 Simplificar todo</button><button id="evRev">⇄ Invertir</button><button id="evOk">✓ Guardar</button></div>
 </div>
 <div id="dsel" hidden>
@@ -3015,6 +3015,7 @@ function onFix(f){
   const pill=$('#pill');pill.className=cls;pill.lastElementChild.textContent=`GPS ±${a} m`;
   $('#hGps').textContent=`GPS ±${a} m`;
   if(REC.state==='rec'){ingest(f);try{waTick();}catch(e){}}
+  else if(S.autoRec&&REC.state==='idle')autoRecCheck(f).catch(()=>{});
   try{waPump();}catch(e){}
   if(NAV.on)navOnFix(f);
   if(SH.on)try{shTick(f);}catch(e){}
@@ -3298,6 +3299,31 @@ function showWatch(){
     });
 }
 
+/* Arranque automático (opcional): con la app abierta y sin grabar, si cruzás la largada de un circuito vigilado, empieza a grabar */
+const AUTO={prev:null,circs:null,loadedAt:0,busy:false};
+async function autoRecCheck(f){
+  if(!S.autoRec||REC.state!=='idle'||AUTO.busy)return;
+  if(f.acc==null||f.acc>30){return;}
+  const q=[f.lat,f.lon,f.t],p=AUTO.prev;AUTO.prev=q;
+  if(!p||q[2]-p[2]>15000||q[2]<=p[2])return;
+  if(REC.endedAt&&Date.now()-REC.endedAt<5*60000)return;   /* recién terminaste: no arranca de nuevo al cruzar la llegada caminando */
+  if(!AUTO.circs||Date.now()-AUTO.loadedAt>60000){AUTO.circs=(await DB.all('kv','circuit:')).filter(c=>c.gates.length&&c.watch!==false);AUTO.loadedAt=Date.now();}
+  for(const c of AUTO.circs){
+    const roles=gateRoles(c),g=upgradeGate(c.gates[0],roles[0]);
+    if(crossFrac(p,q,g)==null)continue;
+    if(g.dirOnly&&g.brg!=null&&!dirOK(p,q,g.brg))continue;
+    AUTO.busy=true;
+    try{
+      await startRec();
+      if(REC.state!=='rec')return;
+      REC.pts.push([p[0],p[1],p[2],Math.round(f.acc||0),null,REC.seg],[q[0],q[1],q[2],Math.round(f.acc||0),f.alt==null?null:Math.round(f.alt),REC.seg]);
+      REC.dist+=hav(p,q);if(REC.poly)REC.poly.setLatLngs(REC.pts.map(x=>[x[0],x[1]]));
+      const ent=REC.timers.find(t=>t.circ.id===c.id);if(ent)ent.gt.feed(p,q);
+      toast(`▶️ Grabación automática: cruzaste la largada de ${c.name}`,5000);say('Grabación automática. '+c.name);
+    }finally{AUTO.busy=false;AUTO.prev=null;}
+    return;
+  }
+}
 async function startRec(){
   unlockAudio();
   let circs=(await DB.all('kv','circuit:')).filter(c=>c.gates.length&&c.watch!==false);
@@ -3431,7 +3457,7 @@ async function saveRec(name){
 async function endRec(){
   stopWatch();keepAwake(false);clearGhost();
   if(REC.poly){map.removeLayer(REC.poly);REC.poly=null;}
-  Object.assign(REC,{state:'idle',pts:[],timers:[],last:null,lastEnt:null,dist:0,speed:0});
+  Object.assign(REC,{state:'idle',pts:[],timers:[],last:null,lastEnt:null,dist:0,speed:0,endedAt:Date.now()});AUTO.prev=null;AUTO.circs=null;
   if(S.focusCirc){S.focusCirc=null;saveS();}
   await DB.del('kv','rec:current').catch(()=>{});
   $('#hud').classList.remove('on');updRecUi();refreshGates();
@@ -3956,6 +3982,8 @@ async function showCircuits(){
   const cs=(await DB.all('kv','circuit:')).sort((a,b)=>a.name.localeCompare(b.name));
   openSheet('Recorridos',`<p class="mut">Un recorrido es un circuito o trayecto con puertas. Mientras grabás, la app cronometra solo los que estén vigilados y guarda tus marcas y récords.</p>
     <div class="row"><button class="btn primary" data-act="new">Nuevo circuito</button><button class="btn" data-act="badges">🏅 Logros</button></div>
+    <label class="chk"><input type="checkbox" id="autoRec" ${S.autoRec?'checked':''}> Empezar a grabar solo al cruzar la largada de un circuito vigilado</label>
+    <p class="mut">Funciona con Rumbo abierto (aunque no estés grabando). Graba con la última actividad que usaste (${ACT[S.act][0]} ${ACT[S.act][1]}). Después de terminar una grabación espera 5 minutos antes de volver a arrancar sola.</p>
     ${cs.map(c=>{
       const mine=RUNS.filter(r=>r.cid===c.id),acts=[...new Set(mine.map(r=>r.act))];
       const bests=acts.map(a=>`${ACT[a][0]} ${fmtT(bestBy(RUNS,c.id,a,null).time,true)}`).join('  ');
@@ -3969,7 +3997,8 @@ async function showCircuits(){
       }else if(a==='watch'){const c=await DB.get('kv','circuit:'+d.id);c.watch=c.watch===false;await DB.put('kv','circuit:'+d.id,c);showCircuits();}
       else if(a==='detail')showCircuitDetail(d.id);
       else if(a==='badges')showBadges();
-    });
+    },
+    t=>{if(t.id==='autoRec'){S.autoRec=t.checked;saveS();AUTO.prev=null;AUTO.circs=null;toast(t.checked?'Listo: al cruzar una largada vigilada empieza a grabar sola':'Arranque automático apagado',3500);}});
 }
 async function showCircuitDetail(id,act){
   const c=await DB.get('kv','circuit:'+id);if(!c){showCircuits();return;}
@@ -7628,7 +7657,7 @@ async function openVEdit(id){
   EV.on=true;EV.id=id;EV.e=e;EV.closed=e.type==='area';EV.pts=e.pts.map(p=>[p[0],p[1]]);
   /* línea cerrada (o casi: puntas a menos de 40 m): se edita como un anillo y el cierre no se separa */
   EV.ringPath=e.type==='path'&&EV.pts.length>=4&&hav(EV.pts[0],EV.pts[EV.pts.length-1])<=40;
-  if(EV.ringPath){EV.pts.pop();EV.closed=true;}EV.sels=new Set();EV.undo=[];EV.dirty=false;EV.lasso=false;
+  if(EV.ringPath){EV.pts.pop();EV.closed=true;}EV.sels=new Set();EV.undo=[];EV.dirty=false;EV.lasso=false;EV.mergeDel=[];
   closeSheet();hidePin();setFollow(false);
   $('#vedit').hidden=false;$('#vedit').classList.remove('min');
   map.fitBounds(L.latLngBounds(EV.pts),{padding:[40,200],maxZoom:19});
@@ -7642,7 +7671,9 @@ function closeVEdit(){
 function evPush(){EV.undo.push(JSON.stringify(EV.pts));if(EV.undo.length>60)EV.undo.shift();EV.dirty=true;}
 function evUndo(){
   if(!EV.undo.length)return;
-  EV.pts=JSON.parse(EV.undo.pop());EV.sels=new Set();evDraw();
+  EV.pts=JSON.parse(EV.undo.pop());EV.sels=new Set();
+  if(EV.mergeDel)EV.mergeDel=EV.mergeDel.filter(m=>m.at<=EV.undo.length);
+  evDraw();
 }
 function evInView(){
   const b=map.getBounds(),dn=(b.getNorth()-b.getSouth())*.15,de=(b.getEast()-b.getWest())*.15;
@@ -7720,6 +7751,7 @@ function updEvUi(){
   $('#evNone').disabled=!ns;
   $('#evBetween').disabled=ns<2;
   $('#evCut').disabled=EV.closed||ns!==1;
+  {const m=$('#evMerge');if(m)m.hidden=!(EV.e&&EV.e.type==='path'&&!EV.closed);}
   {const w=$('#evSnapW');if(w)w.hidden=!(EV.e&&EV.e.type==='path'&&!EV.ringPath&&['costa','limite','rio'].includes(EV.e.kind));}
   {const b=$('#evArea');if(b){b.hidden=EV.closed&&!EV.ringPath;if(EV.ringPath){b.textContent='⬛ Cerrar como área';b.classList.add('on');}else if(!EV.closed&&EV.pts.length>2){const g=hav(EV.pts[0],EV.pts[EV.pts.length-1]);b.textContent=g<=PB_TOL?'⬛ Cerrar como área':'⬛ Hacer área';b.classList.toggle('on',g<=PB_TOL);}}}
 }
@@ -7757,6 +7789,38 @@ function evJoinWater(){
   if(!n){EV.undo.pop();toast(msg.join(' · '),6000);return;}
   EV.pts=pts;EV.sels=new Set();evDraw();toast(msg.join(' · ')+'. Tocá ✓ Guardar.',7000);
 }
+/* Une este trazo con otro del mismo tipo cuya punta está cerca de una de sus puntas: quedan como un solo trazo */
+async function evMerge(){
+  if(EV.closed){toast('Es un trazo cerrado: no tiene puntas para unir',4000);return;}
+  const e0=EV.e,all=(await DB.all('kv','edit:')).filter(x=>x.id!==e0.id&&x.type==='path'&&x.kind===e0.kind&&x.pts&&x.pts.length>1&&!(EV.mergeDel||[]).some(m=>m.id===x.id));
+  const ends=[EV.pts[0],EV.pts[EV.pts.length-1]];
+  let best=null;
+  for(const x of all){
+    if(hav(x.pts[0],x.pts[x.pts.length-1])<=40)continue;   /* los cerrados (islas) no */
+    for(const my of [0,1])for(const xe of [0,1]){
+      const d=hav(ends[my],xe?x.pts[x.pts.length-1]:x.pts[0]);
+      const sc=d-(x.name&&e0.name&&x.name===e0.name?30:0);
+      if(!best||sc<best.sc)best={x,my,xe,d,sc};
+    }
+  }
+  if(!best||best.d>1500){toast('No hay otro trazo de este tipo con una punta cerca de las puntas de este',5000);return;}
+  const nm=best.x.name||'sin nombre';
+  if(best.d>80&&!confirm(`La punta más cercana es de "${nm}" y está a ${fmtLen(best.d)}.\n\n¿Unirlos igual con una línea recta? Revisá después que siga el cauce.`))return;
+  let other=best.x.pts.map(p=>[p[0],p[1]]);
+  /* se ordena para que las puntas que se tocan queden juntas */
+  if(best.my===0&&best.xe===0)other.reverse();
+  if(best.my===1&&best.xe===1)other.reverse();
+  evPush();
+  let pts=best.my===1?EV.pts.concat(other):other.concat(EV.pts);
+  const j=best.my===1?EV.pts.length:other.length;
+  if(hav(pts[j-1],pts[j])<3)pts.splice(j,1);
+  EV.pts=pts;EV.sels=new Set();
+  if(!e0.name&&best.x.name)e0.name=best.x.name;
+  EV.mergeDel=(EV.mergeDel||[]).concat([{id:best.x.id,at:EV.undo.length}]);
+  map.fitBounds(L.latLngBounds(EV.pts),{padding:[40,200],maxZoom:17});
+  evDraw();
+  toast(`🧩 Unido con "${nm}"${best.d>3?` (las puntas estaban a ${fmtLen(best.d)})`:''}. Ahora son un solo trazo: tocá ✓ Guardar.`,7000);
+}
 function evReverse(){evPush();EV.pts.reverse();EV.sels=new Set();evDraw();}
 function evAll(){EV.sels=new Set(EV.pts.map((_,i)=>i));evDraw();}
 function evNone(){EV.sels=new Set();evDraw();}
@@ -7772,7 +7836,8 @@ async function evSave(){
   e.pts=EV.pts.map(p=>[+p[0].toFixed(7),+p[1].toFixed(7)]);
   if(EV.ringPath&&e.pts.length)e.pts.push(e.pts[0].slice());
   await DB.put('kv','edit:'+e.id,e);
-  if(!NOROUTE.has(e.kind)||e.type==='area')dropGraph();
+  const md=(EV.mergeDel||[]).map(m=>m.id);for(const id of md)await DB.del('kv','edit:'+id);EV.mergeDel=[];
+  if(!NOROUTE.has(e.kind)||e.type==='area'||md.length)dropGraph();
   try{kayakDrop();}catch(er){}
   const na=e.type==='path'?await rebuildAreasFor(e.id):0;
   vecInvalidate();closeVEdit();await drawEdits();
@@ -7814,7 +7879,7 @@ function evLassoEnd(){
   };
   el.addEventListener('pointerup',up,true);el.addEventListener('pointercancel',up,true);
 })();
-$('#evJoin').onclick=evJoinWater;
+$('#evJoin').onclick=evJoinWater;$('#evMerge').onclick=()=>evMerge().catch(e=>toast('No se pudo unir: '+(e.message||e),4000));
 $('#evUndo').onclick=evUndo;$('#evDel').onclick=evDelete;$('#evSimp').onclick=evSimplify;$('#evRev').onclick=evReverse;
 $('#evOk').onclick=evSave;
 $('#evAll').onclick=evAll;$('#evNone').onclick=evNone;$('#evBetween').onclick=evBetween;
