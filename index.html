@@ -675,18 +675,30 @@ function gateCheck(c){
   if(raw[0]&&raw[0]!=='start'&&raw[0]!=='startfinish')w.push('La primera puerta tiene que ser largada o largada/llegada: se toma como largada.');
   if(r[0]==='start'&&n<2)w.push('Con una sola puerta de largada no hay dónde terminar: agregá una llegada.');
   if(r[0]==='start'&&n>=2&&raw[n-1]&&raw[n-1]!=='finish')w.push('En un punto a punto la última puerta funciona como llegada.');
-  if(r[0]==='startfinish'&&raw.some((x,i)=>i>0&&(x==='finish'||x==='start')))w.push('En un circuito cerrado no hace falta puerta de llegada aparte: la largada/llegada cierra cada vuelta.');
+  if(r[0]==='startfinish'&&raw.some((x,i)=>i>0&&(x==='start'||x==='finish'&&i<n-1)))w.push('En un circuito de vueltas la llegada aparte tiene que ser la última puerta: las demás se toman como parciales.');
+  if(hasLapFin(c))w.push('ℹ️ Vueltas con llegada aparte: cada paso por la largada/llegada marca una vuelta y al cruzar la llegada (la última puerta) termina la carrera con el tiempo total.');
   return w;
 }
 
 /* Cronómetro de puertas. Los puntos son [lat,lon,tMs,...]. */
+/* circuito de vueltas con llegada aparte: la primera es largada/llegada (marca cada vuelta) y la última es una llegada (termina la carrera) */
+const hasLapFin=c=>{const r=gateRoles(c);return r.length>=2&&r[0]==='startfinish'&&r[r.length-1]==='finish';};
 class GateTimer{
-  constructor(c,cb){this.c=c;this.cb=cb||{};this.roles=gateRoles(c);this.reset();}
-  reset(){this.exp=0;this.cur=null;this.laps=[];this.lastT=null;}
+  constructor(c,cb){this.c=c;this.cb=cb||{};this.roles=gateRoles(c);this.fin=hasLapFin(c)?c.gates.length-1:null;
+    this.nLaps=this.roles[0]==='startfinish'&&c.nLaps>0?Math.round(c.nLaps):null;this.reset();}
+  reset(){this.exp=0;this.cur=null;this.laps=[];this.lastT=null;this.race=null;this.races=[];}
   best(){let b=null;for(const l of this.laps)if(!b||l.time<b.time)b=l;return b;}
   feed(p,q){
-    const G=this.c.gates,n=G.length;
+    const G=this.c.gates,n=this.fin!=null?this.fin:G.length;
     if(!n||!(q[2]>p[2]))return;
+    /* llegada aparte: vale en cualquier momento de la carrera */
+    if(this.fin!=null&&this.race){
+      const g=G[this.fin],u=crossFrac(p,q,g);
+      if(u!=null&&!(g.dirOnly&&g.brg!=null&&!dirOK(p,q,g.brg))){
+        const t=p[2]+u*(q[2]-p[2]);
+        if(!(this.lastT!=null&&t-this.lastT<4000)){this.lastT=t;this._finish(t);return;}
+      }
+    }
     const gi=this.exp,g=G[gi],u=crossFrac(p,q,g);
     if(u==null)return;
     if(g.dirOnly&&g.brg!=null&&!dirOK(p,q,g.brg))return;      /* cruzó al revés: no cuenta */
@@ -694,12 +706,21 @@ class GateTimer{
     if(this.lastT!=null&&t-this.lastT<4000)return;
     this.lastT=t; this._cross(gi,t,n);
   }
+  _finish(t,atLap){
+    const R=this.race,laps=this.laps.slice(R.lap0);
+    const race={n:this.races.length+1,start:R.start,time:t-R.start,laps:laps.length,splits:laps.map(l=>l.start+l.time-R.start).concat(atLap?[]:[t-R.start])};
+    if(atLap)race.byCount=true;
+    this.races.push(race);this.cur=null;this.exp=0;this.race=null;
+    this.cb.onFinish&&this.cb.onFinish(race);
+  }
   _cross(gi,t,n){
     const cb=this.cb,role=this.roles[gi];
     if(role==='start'||role==='startfinish'){
       if(role==='startfinish'&&this.cur){
         const cur=this.cur;cur.marks.push(t);this.cur={start:t,marks:[]};this.exp=n>1?1:0;this._end(cur);
-      }else{this.cur={start:t,marks:[]};this.exp=n>1?1:0;cb.onStart&&cb.onStart(t);}
+        /* cantidad de vueltas fija (sin llegada aparte): al completar la última, termina la carrera */
+        if(this.nLaps&&this.fin==null&&this.race&&this.laps.length-this.race.lap0>=this.nLaps)this._finish(t,true);
+      }else{this.cur={start:t,marks:[]};this.exp=n>1?1:0;if((this.fin!=null||this.nLaps)&&!this.race)this.race={start:t,lap0:this.laps.length};cb.onStart&&cb.onStart(t);}
     }else if(role==='finish'){
       this.cur.marks.push(t);const cur=this.cur;this.cur=null;this.exp=0;this._end(cur);
     }else{
@@ -717,7 +738,7 @@ class GateTimer{
 function analyze(pts,circ){
   const gt=new GateTimer(circ);
   for(let i=1;i<pts.length;i++){ if(pts[i][5]!==pts[i-1][5])continue; gt.feed(pts[i-1],pts[i]); }
-  return gt.laps;
+  const L=gt.laps;L.races=gt.races;return L;
 }
 function bestOf(laps){let b=null;for(const l of laps)if(!b||l.time<b.time)b=l;return b;}
 function lapSectors(l){return l.splits.map((s,i)=>s-(i?l.splits[i-1]:0));}
@@ -3079,6 +3100,7 @@ function cue(text,d,kind){
 const ACT={walk:['🚶','Caminata'],run:['🏃','Correr'],bike:['🚴','Bici'],car:['🚗','Auto'],kayak:['🛶','Kayak'],swim:['🏊','Natación']};
 let RUNS=[];
 const loadRuns=async()=>{RUNS=await DB.all('kv','run:');};
+const raceCid=(cid,n)=>`${cid}#race${n}`;
 const resOf=tr=>tr.res||(tr.laps&&tr.laps.length&&tr.circuitId?[{cid:tr.circuitId,name:'',type:'closed',laps:tr.laps}]:[]);
 async function removeRunsOfTrack(tid){
   const del=RUNS.filter(r=>r.tid===tid);RUNS=RUNS.filter(r=>r.tid!==tid);
@@ -3092,6 +3114,13 @@ async function commitRuns(tr){
       const ev=evalLap(RUNS,r.cid,tr.act,lap);
       lap.pb=ev.pb;lap.first=ev.first;lap.delta=ev.delta;lap.gold=ev.golds;
       const run={id:`${tr.id}#${r.cid}#${lap.n}`,cid:r.cid,act:tr.act,tid:tr.id,n:lap.n,t0:lap.start,time:lap.time,splits:lap.splits,rec:ev.pb};
+      RUNS.push(run);await DB.put('kv','run:'+run.id,run);
+    }
+    /* carreras (vueltas + llegada aparte): el récord se compara con carreras de la misma cantidad de vueltas */
+    for(const R of r.races||[]){
+      const rc=raceCid(r.cid,R.laps),ev=evalLap(RUNS,rc,tr.act,R);
+      R.pb=ev.pb;R.first=ev.first;R.delta=ev.delta;
+      const run={id:`${tr.id}#${r.cid}#race${R.n}`,cid:rc,act:tr.act,tid:tr.id,n:R.n,t0:R.start,time:R.time,splits:R.splits,rec:ev.pb,race:true};
       RUNS.push(run);await DB.put('kv','run:'+run.id,run);
     }
   }
@@ -3154,9 +3183,20 @@ function makeTimer(circ){
       try{const cs=ent.gt.cur,secs=cs.marks.map((m,i,a)=>m-(i?a[i-1]:cs.start));waSector(ent,secs,ent.ref(false),ent.gt.laps.length+1);}catch(e){}
       cue(`Puerta ${gi}${gold?', sector récord':''}`,d,'gate');
     },
+    onFinish:race=>{
+      let b=bestBy(RUNS,raceCid(circ.id,race.laps),REC.act,null);
+      for(const x of ent.gt.races.slice(0,-1))if(x.laps===race.laps&&(!b||x.time<b.time))b=x;
+      const d=b?race.time-b.time:null,pb=!!b&&race.time<b.time;
+      REC.last={txt:`🏁 Llegada ${fmtT(race.time,true)} · ${race.laps} vuelta${race.laps===1?'':'s'}${pb?' 🏆':''}`,d};
+      REC.lastEnt=ent;SH.tmDirty=true;clearGhost();
+      if(pb)toast(`🏆 ¡Récord de carrera a ${race.laps} vueltas en ${circ.name}!`,6000);
+      cue(`Llegada. ${pb?'¡Nuevo récord! ':''}Tiempo total ${spoken(race.time)}, ${race.laps} vuelta${race.laps===1?'':'s'}`,d,'lap');
+      try{waSignal(d==null||d<=waTol(),`🏁 Llegada ${fmtT(race.time,true)}${d!=null?' '+fmtDelta(d):''}`,`${race.laps} vueltas`);}catch(e){}
+    },
     onLap:lap=>{
       const r=ent.ref(true),d=r?lap.time-r.time:null,pb=!!r&&lap.time<r.time;
       lap.pb=pb;REC.lastEnt=ent;SH.tmDirty=true;
+      {const g=ent.gt;if(g.nLaps&&g.race&&g.laps.length-g.race.lap0===g.nLaps-1)setTimeout(()=>cue('¡Última vuelta!',null,'gate'),2500);}
       try{waSector(ent,lapSectors(lap),r,lap.n);}catch(e){}
       if(ent.gt.cur){ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});}
       const nm=circ.type==='p2p'?'':`Vuelta ${lap.n}, `;
@@ -3383,7 +3423,9 @@ function tickHud(){
   if(f1e){
     c.hidden=false;
     const now=lastFix?lastFix.t+(Date.now()-lastFixWall):Date.now();
-    c.innerHTML=f1Html(f1ModelRec(f1e),now)+(at?'':`<div class="f1n"><span>Vigilando: cruzá una largada para otra vuelta</span></div>`);
+    const gr=f1e.gt,vn=gr.race?gr.laps.length-gr.race.lap0+1:0,rl=gr.race?`<div class="f1n"><span>🏁 Carrera: <b>${fmtT(now-gr.race.start)}</b> · vuelta ${vn}${gr.nLaps?` de ${gr.nLaps}${vn===gr.nLaps?' · ¡última!':''}`:''}${gr.fin!=null?' · la llegada aparte termina':''}</span></div>`:'';
+    const lastR=!gr.race&&!at&&gr.races.length?gr.races[gr.races.length-1]:null;
+    c.innerHTML=f1Html(f1ModelRec(f1e),now)+rl+(lastR?`<div class="f1n"><span>🏁 Llegada: <b>${fmtT(lastR.time,true)}</b> · ${lastR.laps} vuelta${lastR.laps===1?'':'s'}${REC.last&&REC.last.d!=null?` <span class="${REC.last.d<0?'good':'bad'}">${fmtDelta(REC.last.d)}</span>`:''}</span></div>`:'')+(at?'':`<div class="f1n"><span>Vigilando: cruzá una largada para otra vuelta</span></div>`);
     c.classList.add('isf1');
     if(at&&ghost&&ghost.ent===at){
       const el=now-at.gt.cur.start,p=posAt(ghost.pts,el);
@@ -3444,7 +3486,7 @@ async function stopFlow(){
 }
 async function saveRec(name){
   const pts=REC.pts.slice();
-  const res=REC.timers.filter(t=>t.gt.laps.length).map(t=>({cid:t.circ.id,name:t.circ.name,type:t.circ.type,wind:t.wind||null,laps:t.gt.laps.map(l=>({n:l.n,start:l.start,time:l.time,splits:l.splits}))}));
+  const res=REC.timers.filter(t=>t.gt.laps.length||t.gt.races.length).map(t=>({cid:t.circ.id,name:t.circ.name,type:t.circ.type,wind:t.wind||null,races:t.gt.races.map(R=>Object.assign({},R)),laps:t.gt.laps.map(l=>({n:l.n,start:l.start,time:l.time,splits:l.splits}))}));
   const tr={id:REC.id,name:name||'Salida '+fmtDate(REC.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),act:REC.act,res,src:'rec'};
   await commitRuns(tr);
   await DB.put('kv','track:'+tr.id,tr);
@@ -3615,13 +3657,18 @@ function barChart(vals,labels,bestIdx){
     return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${i===bestIdx?'#2E7D5B':'#0E2A36'}"/><text x="${(x+w/2).toFixed(1)}" y="${H-5}" font-size="10" text-anchor="middle" fill="#566B74">${esc(labels[i])}</text>`;
   }).join('')+`</svg>`;
 }
+function raceBlock(r){
+  if(!r.races||!r.races.length)return '';
+  return r.races.map(R=>{const s=lapSectors(R);return `<div class="card"><b>🏁 Carrera${r.races.length>1?' '+R.n:''}: ${fmtT(R.time,true)}</b> · ${R.laps} vuelta${R.laps===1?'':'s'}${R.byCount?'':' + llegada'}${R.pb?' 🏆 ¡récord!':''}${R.delta!=null&&!R.pb?` · ${fmtDelta(R.delta)} contra tu récord`:''}<br><small class="mut">${s.map((x,i)=>i<R.laps?`V${i+1} ${fmtT(x,true)}`:`a la llegada ${fmtT(x,true)}`).join(' · ')}</small></div>`;}).join('');
+}
 function lapBlock(r){
+  if(!r.laps.length)return `<h3>${esc(r.name||'Circuito')}</h3>`+raceBlock(r);
   const laps=r.laps,secs=laps.map(lapSectors),nS=secs[0].length;
   const bl=bestOf(laps).time,bs=[];
   for(let i=0;i<nS;i++)bs.push(Math.min(...secs.map(s=>s[i])));
   const theo=bs.reduce((a,b)=>a+b,0);
   const htags=r.tags||(r.types?{terr:r.types}:{}),hg=pickGrp(htags,S.f1Group,null);
-  let h=`<h3>${esc(r.name||'Circuito')}</h3><div class="tblw"><table class="tbl"><tr><th>#</th><th>Tiempo</th>${bs.map((_,i)=>`<th>S${i+1}${hg?gIcon(hg,htags[hg][i]):''}</th>`).join('')}</tr>`;
+  let h=`<h3>${esc(r.name||'Circuito')}</h3>${raceBlock(r)}<div class="tblw"><table class="tbl"><tr><th>#</th><th>Tiempo</th>${bs.map((_,i)=>`<th>S${i+1}${hg?gIcon(hg,htags[hg][i]):''}</th>`).join('')}</tr>`;
   laps.forEach((l,i)=>{
     h+=`<tr><td>${l.pb?'🏆 ':''}${l.n}</td><td class="${l.time===bl?'bl':''}">${fmtT(l.time,true)}</td>${secs[i].map((s,j)=>`<td class="${s===bs[j]?'bs':''}">${fmtT(s,true)}${l.gold&&l.gold[j]?' ⚡':''}</td>`).join('')}</tr>`;
   });
@@ -3644,7 +3691,7 @@ const SECG={
   curr:{n:'Corriente',v:{fav:['🌊','Corriente a favor','Corriente a favor'],con:['🚧','Corriente en contra','Corriente en contra'],cross:['↗️','Corriente cruzada','Corriente cruzada']}}
 };
 const SECG_ORD=['terr','shape','wind','curr'];
-const nSecOf=c=>{const n=c.gates.length;return circType(c)==='closed'?n:Math.max(0,n-1);};
+const nSecOf=c=>{const n=c.gates.length;return circType(c)==='closed'?(hasLapFin(c)?n-1:n):Math.max(0,n-1);};
 const secInfo=c=>{const n=nSecOf(c),s=(c.secs||[]).slice(0,n);while(s.length<n)s.push({});return s.map(x=>x||{});};
 function secTypes(c){
   const t=c.terrain,n=nSecOf(c);
@@ -3699,7 +3746,7 @@ async function sectorPaths(c){
     for(let i=0;i<n;i++){const p=tr.pts.filter(q=>q[2]>=b[i]-1500&&q[2]<=b[i+1]+1500);if(p.length<2){ok=false;break;}ss.push(p);}
     if(ok)return {src:'track',segs:ss};
   }
-  const roles=gateRoles(c),G=c.gates.map((g,i)=>upgradeGate(g,roles[i]).c);
+  const roles=gateRoles(c),G=c.gates.map((g,i)=>upgradeGate(g,roles[i]).c).slice(0,hasLapFin(c)?-1:undefined);
   if(c.path&&c.path.length>1){
     const P=c.path,cum=[0];for(let i=1;i<P.length;i++)cum.push(cum[i-1]+hav(P[i-1],P[i]));
     let prev=0;const s=G.map(g=>{let best=null;for(let i=1;i<P.length;i++){if(cum[i]<prev)continue;const pr=projSeg(P[i-1],P[i],g),d=cum[i-1]+pr.t*(cum[i]-cum[i-1]);if(!best||pr.d<best.d-1)best={d:pr.d,s:d};}prev=best?best.s:prev;return prev;});
@@ -3851,7 +3898,7 @@ async function entWind(ent){
 }
 async function showTrackDetail(id){
   const tr=await DB.get('kv','track:'+id);if(!tr){showTracks();return;}
-  const s=tr.stats,res0=resOf(tr).filter(r=>r.laps.length),u=SP_UNIT[S.speedMode],res=[];
+  const s=tr.stats,res0=resOf(tr).filter(r=>r.laps.length||r.races&&r.races.length),u=SP_UNIT[S.speedMode],res=[];
   for(const r of res0){
     const c=await DB.get('kv','circuit:'+r.cid).catch(()=>null);
     let prev=null;for(const x of RUNS)if(x.cid===r.cid&&x.act===tr.act&&x.tid!==tr.id&&x.t0<tr.t0&&(!prev||x.time<prev.time))prev=x;
@@ -3902,10 +3949,10 @@ async function showAnalPick(id){
       if(a==='go'){
         const c=await DB.get('kv','circuit:'+d.c),laps=analyze(tr.pts,c);
         tr.res=resOf(tr).filter(r=>r.cid!==c.id);
-        if(laps.length)tr.res.push({cid:c.id,name:c.name,type:c.type,laps});
+        if(laps.length||laps.races.length)tr.res.push({cid:c.id,name:c.name,type:c.type,laps:laps.slice(),races:laps.races});
         tr.act=tr.act||'bike';
         await commitRuns(tr);await DB.put('kv','track:'+id,tr);
-        toast(laps.length?`${laps.length} pasada${laps.length>1?'s':''} detectada${laps.length>1?'s':''}`:'No se detectaron pasadas');showTrackDetail(id);
+        toast(laps.length?`${laps.length} pasada${laps.length>1?'s':''} detectada${laps.length>1?'s':''}${laps.races.length?` y ${laps.races.length} llegada${laps.races.length>1?'s':''}`:''}`:laps.races.length?'Llegada detectada':'No se detectaron pasadas');showTrackDetail(id);
       }
     });
 }
@@ -4019,6 +4066,11 @@ async function showCircuitDetail(id,act){
     const ev=recent.slice(0,15).reverse();
     if(ev.length>1)h+=`<h3>Evolución</h3>`+barChart(ev.map(r=>r.time),ev.map((_,i)=>i+1),ev.findIndex(r=>r.time===best.time));
   }
+  if(hasLapFin(c)||c.nLaps&&circType(c)==='closed'){
+    const rr=RUNS.filter(r=>r.race&&r.cid.startsWith(c.id+'#race')&&r.act===(act||S.act));
+    const byN={};for(const r of rr){const k=+r.cid.split('#race')[1];if(!byN[k]||r.time<byN[k].time)byN[k]=r;}
+    h+=`<h3>🏁 Carreras${hasLapFin(c)?' (vueltas + llegada aparte)':` a ${c.nLaps} vueltas`}</h3>${Object.keys(byN).length?Object.keys(byN).sort((a,b)=>a-b).map(k=>`<div class="item" data-act="tr" data-id="${byN[k].tid}"><div><b>${k} vuelta${k==1?'':'s'}: ${fmtT(byN[k].time,true)}</b><br><small class="mut">${fmtDate(byN[k].t0)} · ${rr.filter(r=>r.cid===raceCid(c.id,k)).length} carrera(s)</small></div><span>›</span></div>`).join(''):`<p class="mut">Todavía no terminaste una carrera. ${hasLapFin(c)?'Cada paso por la largada/llegada marca una vuelta; la última puerta (🏆 Llegada) termina la carrera.':`Termina sola al completar ${c.nLaps} vueltas.`}</p>`}`;
+  }
   const nS=nSecOf(c);
   if(nS>=2){
     const tg=secTags(c,null),si=secInfo(c),inf=c.terrain&&c.terrain.n===nS?c.terrain.info:[];
@@ -4096,9 +4148,11 @@ async function showCircuitEdit(id){
     <p>${tp==='closed'?'🔁 <b>Circuito cerrado:</b> se cuentan vueltas':'➡️ <b>Punto a punto:</b> de la largada a la llegada'} <span class="mut">(lo define el rol de cada puerta)</span></p>
     <h3>Puertas (${c.gates.length})</h3>
     ${c.gates.map((g0,i)=>{const g=upgradeGate(g0,roles[i]);return `<div class="item"><div><b>${ROLE_ICON[roles[i]]} ${i+1}. ${ROLE_NAME[roles[i]]}</b><br><small class="mut">${Math.round(g.w)} m de ancho · ${dirText(g)}</small></div><div class="row"><button class="btn sm" data-act="gup" data-i="${i}" ${i?'':'disabled'} aria-label="Subir">▲</button><button class="btn sm" data-act="gdn" data-i="${i}" ${i<c.gates.length-1?'':'disabled'} aria-label="Bajar">▼</button><button class="btn sm" data-act="gedit" data-i="${i}">Editar</button></div></div>`;}).join('')||'<p class="mut">Sin puertas todavía.</p>'}
-    ${warn.map(w=>`<p class="mut">⚠️ ${esc(w)}</p>`).join('')}
+    ${warn.map(w=>`<p class="mut">${w.startsWith('ℹ️')?'':'⚠️ '}${esc(w)}</p>`).join('')}
     <div class="row" style="margin-top:8px"><button class="btn primary" data-act="gadd">＋ Agregar puerta</button><button class="btn" data-act="here">📍 En mi posición</button></div>
     <p class="mut">Cada puerta se ubica tocando el mapa. Elegís el rol (largada, parcial, llegada o largada/llegada), el ancho, si cuenta en un solo sentido o en los dos, y el giro de 0 a 359°. Las puertas se recorren en el orden de esta lista.</p>
+    ${tp==='closed'?`<label for="cnl">Cantidad de vueltas de la carrera (vacío = sin límite)</label><input class="in" id="cnl" type="number" min="1" max="500" inputmode="numeric" value="${c.nLaps||''}" placeholder="Ej: 10">
+    <p class="mut">${hasLapFin(c)?'Con llegada aparte, la carrera termina al cruzarla; las vueltas sirven para avisarte la última.':'Al completar esa cantidad de vueltas termina la carrera: te canta “¡Última vuelta!” y al final el tiempo total.'}</p>`:''}
     <label class="chk"><input type="checkbox" id="cw" ${c.watch!==false?'checked':''}> Vigilar en cada grabación</label>
     <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Listo</button><button class="btn danger" data-act="del">Borrar circuito</button></div>`,
     async(a,d,el)=>{
@@ -4123,6 +4177,7 @@ async function showCircuitEdit(id){
     async t=>{
       if(t.id==='cn'){c.name=t.value.trim()||c.name;await DB.put('kv','circuit:'+id,c);}
       else if(t.id==='cw'){c.watch=t.checked;await DB.put('kv','circuit:'+id,c);}
+      else if(t.id==='cnl'){const v=Math.round(+t.value);c.nLaps=v>0?Math.min(500,v):null;await DB.put('kv','circuit:'+id,c);toast(c.nLaps?`Carrera a ${c.nLaps} vuelta${c.nLaps>1?'s':''}`:'Vueltas sin límite',2500);}
     });
 }
 /* Si cambian las puertas, las marcas viejas dejan de ser comparables */
@@ -9235,7 +9290,8 @@ function shTiming(){
   const m=f1ModelRec(e),c=e.circ,roles=gateRoles(c);
   const circ={id:c.id,name:c.name,closed:m.closed,nSec:m.nSec,tags:m.tags,names:m.names,act:m.act,hist:m.hist,sb:m.sb,
     gates:c.gates.map((g,i)=>{const u=upgradeGate(g,roles[i]);return {c:[+u.c[0].toFixed(6),+u.c[1].toFixed(6)],w:Math.round(u.w),brg:Math.round(u.brg)};})};
-  return {circ,tm:{cid:c.id,tags:m.tags,names:m.names,wind:m.wind,laps:m.laps.slice(-20),cur:m.cur}};
+  const gt=e.gt,lr=gt.races[gt.races.length-1];
+  return {circ,tm:{cid:c.id,tags:m.tags,names:m.names,wind:m.wind,laps:m.laps.slice(-20),cur:m.cur,race:gt.race?{start:gt.race.start,lap0:gt.race.lap0}:null,fin:lr?{time:lr.time,laps:lr.laps,end:lr.start+lr.time}:null}};
 }
 async function shFlush(){
   if(!SH.on||SH.sending||!(SH.queue.length||SH.tmDirty))return;
@@ -9446,7 +9502,9 @@ function folPanel(){
   let eta='';
   if(FOL.ended)eta='🏁 Terminó de compartir';
   else if(st.eta)eta=`🏁 Llega a las ${hhmm(st.eta)}${st.nextKm.length?' · '+st.nextKm.map(([k,t])=>`km ${k}: ${hhmm(t)}`).join(' · '):''}`;
-  const fm=folF1();
+  const fm=folF1(),ft=FOL.tm;
+  if(ft&&ft.fin&&!(ft.race&&ft.race.start>ft.fin.end))eta=`🏁 Llegó: total ${fmtT(ft.fin.time,true)} · ${ft.fin.laps} vuelta${ft.fin.laps===1?'':'s'}`;
+  else if(ft&&ft.race)eta=`🏁 En carrera: ${fmtT((FOL.ended?st.tl*1000:Date.now())-ft.race.start)} · vuelta ${(ft.laps||[]).filter(l=>l.start>=ft.race.start).length+1}`+(eta?' · '+eta:'');
   el.innerHTML=`<div class="fb" data-f="c"><div class="t">📡 ${nm} <small class="${late?'late':''}">${late?'⚠️ ':''}${agoT}</small></div><div class="s">${lines.join(' · ')}</div>${eta?`<div class="s">${eta}</div>`:''}${fm?f1Html(fm,FOL.ended?st.tl*1000:Date.now()):''}</div>
     <div class="rb"><button data-f="g" class="${FOL.tgt?'on':''}" aria-label="Ir hacia">🎯</button><button data-f="c" aria-label="Centrar">⌖</button><button data-f="x" aria-label="Dejar de seguir">✕</button></div>`;
 }
