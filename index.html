@@ -381,6 +381,11 @@ table.dg td:first-child{font-weight:700;width:42%}
 
 #perim{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:52vh;overflow:auto}
 #perim[hidden]{display:none}
+#dsel{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
+#dsel[hidden]{display:none}
+#dsInfo{font:600 14px system-ui;margin-top:4px}
+#dsel .chips button.on{background:#F04A1C;color:#fff}
+#dsDel{color:#C0392B}
 #pbInfo{font:700 15px system-ui;margin-top:4px}
 #pbList{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .pbn{border:2px solid;border-radius:12px;padding:1px 8px;font:600 12.5px system-ui}
@@ -426,6 +431,12 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
   <div id="evInfo"></div><small id="evWater" style="display:block;font-size:12.5px;line-height:1.35;margin-top:2px" hidden></small><small id="evHint"></small>
   <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evJoin" hidden>🔗 Unir al agua</button><button id="evArea">⬛ Hacer área</button><button id="evCut">✂️ Cortar aquí</button><button id="evSnapW" hidden>🧲 Copiar el borde del agua</button></div>
   <div class="nvb"><button id="evUndo">↶ Deshacer</button><button id="evDel">🗑️ Borrar</button><button id="evSimp">🧹 Simplificar todo</button><button id="evRev">⇄ Invertir</button><button id="evOk">✓ Guardar</button></div>
+</div>
+<div id="dsel" hidden>
+  <div class="caph"><b>☑️ Elegir trazos</b><button id="dsX" aria-label="Cerrar">✕</button></div>
+  <div id="dsInfo"></div>
+  <div class="chips" style="margin-top:6px"><button id="dsLasso">◯ Lazo</button><button id="dsLoose">🔍 Sueltos en la vista</button><button id="dsNone">Ninguno</button></div>
+  <div class="nvb"><button id="dsUndo" hidden>↩ Deshacer</button><button id="dsDel">🗑️ Borrar</button></div>
 </div>
 <div id="perim" hidden>
   <div class="caph"><b>⬛ Armar un área con tramos</b><button id="pbX" aria-label="Cerrar">✕</button></div>
@@ -4194,7 +4205,7 @@ function dpSimplify(p,tol){
 }
 function edLod(){
   const _t=performance.now();
-  const z=map.getZoom(),zb=Math.floor(z),far=z<9;
+  const z=map.getZoom(),zb=Math.floor(z),far=z<9&&!(typeof DS!=='undefined'&&DS.on)&&!(typeof PB!=='undefined'&&PB.on);
   for(const o of EDLOD){
     let pts=o.pts;
     if(o.lod&&zb<14&&o.pts.length>120){o.c=o.c||{};pts=o.c[zb]||(o.c[zb]=dpSimplify(o.pts,360/(256*Math.pow(2,zb))*.7));}
@@ -4214,6 +4225,7 @@ async function drawEdits(){
     const dsh=e.kind==='limite'?'12 4 3 4':'6 6',ln=L.polyline(e.pts,{color:lc,weight:e.kind==='limite'?5:4,dashArray:dsh,interactive:false}).addTo(editLayer);
     /* franja ancha e invisible: tocar un trazo abre sus propiedades (o lo elige, si se está armando un área) */
     const st=L.polyline(e.pts,{color:'#000',weight:22,opacity:.001}).on('click',ev=>{
+      if(DS.on){if(ev&&ev.originalEvent)ev.originalEvent._owned=true;dsToggle(e.id);return;}
       if(PB.on){if(ev&&ev.originalEvent)ev.originalEvent._owned=true;pbToggle(e.id);return;}
       if(TR.on||GE.on||CAP.on||PICK||draw||EV.on||MS.on||REC.state!=='idle'||NAV.on||sheet.classList.contains('open'))return;
       if(ev&&ev.originalEvent)ev.originalEvent._owned=true;
@@ -4225,6 +4237,7 @@ async function drawEdits(){
     const cl=areaRestricted(e);
     const pg=L.polygon(e.pts,{color:cl?'#D0392B':'#6B7B85',weight:2,dashArray:'6 4',fillColor:AREA_COL[e.kind]||'#E0DCD2',fillOpacity:.3,interactive:false}).addTo(editLayer);
     const st2=L.polyline(e.pts.concat([e.pts[0]]),{color:'#000',weight:22,opacity:.001}).on('click',ev=>{
+      if(DS.on){if(ev&&ev.originalEvent)ev.originalEvent._owned=true;dsToggle(e.id);return;}
       if(TR.on||GE.on||CAP.on||NP.on||PICK||draw||EV.on||MS.on||REC.state!=='idle'||NAV.on||sheet.classList.contains('open'))return;
       if(ev&&ev.originalEvent)ev.originalEvent._owned=true;
       showEditArea(e.id);
@@ -4252,7 +4265,7 @@ async function showFix(){
     <div class="row"><button class="btn primary" data-act="cap">📐 Elegir la zona en el mapa</button></div>
     <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar 25 × 25 km centrados':'Bajar 25 × 25 km centrados'}</button>${nets.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button><button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div><p id="netmsg" class="mut"></p>`;
   h+=`<h3>Dibujo vectorial (costas, límites, ríos…)</h3>
-    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">✍️<br>Calcar o dibujar</button><button class="btn big" data-act="geoimp">📥<br>Importar GeoJSON</button><button class="btn big" data-act="osmcl">🌊<br>Costas y límites de OpenStreetMap</button><button class="btn big" data-act="meas">📏<br>Medir</button><button class="btn big" data-act="perim">⬛<br>Armar un área con tramos</button><button class="btn big" data-act="osmw">🏞️<br>Ríos y lagos de OpenStreetMap</button><button class="btn big" data-act="rdup">🧹<br>Ríos repetidos</button></div>`;
+    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">✍️<br>Calcar o dibujar</button><button class="btn big" data-act="geoimp">📥<br>Importar GeoJSON</button><button class="btn big" data-act="osmcl">🌊<br>Costas y límites de OpenStreetMap</button><button class="btn big" data-act="meas">📏<br>Medir</button><button class="btn big" data-act="perim">⬛<br>Armar un área con tramos</button><button class="btn big" data-act="osmw">🏞️<br>Ríos y lagos de OpenStreetMap</button><button class="btn big" data-act="rdup">🧹<br>Ríos repetidos</button><button class="btn big" data-act="dsel">☑️<br>Elegir trazos y borrar varios</button></div>`;
   if(nets.length)h+=`<h3>Corregir las calles</h3>
     <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="pickway">↔️<br>Sentido o cierre de una calle</button><button class="btn big" data-act="nodes">🚫<br>Giros prohibidos y barreras</button></div>`;
   const gs=groupsOf(edits),singles=edits.filter(e=>!e.group);
@@ -4277,6 +4290,7 @@ async function showFix(){
     else if(a==='perim')openPerim();
     else if(a==='osmw')osmWaterDownload();
     else if(a==='rdup')showRiverDups();
+    else if(a==='dsel')openDsel();
     else if(a==='evx')openVEdit(d.id);
     else if(a==='gview'){const it=edits.filter(x=>x.group&&x.group.id===d.id);closeSheet();setFollow(false);map.fitBounds(L.latLngBounds(it.flatMap(x=>x.pts)),{padding:[40,40]});}
     else if(a==='gdel'){if(armed(el)){for(const x of edits.filter(x=>x.group&&x.group.id===d.id))await DB.del('kv','edit:'+x.id);vecInvalidate();await drawEdits();toast('Quitado');showFix();}}
@@ -6373,6 +6387,95 @@ function groupHtml(gs){
 const PB={on:false,ids:[]};
 const pbLayer=L.layerGroup().addTo(map);
 const PB_TOL=100;      /* tramos a menos de 100 m se consideran unidos */
+/* ---------- Elegir varios trazos (tocando o con lazo) y borrarlos juntos ---------- */
+var DS={on:false,ids:new Set(),lasso:false,lp:[],lpid:null,undo:null};
+const dsLayer=L.layerGroup().addTo(map);
+async function openDsel(){
+  if(TR.on||GE.on||CAP.on||NP.on||MS.on||EV.on||PB.on||draw||PICK){toast('Cerrá primero la otra herramienta',4000);return;}
+  closeSheet();hidePin();setFollow(false);
+  DS.on=true;DS.ids=new Set();DS.lasso=false;DS.undo=null;$('#dsUndo').hidden=true;$('#dsel').hidden=false;edLod();dsDraw();
+}
+function closeDsel(){DS.on=false;DS.ids=new Set();DS.lasso=false;DS.lp=[];$('#dsel').hidden=true;dsLayer.clearLayers();try{map.dragging.enable();}catch(e){}edLod();}
+async function dsDraw(){
+  dsLayer.clearLayers();
+  const eds=(await Promise.all([...DS.ids].map(id=>DB.get('kv','edit:'+id)))).filter(Boolean);
+  let len=0;
+  for(const e of eds){
+    const pts=e.type==='area'?e.pts.concat([e.pts[0]]):e.pts;
+    L.polyline(pts,{color:'#fff',weight:11,opacity:.85,interactive:false}).addTo(dsLayer);
+    L.polyline(pts,{color:'#D0392B',weight:6,interactive:false}).addTo(dsLayer);
+    len+=polyLen(pts,false);
+  }
+  if(DS.lp.length>1)L.polygon(DS.lp,{color:'#F04A1C',weight:2,dashArray:'5 5',fillColor:'#F04A1C',fillOpacity:.1,interactive:false}).addTo(dsLayer);
+  $('#dsInfo').textContent=DS.lasso?'Lazo: rodeá con el dedo los trazos que querés elegir (se suman a los ya elegidos).'
+    :eds.length?`${eds.length} elegido${eds.length>1?'s':''} · ${fmtLen(len)} · tocá un trazo para sacarlo o agregarlo`:'Tocá los trazos para elegirlos, o usá ◯ Lazo para rodear varios.';
+  $('#dsLasso').classList.toggle('on',DS.lasso);
+  $('#dsDel').disabled=!eds.length;$('#dsDel').textContent=eds.length?`🗑️ Borrar ${eds.length}`:'🗑️ Borrar';
+}
+function dsToggle(id){if(DS.ids.has(id))DS.ids.delete(id);else DS.ids.add(id);dsDraw();}
+async function dsLassoEnd(){
+  const poly=DS.lp;DS.lp=[];
+  if(poly.length<3){dsDraw();return;}
+  let n=0;
+  for(const e of await DB.all('kv','edit:')){
+    if(!(e.type==='path'||e.type==='area')||!e.pts||DS.ids.has(e.id))continue;
+    const inn=e.pts.filter(p=>pip(p[0],p[1],poly)).length;
+    if(inn/e.pts.length>=.6){DS.ids.add(e.id);n++;}
+  }
+  toast(n?`${n} trazo${n>1?'s':''} más`:'No hay trazos ahí adentro',2500);dsDraw();
+}
+/* sueltos: ríos y costas de la vista que no tocan ningún otro trazo ni agua en ninguna de sus puntas */
+async function dsLoose(){
+  const all=await DB.all('kv','edit:'),b=map.getBounds();
+  const lines=all.filter(e=>e.type==='path'&&e.pts&&e.pts.length>1),waters=all.filter(e=>e.type==='area'&&e.kind==='agua'&&e.pts&&e.pts.length>2);
+  const segs=[];for(const e of lines)for(let i=1;i<e.pts.length;i++)segs.push({id:e.id,a:e.pts[i-1],b:e.pts[i]});
+  for(const w of waters)for(let i=0;i<w.pts.length;i++)segs.push({id:w.id,a:w.pts[i],b:w.pts[(i+1)%w.pts.length]});
+  const touches=(p,id)=>waters.some(w=>w.id!==id&&pip(p[0],p[1],w.pts))||segs.some(s=>s.id!==id&&projSeg(s.a,s.b,p).d<=60);
+  let n=0;
+  for(const e of lines){
+    if(DS.ids.has(e.id)||!['rio','costa'].includes(e.kind))continue;
+    if(!e.pts.some(p=>b.contains(p)))continue;
+    if(polyLen(e.pts,false)>5000)continue;
+    if(!touches(e.pts[0],e.id)&&!touches(e.pts[e.pts.length-1],e.id)){DS.ids.add(e.id);n++;}
+  }
+  toast(n?`${n} trazo${n>1?'s':''} suelto${n>1?'s':''} (río o costa sin unir a nada en sus puntas). Revisalos antes de borrar.`:'No hay trazos sueltos en esta vista',4500);dsDraw();
+}
+$('#dsX').onclick=closeDsel;
+$('#dsNone').onclick=()=>{DS.ids=new Set();dsDraw();};
+$('#dsLoose').onclick=dsLoose;
+$('#dsLasso').onclick=()=>{DS.lasso=!DS.lasso;DS.lp=[];dsDraw();};
+$('#dsDel').onclick=async e=>{
+  if(!DS.ids.size||!armed(e.currentTarget))return;
+  const eds=(await Promise.all([...DS.ids].map(id=>DB.get('kv','edit:'+id)))).filter(Boolean);
+  for(const x of eds)await DB.del('kv','edit:'+x.id);
+  DS.undo=eds;DS.ids=new Set();$('#dsUndo').hidden=false;
+  dropGraph();try{kayakDrop();}catch(er){}vecInvalidate();await drawEdits();dsDraw();
+  toast(`${eds.length} trazo${eds.length>1?'s':''} borrado${eds.length>1?'s':''} · ↩ Deshacer los recupera`,5000);
+};
+$('#dsUndo').onclick=async()=>{
+  if(!DS.undo)return;
+  for(const x of DS.undo)await DB.put('kv','edit:'+x.id,x);
+  const n=DS.undo.length;DS.undo=null;$('#dsUndo').hidden=true;
+  dropGraph();try{kayakDrop();}catch(er){}vecInvalidate();await drawEdits();dsDraw();toast(`${n} recuperado${n>1?'s':''}`,2500);
+};
+(function(){
+  const el=$('#map'),pos=e=>{const p=map.mouseEventToLatLng(e);return [p.lat,p.lng];};
+  el.addEventListener('pointerdown',e=>{
+    if(!DS.on||!DS.lasso)return;
+    if(S.penSeen&&S.penMode!==false&&e.pointerType==='touch')return;
+    DS.lpid=e.pointerId;DS.lp=[pos(e)];try{map.dragging.disable();}catch(er){}
+    e.stopPropagation();try{el.setPointerCapture(e.pointerId);}catch(er){}
+  },true);
+  el.addEventListener('pointermove',e=>{
+    if(!DS.on||!DS.lasso||e.pointerId!==DS.lpid)return;
+    const p=pos(e),l=DS.lp[DS.lp.length-1];if(hav(l,p)<Math.max(.8,3*mppNow()))return;
+    DS.lp.push(p);e.stopPropagation();
+    dsLayer.eachLayer(x=>{if(x instanceof L.Polygon)dsLayer.removeLayer(x);});
+    if(DS.lp.length>1)L.polygon(DS.lp,{color:'#F04A1C',weight:2,dashArray:'5 5',fillColor:'#F04A1C',fillOpacity:.1,interactive:false}).addTo(dsLayer);
+  },true);
+  const up=e=>{if(e.pointerId!==DS.lpid)return;DS.lpid=null;try{map.dragging.enable();}catch(er){}dsLassoEnd();};
+  el.addEventListener('pointerup',up,true);el.addEventListener('pointercancel',up,true);
+})();
 function openPerim(){
   if(TR.on||GE.on||CAP.on||NP.on||MS.on||EV.on||draw||PICK){toast('Cerrá primero la otra herramienta',4000);return;}
   closeSheet();hidePin();setFollow(false);
