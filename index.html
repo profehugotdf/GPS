@@ -5380,6 +5380,178 @@ async function showOfflineReport(){
   const txt=JSON.stringify(R,null,1),d=new Date();
   await shareFile(`rumbo-informe-${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}.json`,txt,'application/json');
 }
+/* ====================== 🧠 SUGERENCIAS PARA USAR SIN CONEXIÓN ======================
+   Mira dónde te movés (tracks, circuitos, puntos y tus calcos) y qué tenés bajado, y propone qué bajar y qué borrar. */
+const SG={busy:false,list:null,prog:null};
+const bbKm=b=>[hav([(b.n+b.s)/2,b.w],[(b.n+b.s)/2,b.e])/1000,hav([b.s,b.w],[b.n,b.w])/1000];
+const bbPad=(b,km)=>{const dl=km/110.54,dn=km/(111.32*Math.cos((b.n+b.s)/2*rad));return {n:b.n+dl,s:b.s-dl,e:b.e+dn,w:b.w-dn};};
+const bbIn=(b,p)=>p[0]<=b.n&&p[0]>=b.s&&p[1]<=b.e&&p[1]>=b.w;
+const bbIoU=(a,b)=>{const w=Math.min(a.e,b.e)-Math.max(a.w,b.w),h=Math.min(a.n,b.n)-Math.max(a.s,b.s);if(w<=0||h<=0)return 0;const i=w*h;return i/(bbArea(a)+bbArea(b)-i);};
+/* recorta una caja a lo sumo km × km alrededor de su centro */
+const bbCap=(b,km)=>{const [w,h]=bbKm(b),c=[(b.n+b.s)/2,(b.e+b.w)/2];if(w<=km&&h<=km)return b;const hw=Math.min(w,km)/2,hh=Math.min(h,km)/2;return {n:c[0]+hh/110.54,s:c[0]-hh/110.54,e:c[1]+hw/(111.32*Math.cos(c[0]*rad)),w:c[1]-hw/(111.32*Math.cos(c[0]*rad))};};
+/* qué parte de una caja está cubierta por una lista de cajas (muestra de 5×5 puntos) */
+const bbCovered=(b,boxes)=>{let n=0,k=0;for(let i=0;i<5;i++)for(let j=0;j<5;j++){const p=[b.s+(b.n-b.s)*(i+.5)/5,b.w+(b.e-b.w)*(j+.5)/5];n++;if(boxes.some(x=>bbIn(x,p)))k++;}return k/n;};
+const sgPlace=p=>`${Math.abs(p[0]).toFixed(2)}°${p[0]<0?'S':'N'} ${Math.abs(p[1]).toFixed(2)}°${p[1]<0?'O':'E'}`;
+
+/* zonas donde te movés: grilla de ~22 km; cuenta tracks distintos, circuitos, puntos y calcos propios */
+async function sgZones(){
+  const G=0.1,cells=new Map(),names=[];
+  const cell=p=>{const i=Math.floor(p[0]/G),j=Math.floor(p[1]/(G/Math.max(.3,Math.cos(p[0]*rad)))),k=i+','+j;let c=cells.get(k);if(!c){c={i,j,pts:[],w:0,trk:new Set(),circ:[],wpt:[],eds:[],acts:new Set(),relief:0};cells.set(k,c);}return c;};
+  for(const tr of await DB.all('kv','track:')){
+    const P=tr.pts||[];let last=null;
+    for(let i=0;i<P.length;i++){
+      const p=P[i];if(last&&hav(last,p)<150&&i<P.length-1)continue;last=p;
+      const c=cell(p);c.pts.push([p[0],p[1]]);if(!c.trk.has(tr.id)){c.trk.add(tr.id);c.w+=1;}c.acts.add(tr.act||'');
+    }
+    /* desnivel del track dentro de cada celda (para saber si sirven curvas de nivel) */
+    const rng=new Map();for(const p of P){if(p[4]==null)continue;const c=cell(p);const r=rng.get(c)||[1e9,-1e9];r[0]=Math.min(r[0],p[4]);r[1]=Math.max(r[1],p[4]);rng.set(c,r);}
+    for(const [c,r] of rng)c.relief=Math.max(c.relief,r[1]-r[0]);
+  }
+  for(const c0 of await DB.all('kv','circuit:')){
+    if(!c0.gates||!c0.gates.length)continue;
+    const roles=gateRoles(c0),gp=c0.gates.map((g,i)=>upgradeGate(g,roles[i]).c);
+    const c=cell(gp[0]);c.circ.push(c0.name);c.w+=3;for(const g of gp)c.pts.push(g);
+    if(c0.terrain&&c0.terrain.kind&&c0.terrain.kind.some(k=>k!=='flat'))c.relief=Math.max(c.relief,80);
+  }
+  for(const w of await DB.all('kv','wpt:')){const c=cell([w.lat,w.lon]);c.wpt.push(w.name);c.w+=1;c.pts.push([w.lat,w.lon]);}
+  for(const e of await DB.all('kv','edit:')){
+    if(e.name&&e.pts&&e.pts.length){const m=e.pts[Math.floor(e.pts.length/2)];names.push([m[0],m[1],e.name]);}
+    if(e.group||!e.pts||!e.pts.length)continue;   /* solo lo que dibujaste vos */
+    const m=e.pts[Math.floor(e.pts.length/2)],c=cell(m);c.eds.push(e.name||'');c.w+=0.5;
+    for(let i=0;i<e.pts.length;i+=Math.max(1,Math.floor(e.pts.length/20)))c.pts.push([e.pts[i][0],e.pts[i][1]]);
+  }
+  if(lastFix){const c=cell([lastFix.lat,lastFix.lon]);c.w+=1;c.pts.push([lastFix.lat,lastFix.lon]);c.here=true;}
+  /* celdas vecinas se juntan en una zona (si la zona queda de más de 30 km, cada celda va por separado) */
+  const groups=[],done=new Set();
+  for(const [k,c] of cells){
+    if(done.has(k))continue;
+    const comp=[],st=[k];done.add(k);
+    while(st.length){const kk=st.pop(),cc=cells.get(kk);comp.push(cc);for(let di=-1;di<=1;di++)for(let dj=-1;dj<=1;dj++){const nk=(cc.i+di)+','+(cc.j+dj);if(cells.has(nk)&&!done.has(nk)){done.add(nk);st.push(nk);}}}
+    const merge=cs=>{const m={pts:[],w:0,trk:new Set(),circ:[],wpt:[],eds:[],acts:new Set(),relief:0,here:false};for(const c of cs){m.pts.push(...c.pts);m.w+=c.w;c.trk.forEach(x=>m.trk.add(x));m.circ.push(...c.circ);m.wpt.push(...c.wpt);m.eds.push(...c.eds);c.acts.forEach(x=>m.acts.add(x));m.relief=Math.max(m.relief,c.relief);m.here=m.here||c.here;}return m;};
+    const all=merge(comp);let b={n:-90,s:90,e:-180,w:180};for(const p of all.pts){b.n=Math.max(b.n,p[0]);b.s=Math.min(b.s,p[0]);b.e=Math.max(b.e,p[1]);b.w=Math.min(b.w,p[1]);}
+    const [wk,hk]=bbKm(b);
+    if(wk<=30&&hk<=30)groups.push(all);else for(const c of comp)groups.push(merge([c]));
+  }
+  const out=[];
+  for(const c of groups){
+    if(c.w<2||!c.pts.length)continue;
+    let b={n:-90,s:90,e:-180,w:180};for(const p of c.pts){b.n=Math.max(b.n,p[0]);b.s=Math.min(b.s,p[0]);b.e=Math.max(b.e,p[1]);b.w=Math.min(b.w,p[1]);}
+    b=bbCap(bbPad(b,1),25);
+    let nm=c.circ[0]||c.wpt.find(Boolean)||c.eds.find(Boolean);
+    if(!nm){const cnt={};for(const x of names)if(bbIn(b,x))cnt[x[2]]=(cnt[x[2]]||0)+1;const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];nm=top?'cerca de '+top[0]:sgPlace([(b.n+b.s)/2,(b.e+b.w)/2]);}
+    const bits=[];if(c.trk.size)bits.push(`${c.trk.size} track${c.trk.size>1?'s':''}`);if(c.circ.length)bits.push(`${c.circ.length} circuito${c.circ.length>1?'s':''}`);if(c.wpt.length)bits.push(`${c.wpt.length} punto${c.wpt.length>1?'s':''}`);if(c.eds.length)bits.push(`${c.eds.length} calco${c.eds.length>1?'s':''}`);if(c.here)bits.push('estás acá');
+    out.push({b,w:c.w,name:nm,info:bits.join(' · '),relief:c.relief,acts:[...c.acts]});
+  }
+  return out.sort((a,b)=>b.w-a.w).slice(0,12);
+}
+/* fracción de teselas de una capa presentes en la caja, a un zoom (muestra hasta 160) */
+async function sgTilePct(layer,b,z){
+  const r=tileRanges(b,z,z)[0],all=[];for(let x=r.x0;x<=r.x1;x++)for(let y=r.y0;y<=r.y1;y++)all.push([x,y]);
+  if(!all.length)return 1;
+  const st=Math.max(1,Math.floor(all.length/160));let n=0,k=0;
+  for(let i=0;i<all.length;i+=st){n++;if(await DB.has('tiles',`${layer}/${z}/${all[i][0]}/${all[i][1]}`))k++;}
+  return k/n;
+}
+async function sgAnalyze(){
+  const S2=[],zones=await sgZones(),idx=(await netIndex()).filter(n=>!n.pending),nets=idx.filter(n=>!n.regional).map(n=>n.bb);
+  const ctrs=(await DB.all('kv','ctr:')).map(c=>c.bb).filter(Boolean);
+  const satKb=LAYERS.sat&&LAYERS.sat.kb||25;
+  for(const z of zones){
+    const [wk,hk]=bbKm(z.b),area=wk*hk;
+    /* satélite */
+    const pct=await sgTilePct('sat',z.b,15);
+    if(pct<0.6){
+      const z1=area<=300?16:15,z0=12,n=tileCount(tileRanges(z.b,z0,z1));
+      S2.push({kind:'sat',zone:z,b:z.b,z0,z1,n,mb:n*satKb/1024,pri:z.w*(1-pct),
+        t:`🛰️ Satélite · zona de <b>${esc(z.name)}</b>`,d:`${z.info}. ${pct<0.05?'No hay satélite bajado':'Solo hay satélite en el '+Math.round(pct*100)+' %'}. Bajar zoom ${z0} a ${z1} (${Math.round(wk)} × ${Math.round(hk)} km, unas ${fmtN(n)} teselas, ~${mbf(n*satKb/1024)} MB).`});
+    }
+    /* calles y senderos */
+    const cov=bbCovered(z.b,nets);
+    if(cov<0.8)S2.push({kind:'net',zone:z,b:bbCap(z.b,25),pri:z.w*(1-cov)*.9,t:`🛣️ Calles y senderos · zona de <b>${esc(z.name)}</b>`,d:`${z.info}. ${cov<0.05?'No hay calles bajadas':'Las calles bajadas cubren solo el '+Math.round(cov*100)+' %'}: sin esto no se calculan rutas sin internet.`});
+    /* curvas de nivel donde hay desnivel y caminás, corrés o pedaleás */
+    const ccov=bbCovered(z.b,ctrs),onFoot=z.acts.some(a=>['walk','run','bike'].includes(a))||!z.acts.length;
+    if(z.relief>=60&&onFoot&&ccov<0.6){const b=bbCap(z.b,20);if(demTiles(b,DEM_Z).length<=150)S2.push({kind:'ctr',zone:z,b,pri:z.w*.6,t:`⛰️ Curvas de nivel · zona de <b>${esc(z.name)}</b>`,d:`${z.info}. Tus salidas ahí tienen ${Math.round(z.relief)} m de desnivel y no hay curvas. Cada ${S.ctrInt||20} m.`});}
+  }
+  S2.sort((a,b)=>b.pri-a.pri);
+  /* limpieza: mosaicos de calles repetidos o vacíos */
+  const C=[],seen=new Set(),loc=b=>sgPlace([(b.n+b.s)/2,(b.e+b.w)/2]);
+  const ns=idx.filter(n=>!n.regional);
+  for(let i=0;i<ns.length;i++)for(let j=i+1;j<ns.length;j++){
+    const a=ns[i],b=ns[j];if(seen.has(a.id)||seen.has(b.id))continue;
+    if(bbIoU(a.bb,b.bb)>=0.8){const old=a.date<b.date?a:b,nw=old===a?b:a;seen.add(old.id);
+      C.push({kind:'ndel',id:old.id,b:old.bb,t:`🧹 Calles repetidas en ${loc(old.bb)}`,d:`Dos mosaicos casi iguales: ${fmtDate(old.date)} (${fmtN(old.ways)} calles) y ${fmtDate(nw.date)} (${fmtN(nw.ways)}). Se borra el más viejo.`});}
+  }
+  for(const n of ns)if(!seen.has(n.id)&&n.ways<=5){seen.add(n.id);C.push({kind:'ndel',id:n.id,b:n.bb,t:`🧹 Mosaico casi vacío en ${loc(n.bb)}`,d:`${fmtDate(n.date)}: tiene ${n.ways} calle${n.ways===1?'':'s'}. No sirve para calcular rutas.`});}
+  /* altura del terreno lejos de tus zonas */
+  const far=[],keep=zones.map(z=>bbPad(z.b,30));
+  for(const k of await DB.keys('tiles','dem/')){
+    const p=k.split('/'),z=+p[1],x=+p[2],y=+p[3],n=2**z,lon=(x+.5)/n*360-180,lat=Math.atan(Math.sinh(Math.PI*(1-2*(y+.5)/n)))*180/Math.PI;
+    if(!keep.some(b=>bbIn(b,[lat,lon])))far.push(k);
+  }
+  if(far.length>=200)C.push({kind:'demdel',keys:far,t:`🧹 Altura del terreno lejos de tus zonas`,d:`${fmtN(far.length)} teselas (~${mbf(far.length*20/1024)} MB) de perfiles de rutas largas. Si algún día las necesitás, se vuelven a bajar solas.`,opt:true});
+  let est=null;try{est=await navigator.storage.estimate();}catch(e){}
+  return {add:S2.slice(0,10),clean:C,est};
+}
+async function showSuggest(){
+  if(SG.busy&&SG.list){sgDraw();return;}
+  openSheet('🧠 Sugerencias','<p class="mut">Analizando dónde te movés y lo que tenés bajado…</p>',a=>{if(a==='back')showMapMgr();});
+  try{SG.list=await sgAnalyze();}catch(e){openSheet('🧠 Sugerencias',`<p>No se pudo analizar: ${esc(e.message||String(e))}</p><button class="btn" data-act="back">Volver</button>`,a=>{if(a==='back')showMapMgr();});return;}
+  sgDraw();
+}
+function sgDraw(){
+  const L0=SG.list;if(!L0)return;
+  const e=L0.est,card=(s,i,grp)=>`<div class="card"><b>${s.t}</b><br><small class="mut">${s.d}</small>${s.done?`<br><b>✅ ${esc(s.done)}</b>`:''}${SG.prog&&SG.prog.i===i&&SG.prog.g===grp?`<br><b>⏳ ${esc(SG.prog.txt)}</b>`:''}
+    <div class="row" style="margin-top:6px">${s.b?`<button class="btn sm" data-act="see" data-g="${grp}" data-i="${i}">🔍 Ver</button>`:''}${s.done?'':grp==='add'?`<button class="btn sm primary" data-act="go" data-g="add" data-i="${i}" ${SG.busy?'disabled':''}>⬇️ Bajar</button>`:`<button class="btn sm danger" data-act="go" data-g="clean" data-i="${i}" ${SG.busy?'disabled':''}>🗑️ Borrar</button>`}</div></div>`;
+  let h=e?`<p class="mut">Rumbo ocupa ${mbf(e.usage/1048576)} MB de ${mbf(e.quota/1073741824)} GB disponibles.${e.usage>e.quota*.8?' <b>⚠️ Queda poco lugar: empezá por la limpieza.</b>':''}</p>`:'';
+  h+=`<h3>Para tener sin conexión</h3>`+(L0.add.length?L0.add.map((s,i)=>card(s,i,'add')).join(''):'<p>✅ Donde te movés ya tenés satélite, calles y curvas.</p>');
+  h+=`<h3>Para liberar lugar</h3>`+(L0.clean.length?L0.clean.map((s,i)=>card(s,i,'clean')).join(''):'<p>✅ No encontré repetidos ni cosas que sobren.</p>');
+  h+=`<p class="mut">Las zonas salen de tus tracks, circuitos, puntos y calcos. Para otras zonas (un viaje que viene), usá 📐 Elegir zona en el mapa.</p><div class="row"><button class="btn" data-act="re" ${SG.busy?'disabled':''}>🔄 Volver a analizar</button><button class="btn" data-act="back">Volver</button></div>`;
+  openSheet('🧠 Sugerencias',h,async(a,d,el)=>{
+    if(a==='back'){showMapMgr();return;}
+    if(a==='re'){SG.list=null;showSuggest();return;}
+    const s=d.g&&SG.list[d.g][+d.i];if(!s)return;
+    if(a==='see'){closeSheet();map.fitBounds([[s.b.s,s.b.w],[s.b.n,s.b.e]],{padding:[30,30]});toast('Volvé con Mapas → Mis mapas → 🧠 Sugerencias',4000);return;}
+    if(a==='go')await sgRun(s,+d.i,d.g,el);
+  });
+}
+async function sgRun(s,i,g,el){
+  if(SG.busy)return;
+  if(g==='clean'&&!armed(el))return;
+  const P=t=>{SG.prog={i,g,txt:t};if(sheetTitle==='🧠 Sugerencias')sgDraw();};
+  SG.busy=true;
+  try{
+    if(s.kind==='sat'){
+      if(!(await netAllowed(`bajar ~${mbf(s.mb)} MB de satélite`))){SG.busy=false;SG.prog=null;sgDraw();return;}
+      const ranges=tileRanges(s.b,s.z0,s.z1);P('Bajando satélite…');
+      const tk=setInterval(()=>{if(DL)P(`Bajando satélite… ${DL.done} de ${DL.total}`);},1000);
+      const r=await runDownload('sat',ranges);clearInterval(tk);
+      if(!r.cancel)await saveZone('sat',{b:s.b,z0:s.z0,z1:s.z1,ranges},r);
+      s.done=r.fail>r.total*.5?`La mayoría falló (${r.fail} de ${r.total}): revisá la conexión`:`${fmtN(r.done-r.fail)} teselas guardadas`;
+    }else if(s.kind==='net'){
+      P('Bajando calles y senderos… (hasta un minuto)');
+      CAP.lock=s.b;let ok=false;
+      try{ok=await dlNet(false,'detail',{btn:null,msg:'#sgmsg'});}finally{CAP.lock=null;}
+      s.done=ok?'Calles y senderos guardados':'No se pudo bajar: revisá la conexión';drawCoverage();
+    }else if(s.kind==='ctr'){
+      if(!(await netAllowed('bajar el relieve'))){SG.busy=false;SG.prog=null;sgDraw();return;}
+      P('Bajando el relieve y calculando curvas…');
+      const bb=s.b,list=demTiles(bb,DEM_Z),dem=await fetchDem(bb);
+      const xs=list.map(t=>t.x),ys=list.map(t=>t.y),x0=Math.min(...xs),y0=Math.min(...ys);
+      const lines=demContours(dem,DEM_Z,x0,y0,Math.max(...xs)-x0+1,Math.max(...ys)-y0+1,S.ctrInt||20,2);
+      if(!lines.length)throw new Error('no hay desnivel en esta zona');
+      const id=uid();await DB.put('kv','ctr:'+id,{id,bb,interval:S.ctrInt||20,date:Date.now(),lines});
+      S.contourOn=true;saveS();vecInvalidate();applyContours();drawCoverage();
+      s.done=`${fmtN(lines.length)} curvas guardadas`;
+    }else if(s.kind==='ndel'){
+      await DB.del('kv','net:'+s.id);await DB.del('kv','netidx:'+s.id);netsChanged();drawCoverage();s.done='Borrado';
+    }else if(s.kind==='demdel'){
+      P('Borrando…');await DB.delMany('tiles',s.keys);s.done=`${fmtN(s.keys.length)} teselas borradas`;
+    }
+  }catch(e){s.done='No se pudo: '+(e.message||e);}
+  SG.busy=false;SG.prog=null;
+  try{const e=await navigator.storage.estimate();SG.list.est=e;}catch(er){}
+  if(sheetTitle==='🧠 Sugerencias')sgDraw();else toast('🧠 '+s.done,4000);
+}
 async function showMapMgr(){
   const zs=(await DB.all('kv','dlz:')).sort((a,b)=>b.date-a.date),idxAll=(await netIndex()).sort((a,b)=>b.date-a.date);
   const idx=idxAll.filter(n=>!n.pending),pend=idxAll.filter(n=>n.pending),miss=[];
@@ -5398,6 +5570,7 @@ async function showMapMgr(){
   let h=(miss.length||pend.length)?`<div class="card" style="border-color:var(--buoy)"><b>⚠️ Faltan mapas por recuperar</b><br><small class="mut">${miss.length} zona${miss.length===1?'':'s'} de mapa y ${pend.length} de calles. Vinieron de una copia de seguridad y hay que volver a bajarlas, con internet.</small><div class="row" style="margin-top:6px"><button class="btn primary" data-act="recover">Recuperar todo ahora</button></div><p id="rcmsg" class="mut"></p><div id="dlprog" hidden><div class="bar"><i id="dlbar"></i></div><p id="dlt" class="mut"></p><button class="btn" data-act="dlcancel">Cancelar</button></div></div>`:'';
   h+=`<div class="card"><b>Lo que hay en la zona que estás mirando</b><br>${here.join('<br>')}</div>
     <p class="mut">${est}</p>
+    <div class="row"><button class="btn primary" data-act="sug">🧠 Sugerencias: qué bajar y qué borrar</button></div>
     <div class="row"><button class="btn sm" data-act="inf">📋 Informe de lo guardado (para revisar o mandar)</button></div>
     <label class="chk"><input type="checkbox" id="cv" ${S.cov?'checked':''}> Dibujar en el mapa lo descargado (azul: fondo de mapa · verde: calles)</label>`;
   h+='<h3>Fondos de mapa</h3>';
@@ -5426,6 +5599,7 @@ async function showMapMgr(){
   drawSel(idx);
   openSheet('Mis mapas',h,async(a,d,el)=>{
     if(a==='inf'){showOfflineReport();return;}
+    if(a==='sug'){showSuggest();return;}
     if(a==='zview'){const z=zs.find(x=>x.id===d.id);closeSheet();map.fitBounds([[z.bb.s,z.bb.w],[z.bb.n,z.bb.e]],{padding:[20,20]});}
     else if(a==='zdel'){
       if(!armed(el))return;
