@@ -866,9 +866,16 @@ const NOACC=new Set(['no','private']);
 const YESACC=new Set(['yes','designated','permissive']);
 
 /* Cuánto cambia la velocidad según la pendiente g (subida positiva) */
-function slopeFactor(mode,g){
+function slopeFactor(mode,g,v){
   if(mode==='bike')return g>=0?1/(1+14*g):Math.min(1.8,1+8*(-g));
-  if(mode==='foot')return Math.exp(-3.5*(Math.abs(g+0.05)-0.05));
+  if(mode==='foot'){
+    /* modo montaña (norma DIN 33466 de los clubes alpinos): tiempo = el mayor entre avanzar y subir (o bajar) + la mitad del menor */
+    if((typeof S==='undefined'||S.footModel!=='tobler')&&v>0){
+      const up=((typeof S!=='undefined'&&S.vUp)||400)/3600,dn=((typeof S!=='undefined'&&S.vDown)||600)/3600,th=1/v,tv=g>=0?g/up:-g/dn;
+      return th/(Math.max(th,tv)+Math.min(th,tv)/2);
+    }
+    return Math.exp(-3.5*(Math.abs(g+0.05)-0.05));
+  }
   return 1;
 }
 /* Altura del terreno: teselas Terrarium (R*256+G+B/256-32768) */
@@ -1063,7 +1070,7 @@ class Graph{
   }
   cost0(e,d,mode,pref,v){
     if(pref==='short')return e.len;
-    const g=this.slope(e,d),t=e.len/(v*slopeFactor(mode,g));
+    const g=this.slope(e,d),t=e.len/(v*slopeFactor(mode,g,v));
     if(pref==='flat'&&mode!=='car'){
       return t+40*(g>0?g*e.len:0)+(g>0.06?(g-0.06)*e.len*8:0)+(g<-0.10?(-g-0.10)*e.len*4:0);
     }
@@ -1353,7 +1360,7 @@ function findRoute(G,mode,from,to,pref){
   const coords=[[from.lat,from.lon],[G.lat[A.nd],G.lon[A.nd]]];
   for(const {ei,d} of r.edges){
     const e=G.E[ei],v=G.pass(e,mode,d),g=G.slope(e,d);
-    const dt=e.len/(v*slopeFactor(mode,g));
+    const dt=e.len/(v*slopeFactor(mode,g,v));
     dist+=e.len;time+=dt;if(G.W[e.w].hw==='steps')stairs+=e.len;
     if(G.W[e.w].ferry){fDist+=e.len;fTime+=dt;const fw=G.W[e.w];if(fw.name&&!fNames.includes(fw.name))fNames.push(fw.name);if(fw.tags.motor_vehicle==null)fUnver=true;}
     if(g>0)up+=g*e.len;else down-=g*e.len;
@@ -4435,6 +4442,7 @@ function rtPanel(){
   const bits=[fmtD(r.dist)];
   if(r.prof)bits.push(`↑${r.prof.gain} m ↓${r.prof.loss} m`);
   else if(r.hasZ&&m!=='car'&&!isWater(m))bits.push(`↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`);
+  if(m==='foot'&&S.footModel!=='tobler'&&(r.up>150||r.down>300))bits.push(`⛰️ subiendo ${S.vUp||400} m/h`);
   if(r.stairs>5)bits.push(`${Math.round(r.stairs)} m de escalera`);
   if(r.xc)bits.push('🧭 a campo traviesa'+(r.riverX?', cruza un río':''));
   if(isWater(m)&&r.maxOff!=null)bits.push(`${r.coastal?'🏝️ costera a '+r.coastBuf+' m':'➡️ directa'}, hasta ${fmtD(Math.max(10,Math.round(r.maxOff/10)*10))} de la costa`);
@@ -9858,6 +9866,13 @@ function showMore(){
     <button class="btn sm" data-act="cal">📈 Calcular desde mis salidas grabadas</button><p id="calmsg" class="mut"></p>
     <h3>Velocidades del modo "por tipo de calle"</h3>
     <label for="s6">Tu velocidad a pie (km/h)</label><input class="in" id="s6" type="number" step="0.5" min="2" max="10" value="${S.vFoot}">
+    <label>A pie, en subidas y bajadas</label>
+    ${chips('fm',S.footModel==='tobler'?'tobler':'din',[['din','⛰️ Por desnivel (montaña)'],['tobler','🚶 Caminata común']])}
+    <label>Tu ritmo de subida (metros de desnivel por hora)</label>
+    ${chips('vu',String(S.vUp||400),[['300','300 · con mochila'],['400','400 · normal'],['500','500 · entrenado'],['700','700 · trail']])}
+    <label>Tu ritmo de bajada</label>
+    ${chips('vd',String(S.vDown||600),[['400','400 · con cuidado'],['600','600 · normal'],['800','800'],['1000','1000 · trail']])}
+    <p class="mut">“Por desnivel” es como calculan los clubes de montaña: en cada tramo cuenta lo que tardás en avanzar y lo que tardás en subir o bajar, y suma el mayor más la mitad del menor. En subidas fuertes manda el desnivel. “Caminata común” solo te frena un poco en las pendientes (sirve para ciudad).</p>
     <label for="s7">Tu velocidad en bici (km/h)</label><input class="in" id="s7" type="number" step="1" min="5" max="40" value="${S.vBike}">
     <label for="s8">Tráfico en auto</label>
     <select class="in" id="s8"><option value="0.6">Pesado (60 % de la velocidad legal)</option><option value="0.8">Normal (80 %)</option><option value="1">Fluido (100 %)</option></select>
@@ -9882,6 +9897,7 @@ function showMore(){
           sayWeb('Prueba de voz. En cien metros, girá a la derecha.');
         }
       }
+      else if(a==='fm'||a==='vu'||a==='vd'){if(a==='fm')S.footModel=d.k;else if(a==='vu')S.vUp=+d.k;else S.vDown=+d.k;saveS();dropGraph();if(RT.res)RT.res=null;sBody.querySelectorAll(`[data-act=${a}]`).forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
       else if(a==='tm'){S.timeMode=d.k;saveS();dropGraph();sBody.querySelectorAll('[data-act=tm]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
       else if(a==='cal'){
         const r=avgSpeeds(await DB.all('kv','track:')),names={foot:'A pie',bike:'En bici',car:'En auto'},f={foot:'avgFoot',bike:'avgBike',car:'avgCar'},ids={foot:'#s11',bike:'#s12',car:'#s13'},got=[];
