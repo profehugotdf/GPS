@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0E2A36">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rumbo">
 <title>Rumbo</title>
 <link rel="stylesheet" href="lib/leaflet.css">
 <style>
@@ -7228,7 +7234,7 @@ async function waterRouteFor(mode,from,to){
   const c=await kayakWG();
   if(!c.wg||!c.wg.nodes)return {err:'sinagua'};
   const o=mode==='swim'
-    ?{mode:'swim',vPaddle:swimV(S.swimSec||120),vWalk:1.2,maxSnap:1500,noCross:!!S.swimShore}
+    ?{mode:'swim',vPaddle:swimV(S.swimSec||120),vWalk:1.2,maxSnap:1500,land:c.land,landR:c.landR,shore:c.shore,coastW:S.swimShore?12:0,coastBuf:S.swimShoreM||100}
     :{mode:'kayak',vPaddle:(S.vKayak||7)/3.6,vWalk:1.0,maxSnap:8000,land:c.land,landR:c.landR,shore:c.shore,coastW:S.kCoast!==false?12:0,coastBuf:S.kCoastM||50};
   const r=findWaterRoute(c.wg,from,to,o);
   if(!r.err)r.hzs=[];
@@ -7245,7 +7251,7 @@ function kayakLine(r){
   const walk=r.portage>30?`<br>🚶 ${fmtD(r.portage)} ${sw?'caminando hasta el agua':'llevando el kayak hasta el agua'}`:'';
   const hard=r.hard>200?`<br><span style="color:#C0392B"><b>⚠️ ${fmtD(r.hard)} contra una corriente fuerte: ${sw?'nadando':'remando'} avanzás menos de la mitad de tu velocidad.</b></span>`:'';
   const note=sw
-    ?`<br><small class="mut">Ritmo de ${fmtPace100(S.swimSec||120)} (${(swimV(S.swimSec||120)*3.6).toFixed(1).replace('.',',')} km/h)${cur}. ${S.swimShore?'Va costeando la orilla.':'Cruza los lagos en línea recta.'} <b>Agua fría y corrientes: nadá acompañado, con boya y neoprene según la temperatura.</b> No cuenta el viento ni las olas.</small>`
+    ?`<br><small class="mut">Ritmo de ${fmtPace100(S.swimSec||120)} (${(swimV(S.swimSec||120)*3.6).toFixed(1).replace('.',',')} km/h)${cur}. ${S.swimShore?`Prefiere ir a menos de ${S.swimShoreM||100} m de la orilla.`:'Va lo más directo posible por el agua.'} Rodea islas y puntas de tierra. <b>Agua fría y corrientes: nadá acompañado, con boya y neoprene según la temperatura.</b> No cuenta el viento ni las olas.</small>`
     :`<br><small class="mut">A ${String(S.vKayak||7).replace('.',',')} km/h de remada${cur}. No cuenta represas, rápidos ni saltos: revisá el río antes de salir.</small>`;
   const off=!sw&&r.maxOff!=null?`<br>${r.coastal?'🏝️ Costera a '+r.coastBuf+' m':'➡️ Directa'}: ${r.maxOff>1500?`<span style="color:#C0392B"><b>se aleja hasta ${fmtD(r.maxOff)} de la costa</b></span>`:`se aleja como máximo ${fmtD(Math.max(10,Math.round(r.maxOff/10)*10))} de la costa`}`:'';
   const KM=S.kCoastM||50,kon=S.kCoast!==false;
@@ -9587,7 +9593,8 @@ function showMore(){
     <p class="mut" id="swh">${fmtPace100(S.swimSec||120)} · ${(swimV(S.swimSec||120)*3.6).toFixed(1).replace('.',',')} km/h. Con 120 s son 3 km/h.</p>
     <label for="kcm">Kayak costero: hasta cuántos metros de la orilla (corta las bahías más chicas)</label><input class="in" id="kcm" type="number" min="5" max="1000" step="5" value="${S.kCoastM||50}">
     <label class="chk"><input type="checkbox" id="kcs" ${S.kCoast!==false?'checked':''}> 🏝️ Kayak por la costa: ir cerca de la orilla y de las islas en vez de cruzar en línea recta (más largo, pero más seguro)</label>
-    <label class="chk"><input type="checkbox" id="swc" ${S.swimShore?'checked':''}> Costear: nadar cerca de la orilla en vez de cruzar los lagos en línea recta (más largo, pero más seguro)</label>
+    <label class="chk"><input type="checkbox" id="swc" ${S.swimShore?'checked':''}> Costear: preferir nadar cerca de la orilla en vez de cruzar directo (más largo, pero más seguro)</label>
+    <label>Distancia máxima a la orilla al costear</label><div class="chips">${[50,100,200,300].map(m=>`<button data-act="swm" data-k="${m}" class="${(S.swimShoreM||100)===m?'on':''}">${m} m</button>`).join('')}</div>
     <h3>Rendimiento</h3>
     <button class="btn" data-act="diag">🩺 Diagnóstico de rendimiento y registro del GPS</button>
     <h3>Datos móviles</h3>
@@ -9648,6 +9655,7 @@ function showMore(){
       }
       else if(a==='diag')showDiag();
       else if(a==='dm'){S.dataMode=d.k;saveS();updNetPill();sBody.querySelectorAll('[data-act=dm]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
+      else if(a==='swm'){S.swimShoreM=+d.k;saveS();kayakDrop&&RT.res&&(RT.res.swim=null);sBody.querySelectorAll('[data-act=swm]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
       else if(a==='nt'){S.night=d.k;saveS();applyNight();sBody.querySelectorAll('[data-act=nt]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
       else if(a==='ori'){if(changeOrient(d.k))sBody.querySelectorAll('[data-act=ori]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
     },
@@ -9709,6 +9717,11 @@ $('#fAct').onclick=()=>{
   toast(ACT[S.act][0]+' '+ACT[S.act][1]);
 };
 
+/* ---------- Versión web (iPhone, navegador): que abra sin internet y que no se borre lo guardado ---------- */
+if(!isNative()&&location.protocol==='https:'&&'serviceWorker' in navigator){
+  addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});
+  try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist().catch(()=>{});}catch(e){}
+}
 /* ---------- Inicio ---------- */
 (async()=>{
   await DB.open();
