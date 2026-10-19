@@ -5347,6 +5347,39 @@ function fitSel(t){
   const sh=sheet.getBoundingClientRect().height||0,pad=Math.max(0,Math.min(sh+8,innerHeight-220));
   map.fitBounds([[bb.s,bb.w],[bb.n,bb.e]],{paddingTopLeft:[20,60],paddingBottomRight:[20,pad]});
 }
+/* Informe de lo guardado para usar sin conexión: qué hay, dónde, a qué zoom y cuánto ocupa (sin tracks ni posiciones) */
+async function offlineReport(){
+  const r4=v=>Math.round(v*1e4)/1e4,bbR=b=>b?{n:r4(b.n),s:r4(b.s),e:r4(b.e),w:r4(b.w)}:null,kmBox=b=>b?{ancho_km:Math.round(hav([(b.n+b.s)/2,b.w],[(b.n+b.s)/2,b.e])/100)/10,alto_km:Math.round(hav([b.s,b.w],[b.n,b.w])/100)/10}:null;
+  const R={app:'Rumbo',fecha:new Date().toISOString(),nativa:isNative(),ajustes:{capa:S.layer,datos:S.dataMode,zoomDescarga:S.dlZoom,zoomCaptura:S.capZ}};
+  try{const e=await navigator.storage.estimate();R.almacenamiento={usado_MB:Math.round(e.usage/1048576),disponible_MB:Math.round(e.quota/1048576)};}catch(e){}
+  /* teselas por capa y zoom, con el tamaño real medido en una muestra */
+  const keys=await DB.keys('tiles',''),byL={};
+  for(const k of keys){const p=k.split('/');const L=p[0],z=+p[1];const o=byL[L]=byL[L]||{total:0,porZoom:{}};o.total++;o.porZoom[z]=(o.porZoom[z]||0)+1;}
+  for(const [L,o] of Object.entries(byL)){
+    const ks=keys.filter(k=>k.startsWith(L+'/')),step=Math.max(1,Math.floor(ks.length/120));let n=0,bytes=0;
+    for(let i=0;i<ks.length;i+=step){try{const b=await DB.get('tiles',ks[i]);const sz=b&&(b.size!=null?b.size:b.byteLength!=null?b.byteLength:b.length);if(sz){bytes+=sz;n++;}}catch(e){}}
+    o.kb_promedio=n?Math.round(bytes/n/1024*10)/10:null;o.MB_estimado=n?Math.round(bytes/n*o.total/1048576):null;
+    o.nombre=L==='dem'?'altura del terreno':LAYERS[L]?LAYERS[L].name:L;
+  }
+  R.teselas=byL;
+  R.zonasDescargadas=(await DB.all('kv','dlz:')).map(z=>({fecha:fmtDate(z.date),capa:z.layer,zoom:[z.z0,z.z1],teselas:z.n,caja:bbR(z.bb),tamaño:kmBox(z.bb)}));
+  const idx=await netIndex();
+  R.callesYRutas=idx.map(n=>({fecha:fmtDate(n.date),calles:n.ways,lomos:n.hz,conAltura:!!n.z,regional:!!n.regional,pendiente:!!n.pending,caja:bbR(n.bb),tamaño:kmBox(n.bb)}));
+  try{let tot=0;for(const k of await DB.keys('kv','net:')){const v=await DB.get('kv',k);tot+=JSON.stringify(v).length;}R.callesYRutas_MB=Math.round(tot/1048576*10)/10;}catch(e){}
+  R.curvasDeNivel=(await DB.all('kv','ctr:')).map(c=>({fecha:fmtDate(c.date),cadaMetros:c.interval,curvas:(c.lines||[]).length,puntos:(c.lines||[]).reduce((a,l)=>a+((l&&(l.pts||l.p||l))||[]).length,0),caja:bbR(c.bb)}));
+  R.fotosDeDron=OVL.length;
+  const eds=await DB.all('kv','edit:'),ec={};let pts=0;
+  for(const e of eds){const k=`${e.type}:${e.kind||'?'}:${!e.group?'propio':e.group.src==='osm'?'osm':'importado'}`;const o=ec[k]=ec[k]||{n:0,puntos:0};o.n++;o.puntos+=(e.pts||[]).length;pts+=(e.pts||[]).length;}
+  R.calcos={total:eds.length,puntos:pts,porTipo:ec};
+  R.otros={tracks:(await DB.keys('kv','track:')).length,circuitos:(await DB.keys('kv','circuit:')).length,puntosMarcados:(await DB.keys('kv','wpt:')).length,marcas:RUNS.length};
+  return R;
+}
+async function showOfflineReport(){
+  toast('Armando el informe… (puede tardar unos segundos)',4000);
+  let R;try{R=await offlineReport();}catch(e){toast('No se pudo armar el informe: '+(e.message||e),5000);return;}
+  const txt=JSON.stringify(R,null,1),d=new Date();
+  await shareFile(`rumbo-informe-${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}.json`,txt,'application/json');
+}
 async function showMapMgr(){
   const zs=(await DB.all('kv','dlz:')).sort((a,b)=>b.date-a.date),idxAll=(await netIndex()).sort((a,b)=>b.date-a.date);
   const idx=idxAll.filter(n=>!n.pending),pend=idxAll.filter(n=>n.pending),miss=[];
@@ -5365,6 +5398,7 @@ async function showMapMgr(){
   let h=(miss.length||pend.length)?`<div class="card" style="border-color:var(--buoy)"><b>⚠️ Faltan mapas por recuperar</b><br><small class="mut">${miss.length} zona${miss.length===1?'':'s'} de mapa y ${pend.length} de calles. Vinieron de una copia de seguridad y hay que volver a bajarlas, con internet.</small><div class="row" style="margin-top:6px"><button class="btn primary" data-act="recover">Recuperar todo ahora</button></div><p id="rcmsg" class="mut"></p><div id="dlprog" hidden><div class="bar"><i id="dlbar"></i></div><p id="dlt" class="mut"></p><button class="btn" data-act="dlcancel">Cancelar</button></div></div>`:'';
   h+=`<div class="card"><b>Lo que hay en la zona que estás mirando</b><br>${here.join('<br>')}</div>
     <p class="mut">${est}</p>
+    <div class="row"><button class="btn sm" data-act="inf">📋 Informe de lo guardado (para revisar o mandar)</button></div>
     <label class="chk"><input type="checkbox" id="cv" ${S.cov?'checked':''}> Dibujar en el mapa lo descargado (azul: fondo de mapa · verde: calles)</label>`;
   h+='<h3>Fondos de mapa</h3>';
   for(const [k,l] of Object.entries(LAYERS))if(l.off){
@@ -5391,6 +5425,7 @@ async function showMapMgr(){
   h+=`<h3>Fotos de dron</h3><div class="item" data-act="ovl"><div><b>${nOv} foto${nOv===1?'':'s'}</b><br><small class="mut">Se guardan aparte: borrar mapas no las toca.</small></div><span>›</span></div>`;
   drawSel(idx);
   openSheet('Mis mapas',h,async(a,d,el)=>{
+    if(a==='inf'){showOfflineReport();return;}
     if(a==='zview'){const z=zs.find(x=>x.id===d.id);closeSheet();map.fitBounds([[z.bb.s,z.bb.w],[z.bb.n,z.bb.e]],{padding:[20,20]});}
     else if(a==='zdel'){
       if(!armed(el))return;
