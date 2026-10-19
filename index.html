@@ -4679,7 +4679,8 @@ async function showRoutes(){
     else if(a==='stmap'){PICK={type:'stop'};closeSheet();banner('Tocá en el mapa dónde querés parar');}
     else if(a==='stedit')stopEdit(+d.i);
     else if(a==='stclr'){RT.stops=[];RT.res=null;showRoutes();}
-    else if(a==='setf'||a==='sett'){const r=RT.sr[a==='setf'?'f':'q'][+d.i];RT[a==='setf'?'from':'to']={lat:r.lat,lon:r.lon,label:r.label};RT.res=null;showRoutes();}
+    else if(a==='setf'||a==='sett'){const r=RT.sr[a==='setf'?'f':'q'][+d.i];RT[a==='setf'?'from':'to']={lat:r.lat,lon:r.lon,label:r.label};recentAdd({label:r.label,lat:r.lat,lon:r.lon,ico:'🛣️'},'Calle');RT.res=null;showRoutes();}
+    else if(a==='rcf'||a==='rct'){const r=(RECENT.list||[])[+d.i];if(r){RT[a==='rcf'?'from':'to']={lat:r.lat,lon:r.lon,label:r.label};recentAdd(r);RT.res=null;showRoutes();}}
     else if(a==='calc')calcRoutes(g);
     else if(a==='selm'){RT.sel=d.m;if(!isWater(d.m))computeAlt(g);resetCands();drawRoute(true);showRoutes();}
     else if(a==='selc'){const c=RT.cands.find(x=>x.id===d.id);if(c){RT.res[c.mode]=c.route;RT.sel=c.mode;RT.selCand=c.id;drawRoute(true);showRoutes();}}
@@ -4700,18 +4701,20 @@ async function showRoutes(){
       showRoutes();
     }
   },t=>{
-    if(t.id==='qf'||t.id==='qq'){
+    if((t.id==='qf'||t.id==='qq')&&!t.value.trim()){const el=$(t.id==='qf'?'#rf':'#rq');if(el)el.innerHTML=recentHtml(t.id==='qf'?'rcf':'rct',6,true);}
+    else if(t.id==='qf'||t.id==='qq'){
       const c=lastFix?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng],res=g?searchPlaces(g,t.value,c):[],k=t.id==='qf'?'f':'q';
       RT.sr[k]=res;
       $(k==='f'?'#rf':'#rq').innerHTML=res.length?res.map((r,i)=>`<button class="btn sm" data-act="${k==='f'?'setf':'sett'}" data-i="${i}">${esc(r.label)} · ${fmtD(r.d)}</button>`).join(''):'<p class="mut">Sin resultados en la red descargada.</p>';
     }else if(t.id==='dep')RT.dep=t.value;
   });
   if(RT.res){const r=$('#rres');if(r)sBody.scrollTop=Math.max(0,r.offsetTop-70);}
+  recentLoad().then(()=>{const a=$('#rf'),b=$('#rq');if(a&&!a.innerHTML)a.innerHTML=recentHtml('rcf',6,true);if(b&&!b.innerHTML)b.innerHTML=recentHtml('rct',6,true);});
 }
 async function showPickWpt(){
   const ws=(await DB.all('kv','wpt:')).sort((a,b)=>b.t-a.t);
   openSheet('Elegir punto',ws.length?ws.map(w=>`<div class="item" data-act="pw" data-id="${w.id}"><b>${(WT[w.type]||WT.punto)[0]} ${esc(w.name)}</b><span>›</span></div>`).join(''):'<p class="mut">Todavía no marcaste puntos.</p>',
-    (a,d)=>{if(a==='pw'){const w=ws.find(x=>x.id===d.id);RT.to={lat:w.lat,lon:w.lon,label:w.name};RT.res=null;showRoutes();}});
+    (a,d)=>{if(a==='pw'){const w=ws.find(x=>x.id===d.id);RT.to={lat:w.lat,lon:w.lon,label:w.name};recentAdd({label:w.name,lat:w.lat,lon:w.lon,ico:(WT[w.type]||WT.punto)[0]},'Punto guardado');RT.res=null;showRoutes();}});
 }
 function showSaveRoute(){
   const r=RT.res[RT.sel],f=RT.calcFrom||RT.from||{label:'Mi posición'},def=r.dist>=3000?'1000':'0';
@@ -5763,7 +5766,27 @@ async function placeQuery(q,c){
   return j.map(x=>({lat:+x.lat,lon:+x.lon,full:String(x.display_name),label:String(x.display_name).split(',').slice(0,2).join(',').trim(),type:x.type||''}));
 }
 let FIND={list:[],web:[],gen:0,t:0};
+/* ---------- Búsquedas recientes (calles, puntos, lugares): quedan guardadas en el teléfono ---------- */
+const RECENT={list:null};
+async function recentLoad(){if(!RECENT.list){try{RECENT.list=(await DB.get('kv','recent:search'))||[];}catch(e){RECENT.list=[];}}return RECENT.list;}
+async function recentAdd(r,sub){
+  if(!r||r.lat==null||r.lon==null||!r.label)return;
+  const L=await recentLoad(),key=x=>norm(x.label)+'|'+(+x.lat).toFixed(4)+','+(+x.lon).toFixed(4);
+  const it={label:String(r.label).slice(0,120),sub:String(sub||r.sub||'').slice(0,120),ico:r.ico||'📍',lat:+r.lat,lon:+r.lon,t:Date.now()};
+  const i=L.findIndex(x=>key(x)===key(it));if(i>=0)L.splice(i,1);
+  L.unshift(it);if(L.length>25)L.length=25;
+  try{await DB.put('kv','recent:search',L);}catch(e){}
+}
+async function recentDel(i){const L=await recentLoad();if(i==null)L.length=0;else L.splice(i,1);try{await DB.put('kv','recent:search',L);}catch(e){}}
+function recentHtml(act,max,compact){
+  const L=RECENT.list||[];if(!L.length)return '';
+  const c0=lastFix?[lastFix.lat,lastFix.lon]:null,items=L.slice(0,max||12);
+  if(compact)return `<small class="mut" style="width:100%">🕘 Recientes:</small>`+items.map((r,i)=>`<button class="btn sm" data-act="${act}" data-i="${i}">${r.ico} ${esc(r.label)}</button>`).join('');
+  return `<h3>🕘 Búsquedas recientes</h3>`+items.map((r,i)=>`<div class="row" style="margin-bottom:6px;flex-wrap:nowrap"><button class="btn" data-act="${act}" data-i="${i}" style="flex:1;text-align:left">${r.ico} <b>${esc(r.label)}</b><br><small class="mut">${esc(r.sub||'')}${c0?(r.sub?' · ':'')+fmtD(hav(c0,[r.lat,r.lon])):''}</small></button><button class="btn sm" data-act="${act}x" data-i="${i}" aria-label="Quitar de recientes">✕</button></div>`).join('')
+    +`<div class="row"><button class="btn sm danger" data-act="${act}clr">Borrar todas las recientes</button></div>`;
+}
 function goFind(r){
+  recentAdd(r,r.full?r.full.split(',').slice(1,4).join(',').trim():r.sub);
   closeSheet();setFollow(false);
   const fin=()=>{map.setView([r.lat,r.lon],Math.max(map.getZoom(),17));placePin(r.lat,r.lon,r.label);};
   if(typeof GB!=='undefined'&&GB.on){gbFly(r.lat*rad,r.lon*rad,gbHofZ(5,r.lat*rad),null,()=>{closeGlobe(true);fin();});return;}
@@ -5777,13 +5800,18 @@ async function showFind(){
     <div class="row" style="margin-top:6px"><button class="btn primary" data-act="web">🌐 Buscar por internet</button></div>
     <div id="fres" style="margin-top:8px"></div><div id="fweb" style="margin-top:6px"></div>
     <p class="mut" id="fhint">Calles, esquinas y puntos guardados se buscan en tu teléfono, sin internet (ej: <i>San Martín y Roca</i>). Para direcciones con número, comercios o ciudades, tocá 🌐 (ej: <i>Av. Maipú 450, Ushuaia</i>). También sirven coordenadas: <i>-54.80, -68.30</i>.</p>`,
-    (a,d)=>{
+    async(a,d,el)=>{
       if(a==='fr'||a==='fw'){const r=(a==='fr'?FIND.list:FIND.web)[+d.i];if(r)goFind(r);}
       else if(a==='web')webRun();
+      else if(a==='rc'){const r=RECENT.list[+d.i];if(r)goFind(r);}
+      else if(a==='rcx'){await recentDel(+d.i);run();}
+      else if(a==='rcclr'){if(armed(el)){await recentDel(null);run();}}
     });
   const inp=$('#fq');
+  await recentLoad();
   const run=async()=>{
     const my=++FIND.gen,q=inp.value.trim(),out=$('#fres');if(!out)return;
+    if(!q){out.innerHTML=recentHtml('rc');return;}
     const list=[],nq=norm(q),pc=parseCoords(q);
     if(pc)list.push({ico:'🧭',label:`Coordenadas ${pc.lat.toFixed(5)}, ${pc.lon.toFixed(5)}`,sub:'Ir a este punto',lat:pc.lat,lon:pc.lon,k:0,d:0});
     if(nq.length>=2){
@@ -5799,7 +5827,7 @@ async function showFind(){
   };
   inp.addEventListener('input',()=>{clearTimeout(FIND.t);FIND.t=setTimeout(run,150);});
   inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();inp.blur();webRun();}});
-  inp.focus();
+  run();inp.focus();
   if(!g){
     try{const x=await ensureGraph({center:c0});if(x&&sheetTitle==='Buscar'){g=x;if(inp.value.trim().length>=3)run();}}catch(e){}
   }
