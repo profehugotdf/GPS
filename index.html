@@ -315,6 +315,22 @@ body.gbOn #tgt{z-index:1060;top:calc(var(--top) + 64px);max-width:calc(100% - 80
 #grp button{border:0;border-radius:18px;background:rgba(255,255,255,.18);color:#fff;font:700 15px system-ui;min-width:38px;height:36px;padding:0 10px}
 #grp button.on{background:#F2A900;color:#111}
 #grp .ga{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}#grp .ga button{font-size:13px}
+#grp .gck{display:inline-block;margin-top:3px;padding:1px 7px;border-radius:9px;font:700 11.5px system-ui;color:#fff;text-shadow:none}
+#grp .gck.sil{background:#6b6b6b}
+#grp .gal{margin:4px 0 6px;padding:7px 9px;border-radius:12px;background:#F9A825;color:#111;text-shadow:none}
+#grp .gal.lv2{background:#E53935;color:#fff}#grp .gal.lv3{background:#B71C1C;color:#fff;animation:gdp 1s infinite}
+#grp .gal b{display:block;font:800 14px system-ui}#grp .gal small{font:600 12px system-ui}
+#grp .gal div{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}#grp .gal button{background:rgba(255,255,255,.25);color:inherit;font-size:13px}
+@keyframes gdp{50%{box-shadow:0 0 0 5px rgba(255,80,80,.55)}}
+#gdov{position:fixed;inset:0;z-index:3000;background:rgba(20,20,20,.94);color:#fff;display:flex;flex-direction:column;gap:10px;padding:calc(var(--top) + 18px) 18px calc(var(--bot) + 18px);overflow:auto;font-family:system-ui}
+#gdov[hidden]{display:none}#gdov.open{background:rgba(120,10,10,.95)}
+#gdov h2{margin:4px 0 0;font:900 30px system-ui;text-align:center}#gdov p{margin:0;text-align:center;font:600 16px system-ui}#gdov .mut2{opacity:.75;font-size:14px}
+#gdov button{border:0;border-radius:16px;min-height:62px;font:800 19px system-ui;color:#fff;background:#37474F;padding:8px}
+#gdov .gok{background:#2E7D32;min-height:92px;font-size:26px}#gdov .ghelp{background:#E65100}#gdov .gsos{background:#C62828;min-height:72px;font-size:23px}#gdov .gx{background:#555;min-height:48px}
+#gdov .gdg{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#gdov .gdbar{height:10px;border-radius:5px;background:rgba(255,255,255,.2);overflow:hidden}#gdov .gdbar i{display:block;height:100%;width:100%;background:#F9A825;transition:width 1s linear}
+.gdhead{border-left:6px solid;padding:6px 10px;margin-bottom:8px;border-radius:6px;background:rgba(0,0,0,.04)}
+.gdsteps{padding-left:20px;margin:4px 0}.gdsteps li{margin:5px 0}
 .grpmk{position:relative;transform:translate(-50%,-50%);display:flex;align-items:center}
 .grpmk span{display:block;width:18px;height:18px;border-radius:50%;background:var(--c);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)}
 .grpmk b{position:absolute;left:22px;white-space:nowrap;background:var(--c);color:#fff;border-radius:8px;padding:1px 6px;font:800 12px system-ui;box-shadow:0 1px 3px rgba(0,0,0,.4)}
@@ -561,7 +577,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 </div>
 <div id="gate" hidden>
   <div class="caph"><b id="gTtl">Puerta</b><button id="gX" aria-label="Cerrar">✕</button></div>
-  <div class="chips" id="gRole"><button data-r="start">🏁 Largada</button><button data-r="split">⏱️ Parcial</button><button data-r="finish">🏆 Llegada</button><button data-r="startfinish">🔁 Largada/Llegada</button></div>
+  <div class="chips" id="gRole"><button data-r="start">🏁 Largada</button><button data-r="split">⏱️ Parcial</button><button data-r="lap">🔄 Vueltas</button><button data-r="finish">🏆 Llegada</button><button data-r="startfinish">🔁 Largada/Llegada</button></div>
   <div class="caprow"><label>Ancho</label><input type="range" id="gW" min="5" max="200"><input type="number" id="gWn" class="gnum" min="3" max="500" inputmode="numeric"><span>m</span></div>
   <div class="chips" id="gQuick"><button data-w="10">10</button><button data-w="20">20</button><button data-w="30">30</button><button data-w="50">50</button><button data-w="100">100</button></div>
   <div class="gdialrow">
@@ -686,8 +702,8 @@ function gateAt(c,brg,w){
 }
 
 /* ====================== PUERTAS: roles, sentido de paso y giro ====================== */
-const ROLE_NAME={start:'Largada',split:'Parcial',finish:'Llegada',startfinish:'Largada/Llegada'};
-const ROLE_ICON={start:'🏁',split:'⏱️',finish:'🏆',startfinish:'🔁'};
+const ROLE_NAME={start:'Largada',split:'Parcial',finish:'Llegada',startfinish:'Largada/Llegada',lap:'Vueltas'};
+const ROLE_ICON={start:'🏁',split:'⏱️',finish:'🏆',startfinish:'🔁',lap:'🔄'};
 const WIND=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'];
 const compassWord=b=>WIND[Math.round((((b%360)+360)%360)/22.5)%16];
 const norm360=b=>((b%360)+360)%360;
@@ -713,14 +729,25 @@ function gateRoles(c){
   const legacy=c.type==='p2p'&&n>=2?c.gates.map((_,i)=>i===0?'start':i===n-1?'finish':'split'):c.gates.map((_,i)=>i===0?'startfinish':'split');
   const r=c.gates.map((g,i)=>g.role||legacy[i]);
   if(r[0]!=='start'&&r[0]!=='startfinish')r[0]='start';
+  let lap=false;
   for(let i=1;i<n;i++){
     if(r[i]==='start'||r[i]==='startfinish')r[i]='split';
     if(r[i]==='finish'&&i<n-1)r[i]='split';
+    /* puerta de vueltas: solo una, después de una largada y antes de la llegada */
+    if(r[i]==='lap'){if(lap||r[0]!=='start'||i===n-1)r[i]='split';else lap=true;}
   }
   if(r[0]==='start'&&n>=2)r[n-1]='finish';
   return r;
 }
-const circType=c=>gateRoles(c)[0]==='startfinish'?'closed':'p2p';
+/* índice de la puerta de vueltas (largada aparte → vueltas en la pista → llegada aparte), o -1 */
+const lapGateOf=c=>{const r=gateRoles(c);return r.length>=3&&r[0]==='start'?r.indexOf('lap'):-1;};
+const circType=c=>{const r=gateRoles(c);return r[0]==='startfinish'||lapGateOf(c)>=0?'closed':'p2p';};
+/* puertas que forman la vuelta (en orden) */
+function loopGates(c){
+  const n=c.gates.length,L=lapGateOf(c),a=[];
+  if(L>=0){for(let i=L;i<n-1;i++)a.push(i);return a;}
+  const m=hasLapFin(c)?n-1:n;for(let i=0;i<m;i++)a.push(i);return a;
+}
 /* Avisos para mostrar al armar el circuito */
 function gateCheck(c){
   const w=[],n=c.gates.length;
@@ -730,6 +757,8 @@ function gateCheck(c){
   if(r[0]==='start'&&n<2)w.push('Con una sola puerta de largada no hay dónde terminar: agregá una llegada.');
   if(r[0]==='start'&&n>=2&&raw[n-1]&&raw[n-1]!=='finish')w.push('En un punto a punto la última puerta funciona como llegada.');
   if(r[0]==='startfinish'&&raw.some((x,i)=>i>0&&(x==='start'||x==='finish'&&i<n-1)))w.push('En un circuito de vueltas la llegada aparte tiene que ser la última puerta: las demás se toman como parciales.');
+  if(raw.some((x,i)=>x==='lap'&&r[i]!=='lap'))w.push('La puerta de vueltas 🔄 va después de una 🏁 Largada y antes de la 🏆 Llegada (y una sola): las demás se toman como parciales.');
+  if(lapGateOf(c)>=0)w.push(`ℹ️ Carrera con largada, vueltas y llegada: largás en la 🏁, cada paso por la 🔄 marca una vuelta${c.nLaps?` (${c.nLaps} vueltas)`:''} y al cruzar la 🏆 Llegada termina con el tiempo total desde la largada.`);
   if(hasLapFin(c))w.push('ℹ️ Vueltas con llegada aparte: cada paso por la largada/llegada marca una vuelta y al cruzar la llegada (la última puerta) termina la carrera con el tiempo total.');
   return w;
 }
@@ -738,22 +767,27 @@ function gateCheck(c){
 /* circuito de vueltas con llegada aparte: la primera es largada/llegada (marca cada vuelta) y la última es una llegada (termina la carrera) */
 const hasLapFin=c=>{const r=gateRoles(c);return r.length>=2&&r[0]==='startfinish'&&r[r.length-1]==='finish';};
 class GateTimer{
-  constructor(c,cb){this.c=c;this.cb=cb||{};this.roles=gateRoles(c);this.fin=hasLapFin(c)?c.gates.length-1:null;
-    this.nLaps=this.roles[0]==='startfinish'&&c.nLaps>0?Math.round(c.nLaps):null;this.reset();}
+  constructor(c,cb){this.c=c;this.cb=cb||{};this.roles=gateRoles(c);const L=lapGateOf(c);this.lap=L>=0?L:null;
+    this.fin=hasLapFin(c)||this.lap!=null?c.gates.length-1:null;
+    this.nLaps=(this.roles[0]==='startfinish'||this.lap!=null)&&c.nLaps>0?Math.round(c.nLaps):null;this.reset();}
+  lapsDone(){return this.race?this.laps.length-this.race.lap0:0;}
   reset(){this.exp=0;this.cur=null;this.laps=[];this.lastT=null;this.race=null;this.races=[];}
   best(){let b=null;for(const l of this.laps)if(!b||l.time<b.time)b=l;return b;}
   feed(p,q){
     const G=this.c.gates,n=this.fin!=null?this.fin:G.length;
     if(!n||!(q[2]>p[2]))return;
     /* llegada aparte: vale en cualquier momento de la carrera */
-    if(this.fin!=null&&this.race){
+    if(this.fin!=null&&this.race&&(this.lap==null||this.race.app!=null)){
       const g=G[this.fin],u=crossFrac(p,q,g);
       if(u!=null&&!(g.dirOnly&&g.brg!=null&&!dirOK(p,q,g.brg))){
         const t=p[2]+u*(q[2]-p[2]);
         if(!(this.lastT!=null&&t-this.lastT<4000)){this.lastT=t;this._finish(t);return;}
       }
     }
-    const gi=this.exp,g=G[gi],u=crossFrac(p,q,g);
+    let gi=this.exp;
+    /* carrera con puerta de vueltas: si empezó a grabar ya en la pista (sin pasar la largada), la 🔄 arranca igual */
+    if(this.lap!=null&&!this.race&&gi===0&&crossFrac(p,q,G[0])==null&&crossFrac(p,q,G[this.lap])!=null)gi=this.lap;
+    const g=G[gi],u=crossFrac(p,q,g);
     if(u==null)return;
     if(g.dirOnly&&g.brg!=null&&!dirOK(p,q,g.brg))return;      /* cruzó al revés: no cuenta */
     const t=p[2]+u*(q[2]-p[2]);
@@ -764,12 +798,25 @@ class GateTimer{
     const R=this.race,laps=this.laps.slice(R.lap0);
     const race={n:this.races.length+1,start:R.start,time:t-R.start,laps:laps.length,splits:laps.map(l=>l.start+l.time-R.start).concat(atLap?[]:[t-R.start])};
     if(atLap)race.byCount=true;
+    if(this.lap!=null){race.app=R.app;race.pre=(R.marks||[]).map(m=>m-R.start);if(laps.length)race.toFin=t-(laps[laps.length-1].start+laps[laps.length-1].time);}
     this.races.push(race);this.cur=null;this.exp=0;this.race=null;
     this.cb.onFinish&&this.cb.onFinish(race);
   }
   _cross(gi,t,n){
     const cb=this.cb,role=this.roles[gi];
-    if(role==='start'||role==='startfinish'){
+    if(role==='start'&&this.lap!=null){
+      /* largada aparte: arranca la carrera; la primera vuelta empieza en la puerta 🔄 */
+      this.cur=null;this.race={start:t,lap0:this.laps.length,marks:[]};this.exp=1;cb.onStart&&cb.onStart(t);
+    }else if(role==='lap'){
+      if(!this.race){this.race={start:t,lap0:this.laps.length,marks:[],app:0};cb.onStart&&cb.onStart(t);}
+      if(this.cur){const cur=this.cur;cur.marks.push(t);this.cur=null;this._end(cur);}
+      else if(this.race.app==null)this.race.app=t-this.race.start;
+      if(this.nLaps&&this.lapsDone()>=this.nLaps){const was=this.race.done;this.cur=null;this.exp=gi;this.race.done=true;if(!was)cb.onLapsDone&&cb.onLapsDone(t);}
+      else{const first=this.lapsDone()===0;this.cur={start:t,marks:[]};this.exp=gi+1<n?gi+1:gi;if(first)cb.onLoop&&cb.onLoop(t);}
+    }else if(this.lap!=null&&gi<this.lap){
+      /* parcial del camino de ida, antes de la puerta de vueltas */
+      this.race.marks.push(t);this.exp=gi+1;cb.onPre&&cb.onPre(gi,t-this.race.start);
+    }else if(role==='start'||role==='startfinish'){
       if(role==='startfinish'&&this.cur){
         const cur=this.cur;cur.marks.push(t);this.cur={start:t,marks:[]};this.exp=n>1?1:0;this._end(cur);
         /* cantidad de vueltas fija (sin llegada aparte): al completar la última, termina la carrera */
@@ -778,7 +825,7 @@ class GateTimer{
     }else if(role==='finish'){
       this.cur.marks.push(t);const cur=this.cur;this.cur=null;this.exp=0;this._end(cur);
     }else{
-      this.cur.marks.push(t);this.exp=gi+1>=n?0:gi+1;
+      this.cur.marks.push(t);this.exp=gi+1>=n?(this.lap!=null?this.lap:0):gi+1;
       cb.onGate&&cb.onGate(gi,t-this.cur.start,this.cur.marks.length);
     }
   }
@@ -3102,6 +3149,7 @@ function onFix(f){
   try{waPump();}catch(e){}
   if(NAV.on)navOnFix(f);
   if(SH.on)try{shTick(f);}catch(e){}
+  try{gdOnFix(f);}catch(e){}
 }
 async function startWatch(bg,msg){
   stopWatch();
@@ -3231,10 +3279,15 @@ function makeTimer(circ){
     return b;
   };
   ent.gt=new GateTimer(circ,{
-    onStart:()=>{cue(circ.name+', largada',null,'gate');REC.last={txt:circ.name+' · largada',d:null};setGhost(ent);REC.lastEnt=ent;SH.tmDirty=true;
+    onStart:()=>{const lg=ent.gt.lap!=null;cue(circ.name+', largada'+(lg&&ent.gt.nLaps?`, ${ent.gt.nLaps} vueltas`:''),null,'gate');REC.last={txt:circ.name+' · largada',d:null};if(!lg)setGhost(ent);REC.lastEnt=ent;SH.tmDirty=true;
       if((!secTypes(circ)||!circ.terrain.shape)&&nSecOf(circ)>=2&&!ent.terrBusy){ent.terrBusy=true;circTerrain(circ).catch(()=>{});}
       entWind(ent);
-      ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});},
+      if(!lg){ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});}},
+    /* carrera con puerta 🔄: parciales del camino de ida, comienzo de la primera vuelta y vueltas completas */
+    onPre:(gi,rel)=>{REC.last={txt:`Puerta ${gi} ${fmtT(rel,true)}`,d:null};SH.tmDirty=true;cue(`Puerta ${gi}`,null,'gate');},
+    onLoop:t=>{const R=ent.gt.race;REC.last={txt:`🔄 A la pista${R&&R.app?' '+fmtT(R.app,true):''}`,d:null};REC.lastEnt=ent;SH.tmDirty=true;
+      cue('Vuelta 1',null,'gate');setGhost(ent);ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});},
+    onLapsDone:()=>{setTimeout(()=>cue(`${ent.gt.nLaps} vueltas completas. ¡A la llegada!`,null,'gate'),2500);clearGhost();},
     onGate:(gi,rel,idx)=>{
       const r=ent.ref(false),d=r&&r.splits[idx-1]!=null?rel-r.splits[idx-1]:null;
       const marks=ent.gt.cur.marks,sec=rel-(idx>1?marks[idx-2]-ent.gt.cur.start:0);
@@ -3258,7 +3311,7 @@ function makeTimer(circ){
     onLap:lap=>{
       const r=ent.ref(true),d=r?lap.time-r.time:null,pb=!!r&&lap.time<r.time;
       lap.pb=pb;REC.lastEnt=ent;SH.tmDirty=true;
-      {const g=ent.gt;if(g.nLaps&&g.race&&g.laps.length-g.race.lap0===g.nLaps-1)setTimeout(()=>cue('¡Última vuelta!',null,'gate'),2500);}
+      {const g=ent.gt;if(g.nLaps&&g.race&&g.cur&&g.laps.length-g.race.lap0===g.nLaps-1)setTimeout(()=>cue('¡Última vuelta!',null,'gate'),2500);}
       try{waSector(ent,lapSectors(lap),r,lap.n);}catch(e){}
       if(ent.gt.cur){ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});}
       const nm=circ.type==='p2p'?'':`Vuelta ${lap.n}, `;
@@ -3485,9 +3538,9 @@ function tickHud(){
   if(f1e){
     c.hidden=false;
     const now=lastFix?lastFix.t+(Date.now()-lastFixWall):Date.now();
-    const gr=f1e.gt,vn=gr.race?gr.laps.length-gr.race.lap0+1:0,rl=gr.race?`<div class="f1n"><span>🏁 Carrera: <b>${fmtT(now-gr.race.start)}</b> · vuelta ${vn}${gr.nLaps?` de ${gr.nLaps}${vn===gr.nLaps?' · ¡última!':''}`:''}${gr.fin!=null?' · la llegada aparte termina':''}</span></div>`:'';
+    const gr=f1e.gt,vn=gr.race?gr.laps.length-gr.race.lap0+1:0,rl=gr.race?`<div class="f1n"><span>🏁 Carrera: <b>${fmtT(now-gr.race.start)}</b> · ${!gr.cur&&gr.lap!=null?`${vn-1} vuelta${vn===2?'':'s'} · ➜ a la llegada 🏆`:`vuelta ${vn}${gr.nLaps?` de ${gr.nLaps}${vn===gr.nLaps?' · ¡última!':''}`:''}${gr.fin!=null?' · la llegada aparte termina':''}`}</span></div>`:'';
     const lastR=!gr.race&&!at&&gr.races.length?gr.races[gr.races.length-1]:null;
-    c.innerHTML=f1Html(f1ModelRec(f1e),now)+rl+(lastR?`<div class="f1n"><span>🏁 Llegada: <b>${fmtT(lastR.time,true)}</b> · ${lastR.laps} vuelta${lastR.laps===1?'':'s'}${REC.last&&REC.last.d!=null?` <span class="${REC.last.d<0?'good':'bad'}">${fmtDelta(REC.last.d)}</span>`:''}</span></div>`:'')+(at?'':`<div class="f1n"><span>Vigilando: cruzá una largada para otra vuelta</span></div>`);
+    c.innerHTML=f1Html(f1ModelRec(f1e),now)+rl+(lastR?`<div class="f1n"><span>🏁 Llegada: <b>${fmtT(lastR.time,true)}</b> · ${lastR.laps} vuelta${lastR.laps===1?'':'s'}${REC.last&&REC.last.d!=null?` <span class="${REC.last.d<0?'good':'bad'}">${fmtDelta(REC.last.d)}</span>`:''}</span></div>`:'')+(at||gr.race?'':`<div class="f1n"><span>Vigilando: cruzá una largada para otra vuelta</span></div>`);
     c.classList.add('isf1');
     if(at&&ghost&&ghost.ent===at){
       const el=now-at.gt.cur.start,p=posAt(ghost.pts,el);
@@ -3507,6 +3560,12 @@ function tickHud(){
       if(p)ghost.mk.setLatLng(p);
       if(el>ghost.time+8000)clearGhost();
     }
+  }else if(REC.timers.some(t=>t.gt.race)){
+    /* carrera con puerta 🔄: camino de ida hacia la pista */
+    const e=REC.timers.find(t=>t.gt.race),gr=e.gt,now=lastFix?lastFix.t+(Date.now()-lastFixWall):Date.now();
+    c.hidden=false;c.classList.remove('isf1');
+    c.innerHTML=`<span>${esc(e.circ.name)}</span><span>🏁 Carrera</span><b>${fmtT(now-gr.race.start,true)}</b><span>${gr.lapsDone()?'➜ a la llegada 🏆':'➜ hacia la puerta de vueltas 🔄'}</span>${REC.last?`<span>${esc(REC.last.txt)}</span>`:''}`;
+    clearGhost();
   }else if(REC.timers.length){
     c.hidden=false;c.classList.remove('isf1');
     c.innerHTML=`<span>${REC.last?esc(REC.last.txt)+' · ':''}Vigilando ${REC.timers.length} circuito${REC.timers.length>1?'s':''}: cruzá una largada</span>`;
@@ -3808,7 +3867,7 @@ const SECG={
   curr:{n:'Corriente',v:{fav:['🌊','Corriente a favor','Corriente a favor'],con:['🚧','Corriente en contra','Corriente en contra'],cross:['↗️','Corriente cruzada','Corriente cruzada']}}
 };
 const SECG_ORD=['terr','shape','wind','curr'];
-const nSecOf=c=>{const n=c.gates.length;return circType(c)==='closed'?(hasLapFin(c)?n-1:n):Math.max(0,n-1);};
+const nSecOf=c=>{const n=c.gates.length;return circType(c)==='closed'?loopGates(c).length:Math.max(0,n-1);};
 const secInfo=c=>{const n=nSecOf(c),s=(c.secs||[]).slice(0,n);while(s.length<n)s.push({});return s.map(x=>x||{});};
 function secTypes(c){
   const t=c.terrain,n=nSecOf(c);
@@ -3863,8 +3922,8 @@ async function sectorPaths(c){
     for(let i=0;i<n;i++){const p=tr.pts.filter(q=>q[2]>=b[i]-1500&&q[2]<=b[i+1]+1500);if(p.length<2){ok=false;break;}ss.push(p);}
     if(ok)return {src:'track',segs:ss};
   }
-  const roles=gateRoles(c),G=c.gates.map((g,i)=>upgradeGate(g,roles[i]).c).slice(0,hasLapFin(c)?-1:undefined);
-  if(c.path&&c.path.length>1){
+  const roles=gateRoles(c),G=loopGates(c).map(i=>upgradeGate(c.gates[i],roles[i]).c);
+  if(c.path&&c.path.length>1&&lapGateOf(c)<0){
     const P=c.path,cum=[0];for(let i=1;i<P.length;i++)cum.push(cum[i-1]+hav(P[i-1],P[i]));
     let prev=0;const s=G.map(g=>{let best=null;for(let i=1;i<P.length;i++){if(cum[i]<prev)continue;const pr=projSeg(P[i-1],P[i],g),d=cum[i-1]+pr.t*(cum[i]-cum[i-1]);if(!best||pr.d<best.d-1)best={d:pr.d,s:d};}prev=best?best.s:prev;return prev;});
     if(circType(c)==='closed')s.push(cum[cum.length-1]);
@@ -4158,7 +4217,7 @@ async function showCircuits(){
     ${cs.map(c=>{
       const mine=RUNS.filter(r=>r.cid===c.id),acts=[...new Set(mine.map(r=>r.act))];
       const bests=acts.map(a=>`${ACT[a][0]} ${fmtT(bestBy(RUNS,c.id,a,null).time,true)}`).join('  ');
-      return `<div class="item"><div data-act="detail" data-id="${c.id}" style="flex:1"><b>${esc(c.name)}</b><br><small class="mut">${c.type==='p2p'?'Punto a punto':'Cerrado'} · ${c.gates.length} puertas · ${mine.length} marcas${bests?'<br>🏆 '+bests:''}</small></div>
+      return `<div class="item"><div data-act="detail" data-id="${c.id}" style="flex:1"><b>${esc(c.name)}</b><br><small class="mut">${lapGateOf(c)>=0?'Largada → vueltas → llegada':c.type==='p2p'?'Punto a punto':'Cerrado'} · ${c.gates.length} puertas · ${mine.length} marcas${bests?'<br>🏆 '+bests:''}</small></div>
       <button class="btn sm ${c.watch!==false?'primary':''}" data-act="watch" data-id="${c.id}">${c.watch!==false?'Vigilando ✓':'Sin vigilar'}</button></div>`;
     }).join('')||'<p class="mut">Todavía no hay circuitos. Podés crearlos acá o guardar una ruta calculada como recorrido.</p>'}`,
     async(a,d)=>{
@@ -4176,7 +4235,7 @@ async function showCircuitDetail(id,act){
   editingCirc=id;refreshGates();
   const mine=RUNS.filter(r=>r.cid===id),acts=[...new Set(mine.map(r=>r.act))];
   act=act&&acts.includes(act)?act:(acts.includes(S.act)?S.act:acts[0]);
-  let h=`<p class="mut">${c.type==='p2p'?'Punto a punto':'Cerrado'} · ${c.gates.length} puertas</p>`;
+  let h=`<p class="mut">${lapGateOf(c)>=0?'Largada → vueltas → llegada':c.type==='p2p'?'Punto a punto':'Cerrado'} · ${c.gates.length} puertas</p>`;
   if(!acts.length)h+='<p>Todavía no hay marcas. Grabá una salida pasando por las puertas y van a aparecer acá.</p>';
   else{
     const rs=mine.filter(r=>r.act===act).sort((a,b)=>a.time-b.time),best=rs[0];
@@ -4190,10 +4249,11 @@ async function showCircuitDetail(id,act){
     const ev=recent.slice(0,15).reverse();
     if(ev.length>1)h+=`<h3>Evolución</h3>`+barChart(ev.map(r=>r.time),ev.map((_,i)=>i+1),ev.findIndex(r=>r.time===best.time));
   }
-  if(hasLapFin(c)||c.nLaps&&circType(c)==='closed'){
+  const sepF=hasLapFin(c)||lapGateOf(c)>=0;
+  if(sepF||c.nLaps&&circType(c)==='closed'){
     const rr=RUNS.filter(r=>r.race&&r.cid.startsWith(c.id+'#race')&&r.act===(act||S.act));
     const byN={};for(const r of rr){const k=+r.cid.split('#race')[1];if(!byN[k]||r.time<byN[k].time)byN[k]=r;}
-    h+=`<h3>🏁 Carreras${hasLapFin(c)?' (vueltas + llegada aparte)':` a ${c.nLaps} vueltas`}</h3>${Object.keys(byN).length?Object.keys(byN).sort((a,b)=>a-b).map(k=>`<div class="item" data-act="tr" data-id="${byN[k].tid}"><div><b>${k} vuelta${k==1?'':'s'}: ${fmtT(byN[k].time,true)}</b><br><small class="mut">${fmtDate(byN[k].t0)} · ${rr.filter(r=>r.cid===raceCid(c.id,k)).length} carrera(s)</small></div><span>›</span></div>`).join(''):`<p class="mut">Todavía no terminaste una carrera. ${hasLapFin(c)?'Cada paso por la largada/llegada marca una vuelta; la última puerta (🏆 Llegada) termina la carrera.':`Termina sola al completar ${c.nLaps} vueltas.`}</p>`}`;
+    h+=`<h3>🏁 Carreras${lapGateOf(c)>=0?' (largada → vueltas → llegada)':hasLapFin(c)?' (vueltas + llegada aparte)':` a ${c.nLaps} vueltas`}</h3>${Object.keys(byN).length?Object.keys(byN).sort((a,b)=>a-b).map(k=>`<div class="item" data-act="tr" data-id="${byN[k].tid}"><div><b>${k} vuelta${k==1?'':'s'}: ${fmtT(byN[k].time,true)}</b><br><small class="mut">${fmtDate(byN[k].t0)} · ${rr.filter(r=>r.cid===raceCid(c.id,k)).length} carrera(s)</small></div><span>›</span></div>`).join(''):`<p class="mut">Todavía no terminaste una carrera. ${lapGateOf(c)>=0?'Largás en la 🏁, cada paso por la 🔄 marca una vuelta y la 🏆 Llegada termina la carrera.':hasLapFin(c)?'Cada paso por la largada/llegada marca una vuelta; la última puerta (🏆 Llegada) termina la carrera.':`Termina sola al completar ${c.nLaps} vueltas.`}</p>`}`;
   }
   const nS=nSecOf(c);
   if(nS>=2){
@@ -4271,15 +4331,16 @@ async function showCircuitEdit(id){
   editingCirc=id;refreshGates();
   const roles=gateRoles(c),warn=gateCheck(c),tp=circType(c);
   openSheet('Circuito',`<label for="cn">Nombre</label><input class="in" id="cn" value="${esc(c.name)}">
-    <p>${tp==='closed'?'🔁 <b>Circuito cerrado:</b> se cuentan vueltas':'➡️ <b>Punto a punto:</b> de la largada a la llegada'} <span class="mut">(lo define el rol de cada puerta)</span></p>
+    <p>${lapGateOf(c)>=0?'🏁→🔄→🏆 <b>Carrera con vueltas:</b> largada aparte, vueltas en la pista y llegada aparte':tp==='closed'?'🔁 <b>Circuito cerrado:</b> se cuentan vueltas':'➡️ <b>Punto a punto:</b> de la largada a la llegada'} <span class="mut">(lo define el rol de cada puerta)</span></p>
     <h3>Puertas (${c.gates.length})</h3>
     ${c.gates.map((g0,i)=>{const g=upgradeGate(g0,roles[i]);return `<div class="item"><div><b>${ROLE_ICON[roles[i]]} ${i+1}. ${ROLE_NAME[roles[i]]}</b><br><small class="mut">${Math.round(g.w)} m de ancho · ${dirText(g)}</small></div><div class="row"><button class="btn sm" data-act="gup" data-i="${i}" ${i?'':'disabled'} aria-label="Subir">▲</button><button class="btn sm" data-act="gdn" data-i="${i}" ${i<c.gates.length-1?'':'disabled'} aria-label="Bajar">▼</button><button class="btn sm" data-act="gedit" data-i="${i}">Editar</button></div></div>`;}).join('')||'<p class="mut">Sin puertas todavía.</p>'}
     ${warn.map(w=>`<p class="mut">${w.startsWith('ℹ️')?'':'⚠️ '}${esc(w)}</p>`).join('')}
     <div class="row" style="margin-top:8px"><button class="btn primary" data-act="gadd">＋ Agregar puerta</button><button class="btn" data-act="here">📍 En mi posición</button></div>
-    <p class="mut">Cada puerta se ubica tocando el mapa. Elegís el rol (largada, parcial, llegada o largada/llegada), el ancho, si cuenta en un solo sentido o en los dos, y el giro de 0 a 359°. Las puertas se recorren en el orden de esta lista.</p>
+    <p class="mut">Cada puerta se ubica tocando el mapa. Elegís el rol (largada, parcial, vueltas, llegada o largada/llegada), el ancho, si cuenta en un solo sentido o en los dos, y el giro de 0 a 359°. Las puertas se recorren en el orden de esta lista.</p>
     ${tp!=='closed'&&c.gates.length===1?`<div class="card">Esta puerta es solo de <b>largada</b>, así que no cuenta vueltas. Para que cada paso marque una vuelta tiene que ser <b>🔁 Largada/Llegada</b>.<div class="row" style="margin-top:6px"><button class="btn primary" data-act="tolap">🔁 Convertir en circuito de vueltas</button></div></div>`:''}
+    ${tp!=='closed'&&c.gates.length>=3?`<div class="card">¿Largada afuera, vueltas en una pista y llegada adentro? Editá la puerta que está sobre la pista y elegí el rol <b>🔄 Vueltas</b>: cada paso por ella marca una vuelta y la 🏆 Llegada termina la carrera.</div>`:''}
     ${tp==='closed'?`<label for="cnl">Cantidad de vueltas de la carrera (vacío = sin límite)</label><input class="in" id="cnl" type="number" min="1" max="500" inputmode="numeric" value="${c.nLaps||''}" placeholder="Ej: 10">
-    <p class="mut">${hasLapFin(c)?'Con llegada aparte, la carrera termina al cruzarla; las vueltas sirven para avisarte la última.':'Al completar esa cantidad de vueltas termina la carrera: te canta “¡Última vuelta!” y al final el tiempo total.'}</p>`:''}
+    <p class="mut">${lapGateOf(c)>=0?'Te canta “¡Última vuelta!”; al completarlas deja de contar vueltas y te manda a la 🏆 Llegada, que termina la carrera (tiempo total desde la 🏁 Largada). Si cruzás la llegada antes, termina igual con las vueltas que llevás.':hasLapFin(c)?'Con llegada aparte, la carrera termina al cruzarla; las vueltas sirven para avisarte la última.':'Al completar esa cantidad de vueltas termina la carrera: te canta “¡Última vuelta!” y al final el tiempo total.'}</p>`:''}
     <label class="chk"><input type="checkbox" id="cw" ${c.watch!==false?'checked':''}> Vigilar en cada grabación</label>
     <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Listo</button><button class="btn danger" data-act="del">Borrar circuito</button></div>`,
     async(a,d,el)=>{
@@ -4311,7 +4372,7 @@ async function showCircuitEdit(id){
 /* cantidad de vueltas de la carrera; si ese circuito se está cronometrando, se aplica en el momento */
 async function setCircLaps(c,val){
   const v=Math.round(+val);c.nLaps=v>0?Math.min(500,v):null;await DB.put('kv','circuit:'+c.id,c);
-  for(const t of REC.timers||[])if(t.circ.id===c.id){t.circ.nLaps=c.nLaps;t.gt.nLaps=t.gt.roles[0]==='startfinish'&&c.nLaps?c.nLaps:null;
+  for(const t of REC.timers||[])if(t.circ.id===c.id){t.circ.nLaps=c.nLaps;t.gt.nLaps=(t.gt.roles[0]==='startfinish'||t.gt.lap!=null)&&c.nLaps?c.nLaps:null;
     if(t.gt.nLaps&&!t.gt.race&&t.gt.cur)t.gt.race={start:t.gt.cur.start,lap0:t.gt.laps.length};}
   toast(c.nLaps?`Carrera a ${c.nLaps} vuelta${c.nLaps>1?'s':''}${REC.state!=='idle'?' (ya cuenta en esta grabación)':''}`:'Vueltas sin límite',3000);
 }
@@ -6666,8 +6727,8 @@ $('#capCtrGo').onclick=capContours;
 const gedLayer=L.layerGroup().addTo(map);
 const GE={on:false,cid:null,idx:null,g:null,c:null};
 const visCenterNow=()=>{try{return map.getCenter();}catch(e){return {lat:0,lng:0};}};
-const ROLE_ORDER=['start','split','finish','startfinish'];
-const ROLE_COL={start:'#F04A1C',split:'#0E2A36',finish:'#2E7D5B',startfinish:'#F04A1C'};
+const ROLE_ORDER=['start','split','lap','finish','startfinish'];
+const ROLE_COL={start:'#F04A1C',split:'#0E2A36',finish:'#2E7D5B',startfinish:'#F04A1C',lap:'#7B3FB5'};
 function gateIconHtml(role,label,brg,dirOnly){
   const s=(role==='start'||role==='startfinish')?' s':'';
   const ar=dirOnly?`<div class="gar" style="transform:rotate(${brg}deg)"><i>▲</i></div>`:`<div class="gar" style="transform:rotate(${brg}deg)"><i>▲</i><i class="b">▼</i></div>`;
@@ -9633,7 +9694,8 @@ function shCourse(){
   return {pts,len:Math.round(r.dist),label:RT.to&&RT.to.label||'',mode:RT.sel};
 }
 async function shMeta(){
-  const m={k:'m',sid:SH.sid,name:SH.name,mode:SH.mode,start:SH.start,v:1};
+  const m={k:'m',sid:SH.sid,name:SH.name,mode:SH.mode,start:SH.start,v:1,act:gdAct()};
+  if(SH.group){const g=gdCfg();if(g.ice||g.iceTel)m.ice={n:g.ice,tel:g.iceTel};}
   if(SH.course)m.course=SH.course;
   if(SH.circ)m.circ=SH.circ;
   let body=await shSeal(m,SH.key);
@@ -9689,9 +9751,9 @@ function shTiming(){
   if(!e||nSecOf(e.circ)<2)return null;
   const m=f1ModelRec(e),c=e.circ,roles=gateRoles(c);
   const circ={id:c.id,name:c.name,closed:m.closed,nSec:m.nSec,tags:m.tags,names:m.names,act:m.act,hist:m.hist,sb:m.sb,
-    gates:c.gates.map((g,i)=>{const u=upgradeGate(g,roles[i]);return {c:[+u.c[0].toFixed(6),+u.c[1].toFixed(6)],w:Math.round(u.w),brg:Math.round(u.brg)};})};
+    gates:c.gates.map((g,i)=>{const u=upgradeGate(g,roles[i]);return {c:[+u.c[0].toFixed(6),+u.c[1].toFixed(6)],w:Math.round(u.w),brg:Math.round(u.brg),r:roles[i]};})};
   const gt=e.gt,lr=gt.races[gt.races.length-1];
-  return {circ,tm:{cid:c.id,tags:m.tags,names:m.names,wind:m.wind,laps:m.laps.slice(-20),cur:m.cur,race:gt.race?{start:gt.race.start,lap0:gt.race.lap0}:null,fin:lr?{time:lr.time,laps:lr.laps,end:lr.start+lr.time}:null}};
+  return {circ,tm:{cid:c.id,tags:m.tags,names:m.names,wind:m.wind,laps:m.laps.slice(-20),cur:m.cur,race:gt.race?{start:gt.race.start,lap0:gt.race.lap0,nl:gt.nLaps||null,ph:gt.lap!=null?(gt.cur?'lap':gt.lapsDone()?'fin':'app'):null}:null,fin:lr?{time:lr.time,laps:lr.laps,end:lr.start+lr.time}:null}};
 }
 async function shFlush(){
   if(!SH.on||SH.sending||!(SH.queue.length||SH.tmDirty))return;
@@ -9875,7 +9937,7 @@ function folDraw(){
   if(!FOL.on)return;
   folLayer.clearLayers();
   const c=FOL.meta&&FOL.meta.course,fc=FOL.meta&&FOL.meta.circ;
-  if(fc&&fc.gates)fc.gates.forEach((g,i)=>{const e=gateAt(g.c,g.brg,Math.max(g.w,20));L.polyline([e.a,e.b],{color:'#fff',weight:7,interactive:false}).addTo(folLayer);L.polyline([e.a,e.b],{color:i===0?'#1FA15A':'#8E3BD8',weight:4,interactive:false}).addTo(folLayer);});
+  if(fc&&fc.gates)fc.gates.forEach((g,i)=>{const e=gateAt(g.c,g.brg,Math.max(g.w,20));L.polyline([e.a,e.b],{color:'#fff',weight:7,interactive:false}).addTo(folLayer);L.polyline([e.a,e.b],{color:g.r==='lap'?'#7B3FB5':g.r==='finish'?'#2E7D5B':i===0?'#1FA15A':'#8E3BD8',weight:g.r==='lap'?6:4,interactive:false}).addTo(folLayer);});
   if(c&&c.pts.length>1){L.polyline(c.pts,{color:'#fff',weight:9,opacity:.8,interactive:false}).addTo(folLayer);L.polyline(c.pts,{color:'#F2A900',weight:5,dashArray:'10 7',interactive:false}).addTo(folLayer);}
   const ll=FOL.pts.map(p=>[p[0],p[1]]);
   if(ll.length>1){L.polyline(ll,{color:'#fff',weight:8,opacity:.85,interactive:false}).addTo(folLayer);L.polyline(ll,{color:'#7A3FE0',weight:4.5,interactive:false}).addTo(folLayer);}
@@ -9906,7 +9968,7 @@ function folPanel(){
   else if(st.eta)eta=`🏁 Llega a las ${hhmm(st.eta)}${st.nextKm.length?' · '+st.nextKm.map(([k,t])=>`km ${k}: ${hhmm(t)}`).join(' · '):''}`;
   const fm=folF1(),ft=FOL.tm;
   if(ft&&ft.fin&&!(ft.race&&ft.race.start>ft.fin.end))eta=`🏁 Llegó: total ${fmtT(ft.fin.time,true)} · ${ft.fin.laps} vuelta${ft.fin.laps===1?'':'s'}`;
-  else if(ft&&ft.race)eta=`🏁 En carrera: ${fmtT((FOL.ended?st.tl*1000:Date.now())-ft.race.start)} · vuelta ${(ft.laps||[]).filter(l=>l.start>=ft.race.start).length+1}`+(eta?' · '+eta:'');
+  else if(ft&&ft.race)eta=`🏁 En carrera: ${fmtT((FOL.ended?st.tl*1000:Date.now())-ft.race.start)} · ${ft.race.ph==='app'?'➜ hacia la pista':ft.race.ph==='fin'?`${(ft.laps||[]).filter(l=>l.start>=ft.race.start).length} vueltas ➜ a la llegada`:`vuelta ${(ft.laps||[]).filter(l=>l.start>=ft.race.start).length+1}${ft.race.nl?' de '+ft.race.nl:''}`}`+(eta?' · '+eta:'');
   el.innerHTML=`<div class="fb" data-f="c"><div class="t">📡 ${nm} <small class="${late?'late':''}">${late?'⚠️ ':''}${agoT}</small></div><div class="s">${lines.join(' · ')}</div>${eta?`<div class="s">${eta}</div>`:''}${fm?f1Html(fm,FOL.ended?st.tl*1000:Date.now()):''}</div>
     <div class="rb"><button data-f="g" class="${FOL.tgt?'on':''}" aria-label="Ir hacia">🎯</button><button data-f="c" aria-label="Centrar">⌖</button><button data-f="x" aria-label="Dejar de seguir">✕</button></div>`;
 }
@@ -9956,7 +10018,7 @@ function showGroup(join){
   if(GRP.on&&!join){
     const ppl=[...GRP.people.values()].filter(p=>p.sid!==SH.sid);
     openSheet('👥 Grupo en vivo',`<p>${ppl.length?`${ppl.length} persona${ppl.length>1?'s':''} más en el grupo.`:'Todavía no se sumó nadie más: mandales el link.'}${SH.on&&SH.group?' Vos estás compartiendo tu posición.':' <b>Vos solo estás mirando</b> (no compartís tu posición).'}</p>
-      <div class="row"><button class="btn primary" data-act="lk">📤 Invitar (mandar el link)</button><button class="btn" data-act="sr">🔎 Modo búsqueda</button></div>
+      <div class="row"><button class="btn primary" data-act="lk">📤 Invitar (mandar el link)</button><button class="btn" data-act="sr">🔎 Modo búsqueda</button><button class="btn" data-act="gd">🛟 Guardián</button></div>
       ${SH.on&&SH.group?'':'<div class="row"><button class="btn" data-act="sh">📡 Compartir también mi posición</button></div>'}
       <label>Modo</label><div class="chips">${Object.entries(SH_MODES).map(([k,m])=>`<button data-act="md" data-k="${k}" class="${SH.on&&SH.group&&k===SH.mode?'on':''}">${m.n}</button>`).join('')}</div>
       <div class="row" style="margin-top:12px"><button class="btn danger" data-act="out">🚪 Salir del grupo</button></div>
@@ -9964,6 +10026,7 @@ function showGroup(join){
       async(a,d,el)=>{
         if(a==='lk')grpShareLink();
         else if(a==='sr')showSearch();
+        else if(a==='gd')showGuard();
         else if(a==='sh'){closeSheet();await grpShareMe(S.shareName||'',d.k||'meet');}
         else if(a==='md'){if(SH.on&&SH.group){SH.mode=d.k;shSave();showGroup();}else{closeSheet();await grpShareMe(S.shareName||'',d.k);}}
         else if(a==='out'){if(armed(el)){closeSheet();grpLeave();}}
@@ -10031,6 +10094,7 @@ async function grpHandle(id,msg){
   GRP.seen.add(id);if(id)GRP.lastId=id;
   let o;try{o=await shOpen(msg,GRP.key);}catch(e){return;}
   if(o.k==='op'||o.k==='ss'){srHandle(o);return;}
+  if(o.k==='ck'){gdHandle(o);return;}
   if(!o.sid)return;
   let p=GRP.people.get(o.sid);
   if(!p){p={sid:o.sid,pts:[],meta:null,bat:null,ended:false,color:grpColor(o.sid)};GRP.people.set(o.sid,p);}
@@ -10042,9 +10106,11 @@ async function grpPoll(all){
   try{
     const r=await fetch(`${NTFY}${GRP.topic}/json?poll=1&since=${all||!GRP.lastId?'all':GRP.lastId}`);
     if(!r.ok)throw new Error('http '+r.status);
-    for(const line of (await r.text()).split('\n')){if(!line.trim())continue;let j;try{j=JSON.parse(line);}catch(e){continue;}if(j.event==='message')await grpHandle(j.id,j.message);}
+    if(all)GD.replay=true;
+    try{for(const line of (await r.text()).split('\n')){if(!line.trim())continue;let j;try{j=JSON.parse(line);}catch(e){continue;}if(j.event==='message')await grpHandle(j.id,j.message);}}
+    finally{if(all)gdAfterReplay();}
     GRP.netOk=true;
-    srFlushPend();
+    srFlushPend();gdFlushPend();
     /* los mensajes quedan unas horas en el servidor: la búsqueda se vuelve a mandar para que la vea quien se sume después */
     if(SR.op&&(!SR.seenOp||Date.now()-SR.seenOp>6*3600e3)){SR.seenOp=Date.now();srPost({k:'op',sid:SH.sid||'',op:SR.op});}
   }catch(e){GRP.netOk=false;}
@@ -10082,11 +10148,11 @@ function grpPanel(){
   const rows=ppl.map(p=>{
     const l=grpLast(p),ago=Math.max(0,Math.round(now-l[2])),agoT=ago<60?`${ago} s`:ago<3600?`${Math.round(ago/60)} min`:`${(ago/3600).toFixed(1).replace('.',',')} h`;
     const d=me?hav(me,[l[0],l[1]]):null,dir=me&&d>15?compassWord(bearingTo(me,[l[0],l[1]])):'';
-    return `<div class="gr${p.ended||ago>600?' old':''}"><i style="background:${p.color}"></i><div class="gn"><b>${esc((p.meta&&p.meta.name)||'Sin nombre')}</b><small>${p.ended?'dejó de compartir · ':''}hace ${agoT}${d!=null?` · ${fmtD(d)}${dir?' al '+dir:''}`:''}${p.bat!=null?` · 🔋${p.bat}%`:''}</small></div><button data-g="t" data-s="${p.sid}" class="${GRP.tgt===p.sid?'on':''}" aria-label="Ir hacia">🎯</button><button data-g="c" data-s="${p.sid}" aria-label="Ver">⌖</button></div>`;
+    return `<div class="gr${p.ended||ago>600?' old':''}"><i style="background:${p.color}"></i><div class="gn"><b>${esc((p.meta&&p.meta.name)||'Sin nombre')}</b><small>${p.ended?'dejó de compartir · ':''}hace ${agoT}${d!=null?` · ${fmtD(d)}${dir?' al '+dir:''}`:''}${p.bat!=null?` · 🔋${p.bat}%`:''}</small>${gdRowNote(p,ago)}</div>${p.ended?'':`<button data-g="q" data-s="${p.sid}" aria-label="Preguntar si está bien">❓</button>`}<button data-g="t" data-s="${p.sid}" class="${GRP.tgt===p.sid?'on':''}" aria-label="Ir hacia">🎯</button><button data-g="c" data-s="${p.sid}" aria-label="Ver">⌖</button></div>`;
   }).join('');
   el.classList.toggle('min',GRP.min);
   el.innerHTML=`<div class="gh" data-g="m"><b>👥 Grupo · ${ppl.length+1}</b><small>${GRP.netOk===false?'⚠️ sin conexión':SH.on&&SH.group?'compartiendo':'solo mirando'}</small><span>${GRP.min?'▲':'▼'}</span></div>
-    ${GRP.min?'':`${rows||'<div class="gr"><small>Esperando a los demás… mandales el link.</small></div>'}${SR.op?(()=>{const m=srSummary();return `<div class="gr" data-g="s"><small>🔎 Búsqueda: ✅ ${m.c.ok} · 🟡 ${m.c.curso} · 🔴 ${m.c.pend}${m.c.redo?` · 🔁 ${m.c.redo}`:''} de ${m.n} sectores</small></div>`;})():''}<div class="ga"><button data-g="l">📤 Invitar</button><button data-g="s">🔎 Búsqueda</button><button data-g="o">⚙️ Grupo</button><button data-g="x">✕ Salir</button></div>`}`;
+    ${gdBanner()}${GRP.min?'':`${rows||'<div class="gr"><small>Esperando a los demás… mandales el link.</small></div>'}${SR.op?(()=>{const m=srSummary();return `<div class="gr" data-g="s"><small>🔎 Búsqueda: ✅ ${m.c.ok} · 🟡 ${m.c.curso} · 🔴 ${m.c.pend}${m.c.redo?` · 🔁 ${m.c.redo}`:''} de ${m.n} sectores</small></div>`;})():''}<div class="ga"><button data-g="gd">🛟${gdOn()?'':' (apagado)'}</button><button data-g="l">📤 Invitar</button><button data-g="s">🔎 Búsqueda</button><button data-g="o">⚙️ Grupo</button><button data-g="x">✕ Salir</button></div>`}`;
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('#grp [data-g]');if(!b)return;
@@ -10096,6 +10162,10 @@ document.addEventListener('click',e=>{
   else if(g==='o')showGroup();
   else if(g==='s')showSearch();
   else if(g==='x'){if(armed(b))grpLeave();}
+  else if(g==='gd')showGuard();
+  else if(g==='e'&&p)gdProtocol(p.sid);
+  else if(g==='v'&&p){gdAck(p.ck);gdPostAbout(p.sid,'voy',{id:p.ck&&p.ck.id});toast(`Avisaste que vas hacia ${gdPname(p)}`,3000);}
+  else if(g==='q'&&p){if(armed(b)){gdPostAbout(p.sid,'ask',{why:'manual',id:p.sid+'.'+Date.now()});toast(`❓ Le preguntamos a ${gdPname(p)} si está bien`,3500);}}
   else if(g==='c'&&p){const l=grpLast(p);setFollow(false);map.setView([l[0],l[1]],Math.max(map.getZoom(),16));}
   else if(g==='t'&&p){if(GRP.tgt===p.sid){GRP.tgt=null;clearTarget();toast('Flecha apagada',2000);}else{GRP.tgt=p.sid;if(!watch)startWatch(false);toast(`🎯 La flecha te lleva hacia ${(p.meta&&p.meta.name)||'esa persona'}`,2500);}grpDraw();}
 });
@@ -10686,6 +10756,377 @@ document.addEventListener('click',e=>{
   else if(a==='rv'){if(T3.rel&&T3.rel.go)t3RelStop();else t3RelStart();}
   else if(a==='vid')t3VidStart();
 });
+
+/* ---------- 🛟 Guardián del grupo: si alguien corta su ritmo de golpe (caída, pinchazo, vuelco), se le pregunta y todos ven la respuesta ----------
+   Corre en el teléfono de cada uno mientras comparte en un grupo. Mira la velocidad del GPS (y, con la pantalla prendida, los golpes del acelerómetro):
+   - parada brusca después de venir rápido (bici, sobre todo en bajada) → pregunta enseguida;
+   - parada larga sin explicación → pregunta;
+   - golpe fuerte seguido de quietud → pregunta.
+   Si vuelve a moverse, se toma como “sigo bien”. Si nadie contesta, todo el grupo recibe la alarma con la última posición y el protocolo. */
+const GD_ACT={
+  bike:{v:3,stop:120,quick:10,ask:60,flat:'🔧 Pinchazo / mecánico',n:'bici'},
+  run:{v:1.3,stop:240,quick:0,ask:90,flat:'🦶 Molestia / me desvié',n:'carrera'},
+  walk:{v:.55,stop:420,quick:0,ask:90,flat:'🥾 Me desvié / ampolla',n:'trekking'},
+  kayak:{v:.9,stop:120,quick:0,ask:60,flat:'🛶 Problema con el kayak',n:'kayak'},
+  swim:{v:.35,stop:75,quick:0,ask:45,flat:'💪 Calambre, sigo despacio',n:'natación'}};
+const GD_SENS={alta:.5,normal:1,baja:2};
+/* estado: [icono, texto, color, nivel] · nivel 3 = alarma, 2 = ayuda, 1 = preguntando, 0 = informativo */
+const GD_ST={ask:['⚠️','Se detuvo · le estamos preguntando','#F9A825',1],ok:['✅','Está bien','#2E7D32',0],mov:['✅','Siguió en movimiento','#2E7D32',0],
+  flat:['🔧','Problema, lo resuelve','#1E88E5',0],rest:['☕','Pausa / descanso','#1E88E5',0],help:['🤕','Necesita ayuda','#E53935',2],
+  sos:['🆘','¡EMERGENCIA!','#B71C1C',3],noans:['🆘','No responde','#B71C1C',3],done:['✔️','Resuelto','#2E7D32',0]};
+const GD_NUMS=[['911','🚓 Emergencias'],['107','🚑 Emergencias médicas'],['106','⚓ Prefectura (agua)'],['100','🚒 Bomberos'],['103','🛟 Defensa Civil']];
+const gdCfg=()=>Object.assign({on:true,sens:'normal',ask:0,impact:true,ice:'',iceTel:''},S.guard||{});
+const GD={hist:[],movSince:0,moving:false,stopSince:0,peak:0,desc:false,impactT:0,ask:null,mine:null,snooze:0,pend:[],ack:{},alarm:null,siren:0,me:null,ov:null,ln:false,lastSil:{}};
+const gdAct=()=>(typeof REC!=='undefined'&&REC.state!=='idle'&&REC.act)||S.act||'bike';
+const gdOn=()=>!!(gdCfg().on&&SH.on&&SH.group&&GRP.on&&GD_ACT[gdAct()]);
+const gdMyId=()=>SH.sid||GD.me||(GD.me=uid());
+const gdName=()=>SH.name||S.shareName||'Alguien';
+const gdSay=t=>{try{const v=S.voice;S.voice=true;say(t);S.voice=v;}catch(e){}};
+const gdAgo=s=>s<60?`${Math.max(0,Math.round(s))} s`:s<3600?`${Math.round(s/60)} min`:`${(s/3600).toFixed(1).replace('.',',')} h`;
+
+/* --- detección (en el teléfono de quien se mueve) --- */
+function gdOnFix(f){
+  /* con la pantalla apagada los temporizadores se frenan: cada lectura del GPS también revisa el grupo y la cuenta regresiva */
+  if(GRP.on&&Date.now()-(GD.lastPoll||0)>20000&&document.visibilityState==='hidden'){GD.lastPoll=Date.now();grpPoll(false).catch(()=>{});}
+  try{gdTick();}catch(e){}
+  if(!gdOn()){GD.hist.length=0;GD.moving=false;GD.movSince=0;GD.stopSince=0;return;}
+  if(f.acc!=null&&f.acc>50)return;
+  const t=f.t||Date.now(),H=GD.hist,prev=H[H.length-1];
+  if(prev&&t<=prev.t)return;
+  let v=f.speed;
+  if(v==null)v=prev?hav([prev.lat,prev.lon],[f.lat,f.lon])/((t-prev.t)/1000):0;
+  H.push({t,lat:f.lat,lon:f.lon,v,alt:f.alt});
+  while(H.length&&t-H[0].t>150000)H.shift();
+  gdEval(t);
+}
+/* velocidad por desplazamiento en los últimos s segundos (más estable que la instantánea cuando estás quieto) */
+function gdV(t,s){
+  const a=GD.hist.filter(h=>t-h.t<=s*1000);if(a.length<2)return null;
+  const dt=(a[a.length-1].t-a[0].t)/1000;if(dt<s*.5)return null;
+  return hav([a[0].lat,a[0].lon],[a[a.length-1].lat,a[a.length-1].lon])/dt;
+}
+function gdEval(t){
+  const P=GD_ACT[gdAct()];if(!P)return;
+  const vm=gdV(t,30),vs=gdV(t,10);
+  if(GD.ask){
+    /* si vuelve a moverse un rato, sigue bien (sirve para el que no puede tocar el teléfono: nadando, remando) */
+    if(GD.ask.dl&&vs!=null&&vs>P.v){if(!GD.ask.movT)GD.ask.movT=t;else if(t-GD.ask.movT>=12000)gdAnswer('mov');}
+    else if(GD.ask)GD.ask.movT=0;
+    return;
+  }
+  if(vm!=null&&vm>=P.v){if(!GD.movSince)GD.movSince=t;if(t-GD.movSince>=45000)GD.moving=true;}
+  else if(vm==null||vm<P.v*.5)GD.movSince=0;
+  const stopped=vs!=null&&vs<Math.min(.6,P.v*.5);
+  if(!stopped){GD.stopSince=0;return;}
+  if(!GD.stopSince){
+    GD.stopSince=t;
+    GD.peak=Math.max(0,...GD.hist.filter(h=>h.t>=t-28000&&h.t<=t-6000).map(h=>h.v||0));
+    const old=GD.hist.find(h=>t-h.t<=70000&&h.alt!=null),cur=[...GD.hist].reverse().find(h=>h.alt!=null);
+    GD.desc=!!(old&&cur&&old.alt-cur.alt>=10);
+  }
+  if(!GD.moving||t<GD.snooze)return;
+  const el=(t-GD.stopSince)/1000,k=GD_SENS[gdCfg().sens]||1;
+  let why=null;
+  if(gdCfg().impact&&GD.impactT&&t-GD.impactT<25000&&el>=5)why='impact';
+  else if(P.quick&&GD.peak>=(GD.desc?5.5:7.5)&&el>=P.quick*Math.min(1,k))why=GD.desc?'fall':'brake';
+  else if(el>=P.stop*k)why='stop';
+  if(why)gdAsk(why);
+}
+/* golpes (solo llega con la pantalla prendida o la app al frente) */
+try{window.addEventListener('devicemotion',e=>{
+  if(!GD.moving||!gdOn())return;
+  const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;
+  if(Math.hypot(a.x,a.y,a.z)>34)GD.impactT=Date.now();
+});}catch(e){}
+const GD_WHY={fall:'Frenaste de golpe en una bajada',brake:'Frenaste de golpe',impact:'Se detectó un golpe',stop:'Estás detenido hace rato',manual:'Te pregunta',self:'Pedir ayuda o avisar'};
+
+/* --- preguntar --- */
+function gdAsk(why,by){
+  if(GD.ask)return;
+  const P=GD_ACT[gdAct()]||GD_ACT.bike,secs=gdCfg().ask||P.ask,h=GD.hist[GD.hist.length-1]||(lastFix&&{lat:lastFix.lat,lon:lastFix.lon});
+  GD.ask={id:gdMyId()+'.'+Date.now(),why,by:by||'',t0:Date.now(),dl:why==='self'?0:Date.now()+secs*1000,pos:h?[+h.lat.toFixed(6),+h.lon.toFixed(6)]:null,movT:0,notes:0};
+  if(why!=='self'){gdPost('ask',by?{q:by}:null);gdSay(by?`${by} te pregunta si estás bien. Respondé en el teléfono o seguí andando.`:'¿Estás bien? Respondé en el teléfono, o seguí andando.');}
+  gdOverlay();if(why!=='self')gdNote();
+}
+function gdAnswer(st){
+  const a=GD.ask;
+  if(!a&&!GD.mine)return;
+  const base=a||GD.mine;
+  gdPost(st,{id:base.id,why:base.why,pos:base.pos||gdPos()});
+  GD.ask=null;gdSiren(false);gdNoteClear();
+  GD.moving=false;GD.movSince=0;GD.stopSince=0;GD.impactT=0;
+  if(st==='rest')GD.snooze=Date.now()+15*60000;else if(st==='flat')GD.snooze=Date.now()+30*60000;
+  GD.mine=st==='help'||st==='sos'||st==='noans'?Object.assign({},base,{st}):null;
+  gdOverlay();
+  const tx={ok:'Listo, el grupo ve que estás bien',mov:'Seguiste en movimiento: el grupo ve que estás bien',rest:'Avisado: pausa',flat:'Avisado: problema, lo resolvés',help:'Avisado: el grupo sabe que necesitás ayuda',sos:'¡Emergencia avisada a todo el grupo!',done:'Cerrado'}[st];
+  if(tx){toast(tx,4000);if(st!=='mov')gdSay(tx);}
+}
+const gdPos=()=>lastFix?[+lastFix.lat.toFixed(6),+lastFix.lon.toFixed(6)]:null;
+async function gdPost(st,o){
+  if(!GRP.on)return;
+  const a=GD.ask||GD.mine||{};
+  const msg=Object.assign({k:'ck',sid:gdMyId(),from:gdMyId(),nm:gdName(),st,why:a.why||'',id:a.id||gdMyId()+'.'+Date.now(),t:Date.now(),pos:a.pos||gdPos(),act:gdAct()},o||{});
+  gdHandle(msg);
+  await gdSend(msg);
+}
+/* mensajes sobre otro: preguntarle, “voy yo”, resuelto */
+async function gdPostAbout(sid,st,extra){
+  const p=GRP.people.get(sid),c=p&&p.ck;
+  const msg=Object.assign({k:'ck',sid,from:gdMyId(),nm:gdName(),st,id:c&&c.id||sid+'.'+Date.now(),t:Date.now()},extra||{});
+  gdHandle(msg);await gdSend(msg);
+}
+async function gdSend(msg){
+  GD.busy=(GD.busy||0)+1;
+  try{await shPost(GRP.topic,await shSeal(msg,GRP.key));}
+  catch(e){GD.pend.push(msg);toast('Sin señal: el aviso sale apenas haya conexión',4000);}
+  finally{GD.busy--;}
+}
+async function gdFlushPend(){if(!GD.pend.length||!GRP.on)return;const p=GD.pend;GD.pend=[];for(const m of p)await gdSend(m);}
+
+/* --- llega un aviso del grupo --- */
+function gdHandle(o){
+  if(!o||!o.sid)return;
+  const mine=o.sid===SH.sid&&SH.on;
+  /* alguien me pregunta a mí */
+  if(o.st==='ask'&&o.why==='manual'&&mine&&o.from!==SH.sid){if(!GD.ask&&Date.now()-o.t<10*60000)gdAsk('manual',o.nm);return;}
+  if(o.st==='voy'){
+    let p=GRP.people.get(o.sid);if(!p||!p.ck||p.ck.id!==o.id)return;
+    p.ck.goes=[...new Set((p.ck.goes||[]).concat([o.nm||'Alguien']))];
+    if(mine&&o.from!==SH.sid){toast(`🙋 ${o.nm||'Alguien'} va hacia vos`,6000);gdSay(`${o.nm||'Alguien'} va hacia vos`);}
+    else if(o.from!==gdMyId())toast(`🙋 ${o.nm||'Alguien'} va hacia ${gdPname(p)}`,5000);
+    gdRefresh();return;
+  }
+  let p=GRP.people.get(o.sid);
+  if(!p){p={sid:o.sid,pts:[],meta:null,bat:null,ended:false,color:grpColor(o.sid)};GRP.people.set(o.sid,p);}
+  const prev=p.ck;
+  /* cada teléfono tiene su reloj: solo se descarta lo viejo del mismo que lo mandó (el servidor ya los entrega en orden) */
+  if(prev&&o.from===prev.from&&o.t<prev.t)return;
+  /* el que preguntó a mano queda anotado */
+  p.ck={id:o.id,st:o.st,why:o.why,t:o.t,t0:prev&&prev.id===o.id?prev.t0:o.t,pos:o.pos||(prev&&prev.pos)||null,by:o.nm,from:o.from,act:o.act||(prev&&prev.act),goes:prev&&prev.id===o.id?prev.goes||[]:[],asker:o.q||(o.why==='manual'&&o.st==='ask'&&o.from!==o.sid?o.nm:null)||(prev&&(prev.id===o.id||o.why==='manual')?prev.asker:null)};
+  if(mine&&o.st==='done'&&o.from!==SH.sid){GD.mine=null;GD.ask=null;gdSiren(false);gdNoteClear();gdOverlay();toast(`${o.nm||'Alguien'} cerró el aviso`,4000);}
+  if(o.from===gdMyId()&&o.sid===gdMyId()){gdRefresh();return;}
+  if(GD.replay){gdRefresh();return;}
+  const fresh=Date.now()-o.t<30*60000,lv=(GD_ST[o.st]||[])[3]||0,nm=gdPname(p);
+  if(!fresh){gdRefresh();return;}
+  if(lv>=2&&!mine){
+    if(!GD.ack[o.id+o.st]){GD.alarm={sid:o.sid,id:o.id,st:o.st,next:0};gdAlarmTick(true);}
+  }else if(o.st==='ask'&&!mine&&o.from!==gdMyId()){toast(o.why==='manual'?`❓ ${o.from===o.sid?(o.q||'Alguien'):o.nm} le preguntó a ${nm} si está bien`:`⚠️ ${nm}: ${(GD_WHY[o.why]||'se detuvo').replace('Frenaste','frenó').replace('Estás','está').replace('Se detectó','se detectó')} · le estamos preguntando`,6000);try{beep(660,.25);}catch(e){}}
+  else if(lv===0&&!mine&&prev&&prev.id===o.id&&prev.st!==o.st){
+    const t=`${nm}: ${GD_ST[o.st][1].toLowerCase()}${o.st==='done'&&o.nm?' (lo cerró '+o.nm+')':''}`;
+    toast(`${GD_ST[o.st][0]} ${t}`,6000);
+    if(GD.alarm&&GD.alarm.id===o.id){GD.alarm=null;gdSiren(false);}
+    if((prev.st==='ask'||(GD_ST[prev.st]||[])[3]>=2))try{waPost(`${GD_ST[o.st][0]} ${nm}`,GD_ST[o.st][1]);}catch(e){}
+    if((GD_ST[prev.st]||[])[3]>=2)gdSay(t);
+  }
+  gdRefresh();
+}
+const gdPname=p=>(p&&p.meta&&p.meta.name)||(p&&p.ck&&p.ck.by)||'Alguien';
+function gdRefresh(){try{grpPanel();}catch(e){}}
+
+/* alarma en los demás: sirena corta, voz y aviso al reloj; se repite cada minuto hasta que la veas */
+function gdAlarmTick(first){
+  const A=GD.alarm;if(!A)return;
+  const p=GRP.people.get(A.sid),c=p&&p.ck;
+  if(!c||c.id!==A.id||(GD_ST[c.st]||[])[3]<2||GD.ack[c.id+c.st]){GD.alarm=null;gdSiren(false);return;}
+  if(!first&&Date.now()<A.next)return;
+  A.next=Date.now()+60000;
+  const nm=gdPname(p),st=GD_ST[c.st];
+  gdSiren(true,12000);
+  try{navigator.vibrate&&navigator.vibrate([600,250,600,250,600]);}catch(e){}
+  gdSay(c.st==='noans'?`Atención. ${nm} no responde.`:c.st==='sos'?`Emergencia. ${nm} pide ayuda urgente.`:`${nm} necesita ayuda.`);
+  try{waPost(`${st[0]} ${nm}: ${st[1]}`,'Abrí Rumbo: posición y protocolo');}catch(e){}
+  if(first)toast(`${st[0]} ${nm}: ${st[1]}. Tocá 🆘 en el panel del grupo`,8000);
+}
+function gdSiren(on,ms){
+  clearInterval(GD.siren);GD.siren=0;
+  if(!on)return;
+  try{unlockAudio();}catch(e){}
+  const until=ms?Date.now()+ms:0;let k=0;
+  const play=()=>{
+    if(until&&Date.now()>until){clearInterval(GD.siren);GD.siren=0;return;}
+    try{if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.type='square';o.frequency.value=k++%2?950:1400;g.gain.value=.35;o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+.45);}catch(e){}
+  };
+  play();GD.siren=setInterval(play,600);
+}
+
+/* --- notificaciones al reloj (el Garmin repite las del teléfono): 3 seguidas = te estamos preguntando --- */
+async function gdNoteInit(){
+  if(GD.ln||!isNative())return;GD.ln=true;
+  const LN=plugin('LocalNotifications');if(!LN)return;
+  try{await LN.registerActionTypes({types:[{id:'GUARD',actions:[{id:'ok',title:'✅ Estoy bien'},{id:'rest',title:'☕ Pausa'},{id:'help',title:'🤕 Ayuda',destructive:true}]}]});}catch(e){}
+  try{LN.addListener('localNotificationActionPerformed',ev=>{
+    const n=ev&&ev.notification;if(!n||!n.extra||!n.extra.guard)return;
+    if(['ok','rest','help'].includes(ev.actionId))gdAnswer(ev.actionId);else gdOverlay();
+  });}catch(e){}
+}
+async function gdNote(){
+  await gdNoteInit();
+  const LN=isNative()?plugin('LocalNotifications'):null;
+  if(!LN){try{navigator.vibrate&&navigator.vibrate([400,200,400,200,400]);}catch(e){}return;}
+  try{
+    if(!WA.chan){try{await LN.createChannel({id:'reloj',name:'Avisos al reloj',description:'Ritmo por tramos y avisos del grupo',importance:5,visibility:1,vibration:true});}catch(e){}WA.chan=true;}
+    const id=++WA.id;GD.noteIds=(GD.noteIds||[]).concat([id]);
+    await LN.schedule({notifications:[{id,title:'⚠️ ¿Estás bien?',body:'Respondé o seguí moviéndote. Si no, se avisa al grupo.',channelId:'reloj',actionTypeId:'GUARD',extra:{guard:1},autoCancel:true}]});
+  }catch(e){}
+}
+function gdNoteClear(){
+  const LN=isNative()?plugin('LocalNotifications'):null,ids=GD.noteIds||[];GD.noteIds=[];
+  if(LN&&ids.length)LN.cancel({notifications:ids.map(id=>({id}))}).catch(()=>{});
+}
+
+/* --- reloj interno: cuenta regresiva y repetición de avisos (también se llama con cada lectura del GPS, que sigue llegando con la pantalla apagada) --- */
+function gdTick(){
+  const A=GD.ask,now=Date.now();
+  if(A&&A.dl){
+    const left=Math.ceil((A.dl-now)/1000),el=(now-A.t0)/1000;
+    if(A.notes<3&&el>=A.notes*20){A.notes++;if(A.notes>1){gdNote();try{beep(1000,.3);}catch(e){}}}
+    if(left<=0){GD.ask=null;GD.mine=Object.assign({},A,{st:'noans'});gdPost('noans',{id:A.id,why:A.why,pos:A.pos||gdPos()});gdSiren(true);
+      gdSay('No respondiste. Se avisó al grupo. Si estás bien, tocá Estoy bien.');gdOverlay();}
+    else{const c=GD.ov&&GD.ov.querySelector('.gdcnt');if(c)c.textContent=`Si no respondés, en ${left} s se avisa a todo el grupo`;const b=GD.ov&&GD.ov.querySelector('.gdbar i');if(b)b.style.width=Math.max(0,100*(A.dl-now)/(A.dl-A.t0))+'%';}
+  }
+  if(GD.alarm)gdAlarmTick(false);
+}
+setInterval(gdTick,1000);
+
+/* --- pantalla grande para responder (o para avisar uno mismo) --- */
+function gdOverlay(){
+  let ov=GD.ov;
+  if(!GD.ask&&!GD.mine){if(ov)ov.hidden=true;return;}
+  if(!ov){ov=GD.ov=document.createElement('div');ov.id='gdov';document.body.appendChild(ov);
+    ov.addEventListener('click',e=>{const b=e.target.closest('[data-gd]');if(!b)return;const k=b.dataset.gd;
+      if(k==='siren'){if(GD.siren)gdSiren(false);else gdSiren(true);gdOverlay();}
+      else if(k==='close'){GD.ask=null;GD.mine=null;gdSiren(false);gdNoteClear();gdOverlay();}
+      else gdAnswer(k);});}
+  ov.hidden=false;
+  const P=GD_ACT[gdAct()]||GD_ACT.bike;
+  if(GD.ask){
+    const A=GD.ask,self=A.why==='self';
+    ov.className=self?'self':'';
+    ov.innerHTML=`<h2>${self?'🛟 Avisar al grupo':'⚠️ ¿Estás bien?'}</h2>
+      <p>${self?'Elegí qué pasa: todos los del grupo lo ven al instante, con tu posición.':esc(A.by?`${A.by} te pregunta si estás bien`:GD_WHY[A.why]||'')}</p>
+      ${A.dl?`<div class="gdbar"><i></i></div><p class="gdcnt"></p>`:''}
+      <button data-gd="ok" class="gok">✅ Estoy bien</button>
+      <div class="gdg"><button data-gd="flat">${P.flat}</button><button data-gd="rest">☕ Pausa / descanso</button></div>
+      <button data-gd="help" class="ghelp">🤕 Necesito ayuda</button>
+      <button data-gd="sos" class="gsos">🆘 EMERGENCIA</button>
+      ${self?'<button data-gd="close" class="gx">Cancelar</button>':'<p class="mut2">Si volvés a moverte, se toma como que estás bien.</p>'}`;
+  }else{
+    const M=GD.mine,st=GD_ST[M.st]||GD_ST.help;
+    ov.className='open';
+    ov.innerHTML=`<h2>${st[0]} ${M.st==='noans'?'Se avisó al grupo':st[1]}</h2>
+      <p>${M.st==='noans'?'No respondiste a tiempo: todos ven tu última posición.':'Todos los del grupo ven tu aviso y tu posición.'} Tu posición se sigue mandando.</p>
+      <button data-gd="ok" class="gok">✅ Ya estoy bien (cancelar el aviso)</button>
+      ${M.st!=='sos'?'<button data-gd="sos" class="gsos">🆘 Es una EMERGENCIA</button>':''}
+      <button data-gd="siren" class="ghelp">${GD.siren?'🔇 Apagar la sirena':'🔊 Sirena (para que te encuentren)'}</button>`;
+  }
+}
+
+/* --- protocolo de emergencia (para los que ayudan) --- */
+function gdMsg(p){
+  const c=p.ck||{},l=grpLast(p),pos=l?[l[0],l[1]]:c.pos,act=GD_ACT[c.act]||null,ice=p.meta&&p.meta.ice;
+  const ago=l?Math.round(Date.now()/1000-l[2]):null;
+  return `🆘 ${gdPname(p)}${act?' ('+act.n+')':''}: ${(GD_ST[c.st]||GD_ST.help)[1].toLowerCase()} desde las ${hhmm(c.t0||c.t||Date.now())}.`+
+    (pos?` Última posición: ${pos[0].toFixed(5)}, ${pos[1].toFixed(5)}${l&&l[3]?` (±${l[3]} m)`:''}${ago!=null?`, hace ${gdAgo(ago)}`:''}. https://maps.google.com/?q=${pos[0].toFixed(6)},${pos[1].toFixed(6)}`:'')+
+    (ice&&ice.n?` · Contacto de emergencia: ${ice.n}${ice.tel?' '+ice.tel:''}`:'');
+}
+function gdProtocol(sid){
+  const p=GRP.people.get(sid);if(!p)return;
+  const c=p.ck||{},l=grpLast(p),pos=l?[l[0],l[1]]:c.pos,nm=gdPname(p),me=lastFix?[lastFix.lat,lastFix.lon]:null;
+  const water=c.act==='kayak'||c.act==='swim',st=GD_ST[c.st]||GD_ST.help,ice=p.meta&&p.meta.ice;
+  const d=me&&pos?hav(me,pos):null;
+  const steps=['Tu seguridad primero: no te conviertas en otra víctima (tránsito, pendiente, agua, frío).',
+    `Avisá en el grupo que vas (🙋) y usá 🎯 para llegar al último punto de ${esc(nm)}.`,
+    '¿Responde? ¿Respira normal? Si no respira: llamá ya y empezá RCP (30 compresiones y 2 ventilaciones) hasta que llegue ayuda.',
+    'Al llamar, pasá las coordenadas (📋 Copiar o 📤 Compartir el mensaje).',
+    ...(water?['En el agua: Prefectura 106 (y VHF canal 16 si hay radio).','No la pierdas de vista. Acercale algo que flote; no te tires sin flotación.','Fuera del agua cuanto antes: ropa seca, abrigo y reparo del viento (hipotermia).']
+      :['Si hubo golpe en la cabeza, cuello o espalda, no la muevas ni le saques el casco salvo peligro inmediato.','Hemorragias: presión directa con algo limpio.','Abrigo y aislamiento del suelo; señalizá la zona si hay tránsito o bajada.']),
+    'Que alguien quede con la persona y otro vaya a buscar señal o ayuda si no hay.'];
+  openSheet('🆘 Protocolo de emergencia',`<div class="gdhead" style="border-color:${st[2]}"><b>${st[0]} ${esc(nm)}: ${st[1]}</b><br>
+      <small>${c.t0?'desde las '+hhmm(c.t0)+' · ':''}${c.why&&GD_WHY[c.why]?esc(GD_WHY[c.why].replace(/^Te pregunta/,'preguntado a mano').replace(/Frenaste/,'Frenó').replace(/Estás/,'Estaba'))+' · ':''}${l?'última posición hace '+gdAgo(Date.now()/1000-l[2]):''}${d!=null?` · a ${fmtD(d)} al ${compassWord(bearingTo(me,pos))}`:''}${p.bat!=null?` · 🔋${p.bat}%`:''}</small>
+      ${c.goes&&c.goes.length?`<br><small>🙋 Va: ${esc(c.goes.join(', '))}</small>`:''}</div>
+    ${pos?`<p style="font:700 16px ui-monospace,monospace">${pos[0].toFixed(5)}, ${pos[1].toFixed(5)}</p>`:''}
+    <div class="row"><button class="btn primary" data-act="go">🎯 Llevarme</button><button class="btn" data-act="voy">🙋 Voy yo</button><button class="btn" data-act="gm">🗺️ Google Maps</button></div>
+    <div class="row"><button class="btn" data-act="cp">📋 Copiar mensaje</button><button class="btn" data-act="sh">📤 Compartir</button></div>
+    <h3>Llamar</h3><div class="row">${GD_NUMS.filter(n=>water||n[0]!=='106').concat(water?[]:[['106','⚓ Prefectura (agua)']]).slice(0,5).map(n=>`<a class="btn${(water&&n[0]==='106')||(!water&&n[0]==='107')?' primary':''}" href="tel:${n[0]}">${n[1]} ${n[0]}</a>`).join('')}
+      ${ice&&ice.tel?`<a class="btn" href="tel:${esc(ice.tel.replace(/[^\d+]/g,''))}">👤 ${esc(ice.n||'Contacto')} ${esc(ice.tel)}</a>`:''}</div>
+    <h3>Pasos</h3><ol class="gdsteps">${steps.map(s=>`<li>${s}</li>`).join('')}</ol>
+    <div class="row" style="margin-top:10px"><button class="btn" data-act="ack">👀 Visto (callar alarma)</button><button class="btn danger" data-act="done">✓ Resuelto (cerrar para todos)</button></div>
+    <p class="mut">Los números son los de Argentina. Esto es una guía rápida, no reemplaza la formación en primeros auxilios.</p>`,
+    async(a,d0,el)=>{
+      if(a==='go'&&pos){GRP.tgt=sid;try{if(!watch)startWatch(false);}catch(e){}setTarget(pos[0],pos[1],nm);closeSheet();grpDraw();}
+      else if(a==='voy'){gdAck(c);await gdPostAbout(sid,'voy',{id:c.id});toast('Avisaste que vas',3000);gdProtocol(sid);}
+      else if(a==='gm'&&pos){const x=document.createElement('a');x.href=`https://www.google.com/maps/search/?api=1&query=${pos[0].toFixed(6)},${pos[1].toFixed(6)}`;x.target='_blank';x.rel='noopener';document.body.appendChild(x);x.click();x.remove();}
+      else if(a==='cp'){const m=gdMsg(p);try{await navigator.clipboard.writeText(m);toast('Mensaje copiado',2500);}catch(e){prompt('Copiá el mensaje:',m);}}
+      else if(a==='sh'){const m=gdMsg(p);try{if(isNative())await plugin('Share').share({title:'Emergencia',text:m});else if(navigator.share)await navigator.share({title:'Emergencia',text:m});else{await navigator.clipboard.writeText(m);toast('Mensaje copiado',2500);}}catch(e){}}
+      else if(a==='ack'){gdAck(c);toast('Alarma callada en este teléfono',2500);gdProtocol(sid);}
+      else if(a==='done'&&armed(el)){gdAck(c);await gdPostAbout(sid,'done');closeSheet();}
+    });
+}
+function gdAck(c){if(!c)return;GD.ack[c.id+c.st]=true;if(GD.alarm&&GD.alarm.id===c.id){GD.alarm=null;gdSiren(false);}}
+
+/* --- ajustes --- */
+function showGuard(){
+  const c=gdCfg(),P=GD_ACT[gdAct()];
+  openSheet('🛟 Guardián del grupo',`<p>Mientras compartís en el grupo, Rumbo mira tu ritmo. Si cortás de golpe (caída, pinchazo, vuelco) o te quedás quieto mucho rato, te pregunta <b>“¿Estás bien?”</b> con voz, vibración y aviso al reloj. Lo que respondas lo ve todo el grupo. Si no respondés, a todos les suena la alarma con tu última posición y el protocolo de emergencia.</p>
+    <label class="chk"><input type="checkbox" id="gdon" ${c.on?'checked':''}> Guardián activado</label>
+    <p class="mut">Ahora: ${P?`${ACT[gdAct()][0]} ${P.n} · pregunta ${P.quick?'si frenás de golpe (sobre todo en bajada), si hay un golpe fuerte o ':'si hay un golpe fuerte o '}si te quedás quieto más de ${Math.round(P.stop*(GD_SENS[c.sens]||1)/60*10)/10} min`:'en auto no se usa'}.</p>
+    <label>Sensibilidad</label><div class="chips">${[['alta','Alta (pregunta antes)'],['normal','Normal'],['baja','Baja (menos preguntas)']].map(([k,n])=>`<button data-act="sens" data-k="${k}" class="${c.sens===k?'on':''}">${n}</button>`).join('')}</div>
+    <label>Tiempo para responder</label><div class="chips">${[[0,'Según actividad'],[30,'30 s'],[60,'1 min'],[120,'2 min']].map(([k,n])=>`<button data-act="ask" data-k="${k}" class="${(c.ask||0)===k?'on':''}">${n}</button>`).join('')}</div>
+    <label class="chk"><input type="checkbox" id="gdimp" ${c.impact?'checked':''}> Detectar golpes con el acelerómetro (solo con la pantalla prendida)</label>
+    <h3>Mi contacto de emergencia</h3><p class="mut">Lo ven solo los del grupo, en el protocolo, si te pasa algo.</p>
+    <input class="in" id="gdice" placeholder="Nombre (ej: Marta, esposa)" value="${esc(c.ice)}"><input class="in" id="gdtel" placeholder="Teléfono" inputmode="tel" value="${esc(c.iceTel)}" style="margin-top:6px">
+    <div class="row" style="margin-top:12px"><button class="btn" data-act="test">🧪 Probar la pregunta</button><button class="btn danger" data-act="self">🆘 Avisar al grupo ahora</button></div>
+    <p class="mut">Si no podés tocar el teléfono (nadando con el teléfono en la boya, remando): seguí moviéndote y se toma como que estás bien. En el reloj llegan 3 avisos seguidos; si tu reloj muestra los botones de la notificación, podés responder desde ahí.</p>`,
+    (a,d)=>{
+      if(a==='sens'){S.guard=Object.assign(gdCfg(),{sens:d.k});saveS();showGuard();}
+      else if(a==='ask'){S.guard=Object.assign(gdCfg(),{ask:+d.k});saveS();showGuard();}
+      else if(a==='test'){closeSheet();GD.test=true;gdTest();}
+      else if(a==='self'){if(!GRP.on){toast('Primero sumate a un grupo',3000);return;}closeSheet();gdAsk('self');}
+    },
+    t=>{
+      const g=gdCfg();
+      if(t.id==='gdon')g.on=t.checked;else if(t.id==='gdimp'){g.impact=t.checked;try{if(t.checked&&window.DeviceMotionEvent&&DeviceMotionEvent.requestPermission)DeviceMotionEvent.requestPermission().catch(()=>{});}catch(e){}}
+      else if(t.id==='gdice')g.ice=t.value.trim();else if(t.id==='gdtel')g.iceTel=t.value.trim();
+      S.guard=g;saveS();if(t.id==='gdice'||t.id==='gdtel')SH.metaOk=false;
+    });
+}
+/* prueba: muestra la pregunta sin avisar al grupo */
+function gdTest(){
+  const P=GD_ACT[gdAct()]||GD_ACT.bike;
+  GD.ask={id:'test',why:'stop',t0:Date.now(),dl:0,test:true,notes:9};
+  gdOverlay();gdNote();gdSay('¿Estás bien? Esto es una prueba.');
+  const ov=GD.ov;ov.querySelectorAll('[data-gd]').forEach(b=>b.dataset.gd='close');
+  const h=ov.querySelector('h2');if(h)h.textContent='⚠️ ¿Estás bien? (prueba)';
+}
+
+/* al entrar al grupo se leen los mensajes viejos sin hacer sonar nada; después, si hay una alarma abierta, suena una vez */
+function gdAfterReplay(){
+  GD.replay=false;
+  for(const p of GRP.people.values()){
+    const c=p.ck;if(!c||p.sid===SH.sid)continue;
+    if((GD_ST[c.st]||[])[3]>=2&&Date.now()-c.t<30*60000&&!GD.ack[c.id+c.st]&&!GD.alarm){GD.alarm={sid:p.sid,id:c.id,st:c.st,next:0};gdAlarmTick(true);}
+  }
+}
+/* línea de estado de alguien en el panel del grupo */
+function gdRowNote(p,ago){
+  const c=p.ck,out=[];
+  if(c&&GD_ST[c.st]&&Date.now()-c.t<(GD_ST[c.st][3]?6*3600e3:20*60000)&&c.st!=='done'){
+    const st=GD_ST[c.st],txt=c.st==='ask'&&c.asker?`${c.asker} le preguntó si está bien`:st[1];
+    out.push(`<span class="gck" style="background:${st[2]}">${st[0]} ${esc(txt)} · ${gdAgo((Date.now()-c.t)/1000)}</span>`);
+  }
+  const M=SH_MODES[p.meta&&p.meta.mode]||SH_MODES.meet;
+  if(!p.ended&&ago>Math.max(180,M.send*3+60))out.push(`<span class="gck sil">📵 sin datos hace ${gdAgo(ago)}</span>`);
+  return out.join(' ');
+}
+/* cartel arriba del panel con las alarmas abiertas */
+function gdBanner(){
+  const now=Date.now(),me=lastFix?[lastFix.lat,lastFix.lon]:null;
+  return [...GRP.people.values()].filter(p=>p.sid!==SH.sid&&p.ck&&(GD_ST[p.ck.st]||[])[3]>=1&&now-p.ck.t<6*3600e3).sort((a,b)=>GD_ST[b.ck.st][3]-GD_ST[a.ck.st][3]).map(p=>{
+    const c=p.ck,st=GD_ST[c.st],l=grpLast(p),pos=l?[l[0],l[1]]:c.pos,d=me&&pos?hav(me,pos):null;
+    return `<div class="gal lv${st[3]}"><b>${st[0]} ${esc(gdPname(p))}: ${c.st==='ask'&&c.asker?esc(c.asker)+' le preguntó':st[1]}</b><small>hace ${gdAgo((now-c.t0)/1000)}${d!=null?` · ${fmtD(d)} al ${compassWord(bearingTo(me,pos))}`:''}${c.goes&&c.goes.length?` · 🙋 va ${esc(c.goes.join(', '))}`:''}</small>
+      ${st[3]>=2?`<div><button data-g="e" data-s="${p.sid}">🆘 Protocolo</button><button data-g="t" data-s="${p.sid}">🎯 Ir</button><button data-g="v" data-s="${p.sid}">🙋 Voy yo</button></div>`:''}</div>`;
+  }).join('');
+}
 
 /* ---------- Más, ajustes y backup ---------- */
 function showMoreMenu(){
