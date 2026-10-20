@@ -26,9 +26,10 @@ jobs:
       - name: Instalar dependencias
         run: npm install --legacy-peer-deps
 
-      - name: Plugins opcionales (voz del sistema y rotación del mapa)
+      - name: Plugins opcionales (voz del sistema, avisos al reloj y rotación del mapa)
         run: |
           npm install --save --legacy-peer-deps @capacitor-community/text-to-speech@5 || echo "::warning::No se pudo instalar la voz del sistema"
+          npm install --save --legacy-peer-deps @capacitor/local-notifications@6 || echo "::warning::No se pudieron instalar las notificaciones (avisos al reloj)"
           npm install --no-save --legacy-peer-deps leaflet-rotate@0.2.8 || echo "::warning::No se pudo instalar la rotación del mapa"
 
       - name: Preparar la web
@@ -200,7 +201,7 @@ jobs:
           p='android/app/src/main/AndroidManifest.xml'
           s=open(p).read()
           filters=r'''
-              <!-- RumboGpx: Rumbo aparece en "Abrir por..." para archivos .gpx -->
+              <!-- RumboGpx: Rumbo aparece en "Abrir por..." para archivos .gpx y .tcx -->
               <intent-filter>
                   <action android:name="android.intent.action.VIEW" />
                   <category android:name="android.intent.category.DEFAULT" />
@@ -212,6 +213,7 @@ jobs:
                   <data android:mimeType="application/x-gpx+xml" />
                   <data android:mimeType="application/x-gpx" />
                   <data android:mimeType="text/gpx" />
+                  <data android:mimeType="application/vnd.garmin.tcx+xml" />
               </intent-filter>
               <intent-filter>
                   <action android:name="android.intent.action.VIEW" />
@@ -225,6 +227,9 @@ jobs:
                   <data android:pathPattern=".*\\..*\\.gpx" />
                   <data android:pathPattern=".*\\..*\\..*\\.gpx" />
                   <data android:pathPattern=".*\\..*\\..*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\.tcx" />
+                  <data android:pathPattern=".*\\..*\\.tcx" />
+                  <data android:pathPattern=".*\\..*\\..*\\.tcx" />
               </intent-filter>
               <intent-filter>
                   <action android:name="android.intent.action.VIEW" />
@@ -237,12 +242,16 @@ jobs:
                   <data android:pathPattern=".*\\..*\\.gpx" />
                   <data android:pathPattern=".*\\..*\\..*\\.gpx" />
                   <data android:pathPattern=".*\\..*\\..*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\.tcx" />
+                  <data android:pathPattern=".*\\..*\\.tcx" />
+                  <data android:pathPattern=".*\\..*\\..*\\.tcx" />
               </intent-filter>
               <intent-filter>
                   <action android:name="android.intent.action.SEND" />
                   <category android:name="android.intent.category.DEFAULT" />
                   <data android:mimeType="application/gpx+xml" />
                   <data android:mimeType="application/gpx" />
+                  <data android:mimeType="application/vnd.garmin.tcx+xml" />
               </intent-filter>
           '''
           i=s.index('</activity>')
