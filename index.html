@@ -10419,7 +10419,7 @@ async function open3D(o){
 function close3D(){
   if(T3.recr&&T3.recr.state==='recording'){T3.vc=null;try{T3.recr.ondataavailable=null;T3.recr.onstop=null;T3.recr.stop();}catch(e){}T3.recr=null;}
   if(T3.rel){T3.rel.go=false;T3.rel=null;}T3.km=0;$('#t3rel').hidden=true;$('#t3mk').hidden=true;
-  T3.on=false;T3.gen++;T3.fly=null;cancelAnimationFrame(T3.raf);T3.raf=0;
+  T3.on=false;T3.gen++;T3.fly=null;T3.flyPos=null;T3.flyK=0;cancelAnimationFrame(T3.raf);T3.raf=0;
   const gl=T3.gl;if(gl){for(const t of [T3.tex,T3.otex])if(t)gl.deleteTexture(t);T3.tex=T3.otex=null;}
   $('#t3').hidden=true;
 }
@@ -10551,8 +10551,8 @@ function t3Loop(){
     if(!T3.on)return;
     if(T3.fly)t3FlyStep(t);
     if(T3.rel&&T3.rel.go)t3RelStep(t);
-    if(lastFix&&Date.now()-T3.ovT>8000&&(T3.lastFixT!==lastFix.t)){T3.lastFixT=lastFix.t;t3Overlay();}
-    if(T3.dirty){T3.dirty=false;t3Draw();if(T3.rel&&T3.km)t3RelHud();if(T3.vc)t3VidFrame();}
+    if(lastFix&&Date.now()-T3.ovT>8000&&(T3.lastFixT!==lastFix.t)){T3.lastFixT=lastFix.t;t3Overlay(!!T3.km);}
+    if(T3.dirty){T3.dirty=false;t3Draw();if(T3.rel&&T3.km)t3RelHud();else if(T3.flyPos)t3MkAt(T3.flyPos[0],T3.flyPos[1]);if(T3.vc)t3VidFrame();}
     T3.raf=requestAnimationFrame(tick);
   };
   T3.raf=requestAnimationFrame(tick);
@@ -10614,7 +10614,7 @@ function t3RelPrep(tr){
 function t3RelAt(R,s){const {cum}=R;s=Math.max(0,Math.min(R.L,s));let lo=1,hi=cum.length-1;while(lo<hi){const m=(lo+hi)>>1;if(cum[m]<s)lo=m+1;else hi=m;}const i=lo,t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return {i,t};}
 function t3RelStart(){
   const R=T3.rel;if(!R)return;
-  T3.fly=null;R.t0=null;R.az=null;R.end=null;R.prog=0;R.done=false;R.go=true;
+  T3.fly=null;T3.flyPos=null;R.t0=null;R.az=null;R.end=null;R.prog=0;R.done=false;R.go=true;
   t3Overlay(true);t3TrackTex(R.pts);T3.km=1;T3.kp=0;
   $('#t3rel').hidden=false;$('#t3mk').hidden=false;$('#t3mk').textContent=(ACT[R.act]||ACT.walk)[0];
   t3RelBtn();
@@ -10661,9 +10661,12 @@ function t3RelHud(){
     <div class="rs"><div><b>${(n.s/1000).toFixed(2).replace('.',',')}</b><small>km</small></div><div><b>${fmtT(n.el)}</b><small>tiempo</small></div><div><b>${n.alt!=null?Math.round(n.alt):'—'}</b><small>m altura</small></div><div><b>${sp}</b><small>${done?'':'ahora'}</small></div>
     ${R.hrS?`<div class="hr"><b>❤️ ${n.hr!=null?n.hr:'—'}</b><small>pulso</small></div>`:''}${R.pwS?`<div class="pw"><b>⚡ ${n.pw!=null?n.pw:'—'}</b><small>W (10 s)</small></div>`:''}${R.cadS?`<div><b>${n.cad!=null?n.cad:'—'}</b><small>cadencia</small></div>`:''}</div>
     ${done?`<div class="re">🏁 ${(R.L/1000).toFixed(2).replace('.',',')} km · ${fmtT(R.pts[R.pts.length-1][2]-R.pts[0][2])}${R.gain>20?` · ↑${Math.round(R.gain)} m`:''}${R.hrS?` · ❤️ ${R.hrS.avg} prom (máx ${R.hrS.max})`:''}${R.pwS?` · ⚡ ${R.pwS.avg} W prom`:''}</div>`:''}`;
-  /* marcador sobre el mapa 3D */
+  t3MkAt(n.x,n.z,n.y);
+}
+/* pone el marcador (#t3mk) sobre el punto x,z del terreno */
+function t3MkAt(X,Z,h){
   const mk=$('#t3mk'),M=T3.M;if(!M||!mk)return;
-  const X=n.x,Y=n.y*T3.exag+8,Z=n.z,cx=M[0]*X+M[4]*Y+M[8]*Z+M[12],cy=M[1]*X+M[5]*Y+M[9]*Z+M[13],cw=M[3]*X+M[7]*Y+M[11]*Z+M[15];
+  const Y=(h!=null?h:t3H(X,Z))*T3.exag+8,cx=M[0]*X+M[4]*Y+M[8]*Z+M[12],cy=M[1]*X+M[5]*Y+M[9]*Z+M[13],cw=M[3]*X+M[7]*Y+M[11]*Z+M[15];
   if(cw<=0){mk.style.display='none';return;}
   mk.style.display='';const r=T3.cv.getBoundingClientRect();
   mk.style.left=(r.left+(cx/cw*.5+.5)*r.width)+'px';mk.style.top=(r.top+(1-(cy/cw*.5+.5))*r.height)+'px';
@@ -10726,18 +10729,24 @@ function t3FlyStart(){
   if(P.length<2)return;
   const cum=[0];for(let i=1;i<P.length;i++)cum.push(cum[i-1]+Math.hypot(P[i][0]-P[i-1][0],P[i][1]-P[i-1][1]));
   const L=cum[cum.length-1],dur=Math.max(20,Math.min(120,L/180));
-  T3.fly={P,cum,L,dur:dur*1000,t0:null,az:null,dist:Math.max(1200,Math.min(3500,L*.3))};
+  /* si estaba en pausa a mitad de camino, sigue desde ahí */
+  const from=T3.flyK&&T3.flyK<.999?T3.flyK:0;
+  T3.fly={P,cum,L,dur:dur*1000,t0:null,az:null,from,dist:Math.max(1200,Math.min(3500,L*.3))};
+  /* lo ya recorrido se pinta naranja y lo que falta gris; un ícono marca por dónde va */
+  if(!T3.rel){t3Overlay(true);t3TrackTex(T3.line);T3.km=1;T3.kp=from;
+    const mk=$('#t3mk'),r=RT.res&&RT.res[RT.sel];mk.textContent=(r&&RT.sel&&MI[RT.sel])||(ACT[S.act]||ACT.walk)[0];mk.hidden=false;}
   t3FlyBtn();
 }
 function t3At(f,s){const {P,cum}=f;s=Math.max(0,Math.min(f.L,s));let i=1;while(i<P.length-1&&cum[i]<s)i++;const t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return [P[i-1][0]+(P[i][0]-P[i-1][0])*t,P[i-1][1]+(P[i][1]-P[i-1][1])*t];}
 function t3FlyStep(now){
   const f=T3.fly;if(f.t0==null)f.t0=now;
-  const k=Math.min(1,(now-f.t0)/f.dur),s=k*f.L,p=t3At(f,s),q=t3At(f,s+Math.min(600,f.L*.08)+1);
+  const k=Math.min(1,f.from+(now-f.t0)/f.dur),s=k*f.L,p=t3At(f,s),q=t3At(f,s+Math.min(600,f.L*.08)+1);
+  T3.flyK=k;T3.kp=k;T3.flyPos=p;
   let az=Math.atan2(q[0]-p[0],-(q[1]-p[1]))/rad;
   if(f.az==null)f.az=az;let d=az-f.az;while(d>180)d-=360;while(d<-180)d+=360;f.az+=d*0.04;
   Object.assign(T3.cam,{tx:p[0],tz:p[1],az:f.az,tilt:58,dist:f.dist});
   T3.dirty=true;
-  if(k>=1){T3.fly=null;t3FlyBtn();}
+  if(k>=1){T3.fly=null;T3.flyK=0;t3FlyBtn();}
 }
 function t3FlyBtn(){const b=$('#t3fly');if(b)b.textContent=T3.fly?'⏸ Parar':'▶ Sobrevolar';}
 function t3Ui(){
