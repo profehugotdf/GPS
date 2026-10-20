@@ -284,6 +284,19 @@ body.gbOn #tgt{z-index:1060;top:calc(var(--top) + 64px);max-width:calc(100% - 80
 #netpill[hidden]{display:none}
 #shpill{position:fixed;top:calc(var(--top) + 52px);right:12px;z-index:905;background:rgba(122,63,224,.9);color:#fff;border-radius:16px;padding:6px 12px;font:700 13px system-ui;box-shadow:0 1px 5px rgba(0,0,0,.35);border:0}
 #shpill.bad{background:rgba(190,90,0,.92)}
+#t3{position:fixed;inset:0;z-index:1600;background:#B8D1E6}
+#t3[hidden]{display:none}
+#t3c{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+#t3 .t3bar{position:absolute;left:8px;right:8px;top:calc(var(--top) + 8px);display:flex;align-items:center;gap:10px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
+#t3 .t3bar b{font:800 18px system-ui}#t3 .t3bar span{font:600 13px system-ui;flex:1}
+#t3 button{pointer-events:auto;border:0;border-radius:22px;background:rgba(14,42,54,.82);color:#fff;font:700 16px system-ui;min-width:44px;height:44px;padding:0 12px;box-shadow:0 1px 6px rgba(0,0,0,.35)}
+#t3 button.on{background:#F2A900;color:#111}
+#t3 .t3r{position:absolute;right:10px;top:calc(var(--top) + 70px);display:flex;flex-direction:column;gap:8px}
+#t3 #t3cmp{display:inline-block;transition:transform .15s}
+#t3 .t3b{position:absolute;left:8px;right:8px;bottom:calc(var(--bot) + 40px);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#t3 .t3b span{color:#fff;font:700 13px system-ui;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+#t3 #t3fly{margin-left:auto;background:#F04A1C}
+#t3 .t3h{position:absolute;left:0;right:0;bottom:calc(var(--bot) + 10px);text-align:center;color:#fff;font:600 11.5px system-ui;text-shadow:0 1px 3px rgba(0,0,0,.8);pointer-events:none}
 #grp{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:906;background:rgba(14,42,54,.72);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:6px 8px 8px 10px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45);max-height:42vh;overflow:auto}
 #grp[hidden]{display:none}
 #grp .gh{display:flex;align-items:baseline;gap:8px;padding:4px 0}#grp .gh small{opacity:.8;flex:1}#grp .gh span{opacity:.8}
@@ -578,6 +591,12 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <button id="shpill" hidden onclick="showShare()"></button>
 <div id="fol" hidden></div>
 <div id="grp" hidden></div>
+<div id="t3" hidden><canvas id="t3c"></canvas>
+  <div class="t3bar"><button data-t3="x" aria-label="Cerrar 3D">✕</button><b>🏔️ 3D</b><span id="t3msg"></span></div>
+  <div class="t3r"><button data-t3="n" aria-label="Norte arriba y vista de arriba"><span id="t3cmp">🧭</span></button><button data-t3="in" aria-label="Acercar">+</button><button data-t3="out" aria-label="Alejar">−</button></div>
+  <div class="t3b"><span>Relieve</span><button data-t3="ex" data-ex="1">×1</button><button data-t3="ex" data-ex="1.5">×1,5</button><button data-t3="ex" data-ex="2">×2</button><button id="t3fly" data-t3="fly">▶ Sobrevolar</button></div>
+  <div class="t3h">Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar</div>
+</div>
 <div id="rtp" hidden></div>
 <div id="tgt" hidden><div id="tgtArrow">➤</div><div><div id="tgtD">—</div><div id="tgtSub"></div><div id="tgtM"></div></div></div>
 <div id="fabs">
@@ -3950,6 +3969,7 @@ async function showTrackDetail(id){
     ${res.map(lapBlock).join('')}
     <div class="row" style="margin-top:8px">
       <button class="btn primary" data-act="map">Ver en el mapa</button>
+      <button class="btn" data-act="v3d">🏔️ Ver en 3D</button>
       <button class="btn" data-act="gpx">Compartir GPX</button>
       <button class="btn" data-act="anal">Medir con un circuito</button>
       <button class="btn primary" data-act="follow">🧭 Guiarme por este recorrido</button>
@@ -3959,6 +3979,7 @@ async function showTrackDetail(id){
     </div>`,
     async(a,d,el)=>{
       if(a==='map')showOnMap(tr);
+      else if(a==='v3d'){closeSheet();open3D({line:tr.pts.map(p=>[p[0],p[1]])});}
       else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);showTrackDetail(id);}
       else if(a==='gpx')shareFile((tr.name.replace(/[^\w\-]+/g,'_')||'track')+'.gpx',toGPX([tr],[],esc),'application/gpx+xml');
       else if(a==='anal')showAnalPick(id);
@@ -4505,7 +4526,7 @@ function rtPanel(){
   p.innerHTML=`<div id="rtpBody" data-r="exp"><div class="t">${MI[m]} ${fmtDur(totT(r))} <small>${esc(name)}</small></div>
     <div class="s">${bits.join(' · ')}</div>
     <div class="s">${RT.dep?'Salís '+hhmm(start)+' · ':''}llegás ${arrLabel(start,arr)}</div>${rtl}${sp}${det}${mm}</div>
-    <div class="rb"><button class="go" data-r="nav" aria-label="Guiarme">▶</button><button data-r="prof" aria-label="Perfil">⛰️</button><button data-r="open" aria-label="Rutas">☰</button><button data-r="x" aria-label="Quitar la ruta">✕</button></div>`;
+    <div class="rb"><button class="go" data-r="nav" aria-label="Guiarme">▶</button><button data-r="prof" aria-label="Perfil">⛰️</button><button data-r="3d" aria-label="Ver en 3D">🏔️</button><button data-r="open" aria-label="Rutas">☰</button><button data-r="x" aria-label="Quitar la ruta">✕</button></div>`;
   p.hidden=false;
 }
 $('#rtp').addEventListener('click',async e=>{
@@ -4524,6 +4545,7 @@ $('#rtp').addEventListener('click',async e=>{
   if(a.dataset.r.startsWith('m:')){RT.sel=a.dataset.r.slice(2);resetCands();drawRoute(true);return;}
   if(a.dataset.r==='x'){rtClear();toast('Ruta, A y B quitados del mapa',2500);}
   else if(a.dataset.r==='nav')startNav();
+  else if(a.dataset.r==='3d')open3D({route:true});
   else if(a.dataset.r==='prof')showRoutes().then(()=>{if($('#rprof'))showRouteProfileUI();});
   else showRoutes();
 });
@@ -10001,6 +10023,273 @@ document.addEventListener('click',e=>{
 function grpFromHash(){const p=grpParse(location.hash);if(p)showGroupJoin(p);}
 addEventListener('hashchange',grpFromHash);
 
+/* ====================== 🏔️ VISTA 3D: relieve con la foto satelital encima ======================
+   Malla de la altura del terreno (teselas Terrarium) + satélite como textura + una capa de dibujo (ruta, track, tu posición).
+   Usa lo guardado en el teléfono y, si se puede, baja lo que falta. */
+const T3={on:false,gl:null,cv:null,prog:null,vao:null,nIdx:0,tex:null,otex:null,N:4,zd:13,zs:15,x0:0,y0:0,mpp:1,lat0:0,
+  n:0,step:2,H:null,cam:{tx:0,tz:0,dist:4000,az:0,tilt:55},exag:1.5,raf:0,dirty:true,ptr:new Map(),g0:null,fly:null,gen:0,line:null,ov:null,ovT:0,half:0,loaded:0,total:0,maxTex:4096};
+const T3_VS=`#version 300 es
+in vec3 p;in vec2 gr;in vec2 uv;uniform mat4 M;uniform float ex;uniform vec3 eye;
+out vec2 vuv;out vec3 vn;out float vd;
+void main(){vec3 q=vec3(p.x,p.y*ex,p.z);gl_Position=M*vec4(q,1.);vuv=uv;vn=normalize(vec3(-gr.x*ex,1.,-gr.y*ex));vd=distance(q,eye);}`;
+const T3_FS=`#version 300 es
+precision highp float;
+in vec2 vuv;in vec3 vn;in float vd;uniform sampler2D t;uniform sampler2D o;uniform vec3 L;uniform float fog;out vec4 c;
+void main(){vec3 s=texture(t,vuv).rgb;float d=max(dot(vn,L),0.);vec3 col=s*(.52+.62*d);vec4 ov=texture(o,vuv);col=mix(col,ov.rgb,ov.a);
+float f=smoothstep(fog*.45,fog,vd);c=vec4(mix(col,vec3(.72,.82,.9),f*.85),1.);}`;
+const m4={
+  mul(a,b){const r=new Float32Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];r[i*4+j]=s;}return r;},
+  persp(f,asp,n,fa){const t=1/Math.tan(f/2),r=new Float32Array(16);r[0]=t/asp;r[5]=t;r[10]=(fa+n)/(n-fa);r[11]=-1;r[14]=2*fa*n/(n-fa);return r;},
+  look(e,c,u){const z=norm3([e[0]-c[0],e[1]-c[1],e[2]-c[2]]),x=norm3(cross3(u,z)),y=cross3(z,x);
+    return new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-dot3(x,e),-dot3(y,e),-dot3(z,e),1]);}
+};
+const dot3=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],cross3=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],norm3=a=>{const l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];};
+/* lat/lon → metros de la malla (x al este, z al sur, centro de la malla = 0) */
+function t3XZ(lat,lon){const p=tileXY(lat,lon,T3.zd);return [((p.x-T3.x0)*256-T3.half)*T3.mpp,((p.y-T3.y0)*256-T3.half)*T3.mpp];}
+function t3LL(x,z){const n=2**T3.zd,gx=T3.x0+(x/T3.mpp+T3.half)/256,gy=T3.y0+(z/T3.mpp+T3.half)/256;return [Math.atan(Math.sinh(Math.PI*(1-2*gy/n)))*180/Math.PI,gx/n*360-180];}
+/* altura del terreno (sin exagerar) en metros de la malla */
+function t3H(x,z){
+  if(!T3.H)return 0;const n=T3.n,fx=(x/T3.mpp+T3.half)/T3.step,fz=(z/T3.mpp+T3.half)/T3.step;
+  const i=Math.max(0,Math.min(n-2,Math.floor(fx))),j=Math.max(0,Math.min(n-2,Math.floor(fz))),a=Math.max(0,Math.min(1,fx-i)),b=Math.max(0,Math.min(1,fz-j)),H=T3.H;
+  return (H[j*n+i]*(1-a)+H[j*n+i+1]*a)*(1-b)+(H[(j+1)*n+i]*(1-a)+H[(j+1)*n+i+1]*a)*b;
+}
+/* la línea a mostrar: la ruta elegida, o la que se pasa (un track) */
+function t3Line(o){
+  if(o&&o.line&&o.line.length>1)return o.line;
+  const r=RT.res&&RT.res[RT.sel];if(r&&!r.err&&r.coords&&r.coords.length>1)return r.coords.map(p=>[p[0],p[1]]);
+  if(typeof shown!=='undefined'&&shown&&shown.getLayers){const a=[];for(const l of shown.getLayers())for(const p of l.getLatLngs().flat(3))a.push([p.lat,p.lng]);if(a.length>1)return a;}
+  return null;
+}
+async function open3D(o){
+  o=o||{};
+  if(T3.on)close3D();
+  const line=t3Line(o);
+  /* zona: la de la línea (si se pidió) o la que se ve en el mapa */
+  let bb;
+  if(line&&(o.line||o.route)){bb={n:-90,s:90,e:-180,w:180};for(const p of line){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}bb=bbPad(bb,1.2);}
+  else{const b=map.getBounds();bb={n:b.getNorth(),s:b.getSouth(),e:b.getEast(),w:b.getWest()};}
+  const N=4,c=[(bb.n+bb.s)/2,(bb.e+bb.w)/2];
+  let zd=13;
+  for(;zd>8;zd--){const a=tileXY(bb.n,bb.w,zd),b=tileXY(bb.s,bb.e,zd);if(b.x-a.x<=N-0.4&&b.y-a.y<=N-0.4)break;}
+  const ct=tileXY(c[0],c[1],zd);
+  Object.assign(T3,{exag:S.exag3d||1.5,on:true,N,zd,x0:Math.round(ct.x-N/2),y0:Math.round(ct.y-N/2),lat0:c[0],line,gen:T3.gen+1,fly:null,loaded:0,dirty:true});
+  T3.mpp=40075016.686*Math.cos(c[0]*rad)/(256*2**zd);T3.half=N*128;
+  const el=$('#t3');el.hidden=false;
+  $('#t3msg').textContent='Armando el relieve…';
+  $('#t3fly').hidden=!line;
+  t3Ui();
+  if(!t3Gl()){$('#t3msg').textContent='Este teléfono no puede mostrar 3D (falta WebGL 2).';return;}
+  const my=T3.gen;
+  /* altura del terreno */
+  const list=[];for(let x=0;x<N;x++)for(let y=0;y<N;y++)list.push({x:T3.x0+x,y:T3.y0+y});
+  let use=list;
+  if(netBlocked()){use=[];for(const t of list)if(await DB.has('tiles',`dem/${zd}/${t.x}/${t.y}`))use.push(t);}
+  const dem=use.length?await fetchDemList(use,zd,(d,n)=>{if(T3.gen===my)$('#t3msg').textContent=`Bajando la altura del terreno… ${d} de ${n}`;}):new Map();
+  if(T3.gen!==my)return;
+  t3Mesh(dem);
+  const cam=T3.cam,[cx,cz]=t3XZ(c[0],c[1]),span=N*256*T3.mpp;
+  Object.assign(cam,{tx:cx,tz:cz,az:map.getBearing?-map.getBearing():0,tilt:58,dist:Math.min(span*.55,Math.max(800,hav([bb.n,bb.w],[bb.s,bb.e])*.75))});
+  if(!dem.size)$('#t3msg').textContent='No hay altura del terreno guardada para esta zona (y no se pudo bajar): se ve plano.';
+  else $('#t3msg').textContent='';
+  t3Overlay();t3Loop();
+  t3Sat(my);
+}
+function close3D(){
+  T3.on=false;T3.gen++;T3.fly=null;cancelAnimationFrame(T3.raf);T3.raf=0;
+  const gl=T3.gl;if(gl){for(const t of [T3.tex,T3.otex])if(t)gl.deleteTexture(t);T3.tex=T3.otex=null;}
+  $('#t3').hidden=true;
+}
+function t3Gl(){
+  if(T3.gl)return true;
+  const cv=$('#t3c');let gl=null;try{gl=cv.getContext('webgl2',{antialias:true});}catch(e){}
+  if(!gl)return false;
+  const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;};
+  const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,T3_VS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,T3_FS));gl.linkProgram(pr);
+  T3.gl=gl;T3.cv=cv;T3.prog=pr;T3.maxTex=Math.min(4096,gl.getParameter(gl.MAX_TEXTURE_SIZE));
+  t3Gestures(cv);
+  return true;
+}
+/* malla: un vértice cada 2 píxeles de altura (≈ 35 m a zoom 13) */
+function t3Mesh(dem){
+  const gl=T3.gl,N=T3.N,P=N*256,step=T3.step,n=P/step+1;T3.n=n;
+  const H=new Float32Array(n*n);let any=false;
+  for(let j=0;j<n;j++)for(let i=0;i<n;i++){
+    const gx=Math.min(P-1,i*step),gy=Math.min(P-1,j*step),t=dem.get((T3.x0+(gx>>8))+'/'+(T3.y0+(gy>>8)));
+    const v=t?t[(gy&255)*256+(gx&255)]:NaN;H[j*n+i]=isFinite(v)&&v>-500?v:NaN;if(isFinite(H[j*n+i]))any=true;
+  }
+  /* huecos: el promedio de lo que hay (o 0) */
+  let s=0,k=0;for(const v of H)if(isFinite(v)){s+=v;k++;}const avg=k?s/k:0;for(let i=0;i<H.length;i++)if(!isFinite(H[i]))H[i]=avg;
+  T3.H=H;T3.hasZ=any;
+  const pos=new Float32Array(n*n*3),gr=new Float32Array(n*n*2),uv=new Float32Array(n*n*2),d=step*T3.mpp;
+  for(let j=0;j<n;j++)for(let i=0;i<n;i++){
+    const q=j*n+i;pos[q*3]=(i*step-T3.half)*T3.mpp;pos[q*3+1]=H[q];pos[q*3+2]=(j*step-T3.half)*T3.mpp;
+    const hx=(H[j*n+Math.min(n-1,i+1)]-H[j*n+Math.max(0,i-1)])/(d*((i>0&&i<n-1)?2:1)),hz=(H[Math.min(n-1,j+1)*n+i]-H[Math.max(0,j-1)*n+i])/(d*((j>0&&j<n-1)?2:1));
+    gr[q*2]=hx;gr[q*2+1]=hz;uv[q*2]=i*step/P;uv[q*2+1]=j*step/P;
+  }
+  const idx=new Uint32Array((n-1)*(n-1)*6);let m=0;
+  for(let j=0;j<n-1;j++)for(let i=0;i<n-1;i++){const a=j*n+i,b=a+1,c=a+n,e=c+1;idx[m++]=a;idx[m++]=c;idx[m++]=b;idx[m++]=b;idx[m++]=c;idx[m++]=e;}
+  const vao=gl.createVertexArray();gl.bindVertexArray(vao);
+  const att=(name,data,size)=>{const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,data,gl.STATIC_DRAW);const l=gl.getAttribLocation(T3.prog,name);gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,size,gl.FLOAT,false,0,0);};
+  att('p',pos,3);att('gr',gr,2);att('uv',uv,2);
+  const ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,idx,gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  if(T3.vao)gl.deleteVertexArray(T3.vao);T3.vao=vao;T3.nIdx=idx.length;
+  /* textura del satélite: primero un color neutro, después cada tesela en su lugar */
+  const dz=Math.max(0,Math.min(Math.log2(T3.maxTex/P)|0,4)),sl=LAYERS.sat||LAYERS[S.layer];
+  T3.zs=Math.min(T3.zd+dz,Math.min(18,sl.maxNative||18));T3.texSize=P*2**(T3.zs-T3.zd);
+  if(T3.tex)gl.deleteTexture(T3.tex);
+  T3.tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,T3.tex);
+  gl.texStorage2D(gl.TEXTURE_2D,1+Math.floor(Math.log2(T3.texSize)),gl.RGBA8,T3.texSize,T3.texSize);
+  { const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');x.fillStyle='#8a9478';x.fillRect(0,0,256,256);
+    const k=T3.texSize/256;for(let a=0;a<k;a++)for(let b=0;b<k;b++)gl.texSubImage2D(gl.TEXTURE_2D,0,a*256,b*256,gl.RGBA,gl.UNSIGNED_BYTE,c); }
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const ext=gl.getExtension('EXT_texture_filter_anisotropic');if(ext)gl.texParameterf(gl.TEXTURE_2D,ext.TEXTURE_MAX_ANISOTROPY_EXT,Math.min(8,gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+}
+async function t3Sat(my){
+  const gl=T3.gl,dz=T3.zs-T3.zd,k=T3.N*2**dz,sx=T3.x0*2**dz,sy=T3.y0*2**dz,lk=LAYERS.sat?'sat':S.layer,l=LAYERS[lk];
+  const tiles=[];for(let a=0;a<k;a++)for(let b=0;b<k;b++)tiles.push([a,b]);
+  /* primero las del centro */
+  tiles.sort((p,q)=>Math.hypot(p[0]-k/2,p[1]-k/2)-Math.hypot(q[0]-k/2,q[1]-k/2));
+  T3.total=tiles.length;T3.loaded=0;let i=0,lastMip=0,miss=0;
+  const blocked=netBlocked();
+  const worker=async()=>{
+    while(i<tiles.length&&T3.gen===my){
+      const [a,b]=tiles[i++],key=`${lk}/${T3.zs}/${sx+a}/${sy+b}`;
+      try{
+        let blob=await DB.get('tiles',key);
+        if(!blob&&!blocked){blob=await getTileBlob(tileUrl(l,T3.zs,sx+a,sy+b));if(blob&&blob.size>80)try{await DB.put('tiles',key,blob);}catch(e){}}
+        if(!blob)throw new Error('sin tesela');
+        const bm=await createImageBitmap(blob);
+        if(T3.gen!==my)return;
+        gl.bindTexture(gl.TEXTURE_2D,T3.tex);gl.texSubImage2D(gl.TEXTURE_2D,0,a*256,b*256,gl.RGBA,gl.UNSIGNED_BYTE,bm);
+        T3.dirty=true;
+      }catch(e){miss++;}
+      T3.loaded++;
+      if(Date.now()-lastMip>1500||T3.loaded===T3.total){lastMip=Date.now();if(T3.gen===my){gl.bindTexture(gl.TEXTURE_2D,T3.tex);gl.generateMipmap(gl.TEXTURE_2D);T3.dirty=true;
+        $('#t3msg').textContent=T3.loaded<T3.total?`Satélite ${Math.round(T3.loaded/T3.total*100)} %`:miss>T3.total*.3?`Faltan fotos satelitales de esta zona${blocked?' (sin datos móviles)':''}: bajalas en Mis mapas.`:'';}}
+    }
+  };
+  await Promise.all(Array.from({length:6},worker));
+}
+/* capa de dibujo: la línea, el inicio y el fin, la grabación en curso y tu posición */
+function t3Overlay(){
+  const gl=T3.gl;if(!gl)return;
+  const S2=Math.min(4096,T3.maxTex),c=T3.ov||(T3.ov=document.createElement('canvas'));if(c.width!==S2){c.width=c.height=S2;}
+  const x=c.getContext('2d'),k=S2/(T3.N*256),P=(lat,lon)=>{const p=tileXY(lat,lon,T3.zd);return [((p.x-T3.x0)*256)*k,((p.y-T3.y0)*256)*k];};
+  x.clearRect(0,0,S2,S2);x.lineJoin=x.lineCap='round';
+  const w=Math.max(6,Math.min(10,6*S2/4096*(14-Math.min(13,T3.zd)+1)));
+  const stroke=(pts,col,wd)=>{if(!pts||pts.length<2)return;x.beginPath();pts.forEach((p,i)=>{const q=P(p[0],p[1]);i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1]);});x.strokeStyle='rgba(255,255,255,.95)';x.lineWidth=wd+4;x.stroke();x.strokeStyle=col;x.lineWidth=wd;x.stroke();};
+  const dot=(p,col,r)=>{const q=P(p[0],p[1]);x.beginPath();x.arc(q[0],q[1],r+3,0,7);x.fillStyle='#fff';x.fill();x.beginPath();x.arc(q[0],q[1],r,0,7);x.fillStyle=col;x.fill();};
+  if(T3.line){stroke(T3.line,'#F04A1C',w);dot(T3.line[0],'#2E7D5B',w*1.3);dot(T3.line[T3.line.length-1],'#F04A1C',w*1.3);}
+  if(REC.state!=='idle'&&REC.pts.length>1)stroke(REC.pts,'#E91E63',w*.8);
+  if(lastFix)dot([lastFix.lat,lastFix.lon],'#1E6BFF',w*1.2);
+  if(!T3.otex){T3.otex=gl.createTexture();}
+  gl.bindTexture(gl.TEXTURE_2D,T3.otex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,c);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  T3.ovT=Date.now();T3.dirty=true;
+}
+function t3Cam(){
+  const c=T3.cam,span=T3.N*256*T3.mpp/2;
+  c.tx=Math.max(-span,Math.min(span,c.tx));c.tz=Math.max(-span,Math.min(span,c.tz));
+  c.tilt=Math.max(0,Math.min(82,c.tilt));c.dist=Math.max(150,Math.min(span*3,c.dist));
+  const th=t3H(c.tx,c.tz)*T3.exag,az=c.az*rad,tl=c.tilt*rad,dir=[Math.sin(az),0,-Math.cos(az)];
+  const T=[c.tx,th,c.tz];
+  let eye=[T[0]-dir[0]*c.dist*Math.sin(tl),T[1]+c.dist*Math.cos(tl),T[2]-dir[2]*c.dist*Math.sin(tl)];
+  const ground=t3H(eye[0],eye[2])*T3.exag+60;if(eye[1]<ground)eye[1]=ground;
+  /* que ningún cerro tape lo que se mira: si el terreno corta la visual, la cámara sube */
+  for(let k=1;k<16;k++){const t=k/16,x=eye[0]+(T[0]-eye[0])*t,z=eye[2]+(T[2]-eye[2])*t,yl=eye[1]+(T[1]-eye[1])*t,g=t3H(x,z)*T3.exag+30;if(g>yl)eye[1]+=(g-yl)/(1-t);}
+  return {T,eye,up:c.tilt<1?dir:[0,1,0]};
+}
+function t3Draw(){
+  const gl=T3.gl,cv=T3.cv;if(!gl||!T3.vao)return;
+  const dpr=Math.min(2,window.devicePixelRatio||1),w=Math.round(cv.clientWidth*dpr),h=Math.round(cv.clientHeight*dpr);
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}
+  gl.viewport(0,0,w,h);gl.clearColor(.72,.82,.9,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);gl.frontFace(gl.CCW);
+  const {T,eye,up}=t3Cam(),span=T3.N*256*T3.mpp,far=span*4;
+  const M=m4.mul(m4.persp(45*rad,w/h,Math.max(5,T3.cam.dist*.01),far),m4.look(eye,T,up));
+  gl.useProgram(T3.prog);
+  const u=n=>gl.getUniformLocation(T3.prog,n);
+  gl.uniformMatrix4fv(u('M'),false,M);gl.uniform1f(u('ex'),T3.exag);gl.uniform3fv(u('eye'),eye);
+  gl.uniform3fv(u('L'),norm3([-.5,.75,-.45]));gl.uniform1f(u('fog'),Math.max(span*.9,T3.cam.dist*4));
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,T3.tex);gl.uniform1i(u('t'),0);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,T3.otex);gl.uniform1i(u('o'),1);
+  gl.bindVertexArray(T3.vao);gl.drawElements(gl.TRIANGLES,T3.nIdx,gl.UNSIGNED_INT,0);gl.bindVertexArray(null);
+  const cp=$('#t3cmp');if(cp)cp.style.transform=`rotate(${-T3.cam.az}deg)`;
+}
+function t3Loop(){
+  cancelAnimationFrame(T3.raf);
+  const tick=t=>{
+    if(!T3.on)return;
+    if(T3.fly)t3FlyStep(t);
+    if(lastFix&&Date.now()-T3.ovT>8000&&(T3.lastFixT!==lastFix.t)){T3.lastFixT=lastFix.t;t3Overlay();}
+    if(T3.dirty){T3.dirty=false;t3Draw();}
+    T3.raf=requestAnimationFrame(tick);
+  };
+  T3.raf=requestAnimationFrame(tick);
+}
+/* gestos: un dedo mueve; dos dedos acercan, giran e inclinan (subiendo o bajando los dos dedos) */
+function t3Gestures(cv){
+  const pts=T3.ptr,pair=()=>{const a=[...pts.values()];return {d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),ang:Math.atan2(a[1].y-a[0].y,a[1].x-a[0].x),my:(a[0].y+a[1].y)/2};};
+  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.clientX,y:e.clientY});T3.fly=null;t3FlyBtn();if(pts.size===2)T3.g0=pair();});
+  cv.addEventListener('pointermove',e=>{
+    const p=pts.get(e.pointerId);if(!p)return;
+    const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;
+    const c=T3.cam;
+    if(pts.size===1){
+      const sc=c.dist*Math.tan(22.5*rad)*2/Math.max(200,cv.clientHeight),az=c.az*rad,r=[Math.cos(az),Math.sin(az)],f=[Math.sin(az),-Math.cos(az)],k=1/Math.max(.35,Math.cos(c.tilt*rad));
+      c.tx-=r[0]*dx*sc;c.tz-=r[1]*dx*sc;c.tx+=f[0]*dy*sc*k;c.tz+=f[1]*dy*sc*k;
+    }else if(pts.size===2&&T3.g0){
+      const g=pair(),g0=T3.g0;
+      if(g.d>10&&g0.d>10)c.dist*=g0.d/g.d;
+      let da=g.ang-g0.ang;if(da>Math.PI)da-=2*Math.PI;if(da<-Math.PI)da+=2*Math.PI;c.az-=da/rad;
+      c.tilt+=(g0.my-g.my)*0.25;
+      T3.g0=g;
+    }
+    T3.dirty=true;
+  });
+  const up=e=>{pts.delete(e.pointerId);T3.g0=pts.size===2?pair():null;};
+  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+  cv.addEventListener('wheel',e=>{e.preventDefault();T3.cam.dist*=Math.exp(e.deltaY*.0015);T3.dirty=true;},{passive:false});
+}
+/* sobrevuelo: la cámara sigue la línea mirando hacia adelante */
+function t3FlyStart(){
+  if(!T3.line)return;
+  const P=[];for(const p of T3.line){const q=t3XZ(p[0],p[1]);if(!P.length||Math.hypot(q[0]-P[P.length-1][0],q[1]-P[P.length-1][1])>5)P.push(q);}
+  if(P.length<2)return;
+  const cum=[0];for(let i=1;i<P.length;i++)cum.push(cum[i-1]+Math.hypot(P[i][0]-P[i-1][0],P[i][1]-P[i-1][1]));
+  const L=cum[cum.length-1],dur=Math.max(20,Math.min(120,L/180));
+  T3.fly={P,cum,L,dur:dur*1000,t0:null,az:null,dist:Math.max(1200,Math.min(3500,L*.3))};
+  t3FlyBtn();
+}
+function t3At(f,s){const {P,cum}=f;s=Math.max(0,Math.min(f.L,s));let i=1;while(i<P.length-1&&cum[i]<s)i++;const t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return [P[i-1][0]+(P[i][0]-P[i-1][0])*t,P[i-1][1]+(P[i][1]-P[i-1][1])*t];}
+function t3FlyStep(now){
+  const f=T3.fly;if(f.t0==null)f.t0=now;
+  const k=Math.min(1,(now-f.t0)/f.dur),s=k*f.L,p=t3At(f,s),q=t3At(f,s+Math.min(600,f.L*.08)+1);
+  let az=Math.atan2(q[0]-p[0],-(q[1]-p[1]))/rad;
+  if(f.az==null)f.az=az;let d=az-f.az;while(d>180)d-=360;while(d<-180)d+=360;f.az+=d*0.04;
+  Object.assign(T3.cam,{tx:p[0],tz:p[1],az:f.az,tilt:58,dist:f.dist});
+  T3.dirty=true;
+  if(k>=1){T3.fly=null;t3FlyBtn();}
+}
+function t3FlyBtn(){const b=$('#t3fly');if(b)b.textContent=T3.fly?'⏸ Parar':'▶ Sobrevolar';}
+function t3Ui(){
+  document.querySelectorAll('#t3 [data-ex]').forEach(b=>b.classList.toggle('on',+b.dataset.ex===T3.exag));
+  t3FlyBtn();
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('#t3 [data-t3]');if(!b)return;
+  const a=b.dataset.t3,c=T3.cam;
+  if(a==='x')close3D();
+  else if(a==='ex'){T3.exag=+b.dataset.ex;S.exag3d=T3.exag;saveS();t3Ui();T3.dirty=true;}
+  else if(a==='in'){c.dist/=1.6;T3.dirty=true;}
+  else if(a==='out'){c.dist*=1.6;T3.dirty=true;}
+  else if(a==='n'){c.az=0;c.tilt=c.tilt>5?0:58;T3.dirty=true;}
+  else if(a==='fly'){if(T3.fly){T3.fly=null;t3FlyBtn();}else t3FlyStart();}
+});
+
 /* ---------- Más, ajustes y backup ---------- */
 function showMoreMenu(){
   openSheet('Más',`<div class="grid3">
@@ -10012,12 +10301,13 @@ function showMoreMenu(){
     <button class="btn big" data-act="back">🆘<br>Retorno seguro</button>
     <button class="btn big" data-act="wx">☁️<br>Clima</button>
     <button class="btn big" data-act="globe">🌍<br>Globo</button>
+    <button class="btn big" data-act="v3d">🏔️<br>Relieve 3D</button>
     <button class="btn big" data-act="share">📡<br>${SH.on?'Compartiendo':'Compartir en vivo'}</button>
     <button class="btn big" data-act="follow">👀<br>Seguir a alguien</button>
     <button class="btn big" data-act="group">👥<br>Grupo en vivo${GRP.on?' ✓':''}</button>
     <button class="btn big" data-act="watch">⌚<br>Avisos al reloj${waCfg().on?' ✓':''}</button>
     <button class="btn big" data-act="set">⚙️<br>Ajustes</button></div>`,
-    a=>{if(a==='group')showGroup();else if(a==='watch')showWatch();else if(a==='share')showShare();else if(a==='follow')showFollowAsk();else if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
+    a=>{if(a==='v3d'){closeSheet();open3D();}else if(a==='group')showGroup();else if(a==='watch')showWatch();else if(a==='share')showShare();else if(a==='follow')showFollowAsk();else if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
 }
 function showMore(){
   const chips=(id,cur,opts)=>`<div class="chips">${opts.map(([k,n])=>`<button data-act="${id}" data-k="${k}" class="${k===cur?'on':''}">${n}</button>`).join('')}</div>`;
@@ -10210,7 +10500,8 @@ if(!isNative()&&location.protocol==='https:'&&'serviceWorker' in navigator){
     try{
       const App=plugin('App');
       App.addListener('backButton',()=>{
-        if(draw)cancelDraw();
+        if(T3.on)close3D();
+        else if(draw)cancelDraw();
         else if(PICK)cancelPick();
         else if(sheet.classList.contains('open'))closeSheet();
         else App.minimizeApp();
