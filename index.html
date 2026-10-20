@@ -284,6 +284,20 @@ body.gbOn #tgt{z-index:1060;top:calc(var(--top) + 64px);max-width:calc(100% - 80
 #netpill[hidden]{display:none}
 #shpill{position:fixed;top:calc(var(--top) + 52px);right:12px;z-index:905;background:rgba(122,63,224,.9);color:#fff;border-radius:16px;padding:6px 12px;font:700 13px system-ui;box-shadow:0 1px 5px rgba(0,0,0,.35);border:0}
 #shpill.bad{background:rgba(190,90,0,.92)}
+#grp{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:906;background:rgba(14,42,54,.72);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:6px 8px 8px 10px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45);max-height:42vh;overflow:auto}
+#grp[hidden]{display:none}
+#grp .gh{display:flex;align-items:baseline;gap:8px;padding:4px 0}#grp .gh small{opacity:.8;flex:1}#grp .gh span{opacity:.8}
+#grp .gr{display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid rgba(255,255,255,.15)}
+#grp .gr.old{opacity:.6}
+#grp .gr i{width:14px;height:14px;border-radius:50%;border:2px solid #fff;flex:none}
+#grp .gn{flex:1;min-width:0}#grp .gn b{display:block;font:800 14px system-ui}#grp .gn small{font:600 12px system-ui;opacity:.9}
+#grp button{border:0;border-radius:18px;background:rgba(255,255,255,.18);color:#fff;font:700 15px system-ui;min-width:38px;height:36px;padding:0 10px}
+#grp button.on{background:#F2A900;color:#111}
+#grp .ga{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}#grp .ga button{font-size:13px}
+.grpmk{position:relative;transform:translate(-50%,-50%);display:flex;align-items:center}
+.grpmk span{display:block;width:18px;height:18px;border-radius:50%;background:var(--c);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.grpmk b{position:absolute;left:22px;white-space:nowrap;background:var(--c);color:#fff;border-radius:8px;padding:1px 6px;font:800 12px system-ui;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.grpmk.old span{opacity:.6}
 
 .hcirc.isf1{display:block}
 .f1{margin-top:2px}
@@ -385,6 +399,9 @@ body.night .wxal.warn{background:#4A3B10;color:#FFE08A}body.night .wxal.danger{b
 #rtp .chips button.on{background:#fff;color:#0E2A36;text-shadow:none}
 #rtp .mm{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 #rtp .mm button{border:0;border-radius:10px;background:rgba(255,255,255,.2);color:#fff;font:700 12.5px system-ui;padding:5px 9px}
+#rtp .mm button.on{background:#F2A900;color:#111}
+#rtp .stb{border:0;border-radius:9px;background:rgba(255,255,255,.2);color:#fff;font:700 12px system-ui;padding:3px 8px;margin:2px 0}
+#rtp .stb.on{background:#F2A900;color:#111}
 #tgtArrow{font-size:26px;line-height:1;transition:transform .4s linear;color:#FF8A5C}
 #tgtD{font:800 22px system-ui;line-height:1.1}
 #tgtSub{font:600 12px system-ui;opacity:.85;line-height:1.2}
@@ -553,13 +570,14 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
   <div id="capprog" hidden><div class="bar"><i id="dlbar"></i></div><small id="dlt"></small></div>
   <small id="capmsg"></small>
 </div>
-<div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinTgt">🎯 Seguir distancia</button><button id="pinFrom">Ⓐ Salir de acá</button><button id="pinVia" hidden>↦ Pasar por</button><button id="pinSave">📍 Guardar</button><button id="pinX">✕</button></div></div>
+<div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinTgt">🎯 Seguir distancia</button><button id="pinFrom">Ⓐ Salir de acá</button><button id="pinVia" hidden>↦ Pasar por</button><button id="pinSave">📍 Guardar</button><button id="pinSv">👁️ Street View</button><button id="pinX">✕</button></div></div>
 <div id="banner" hidden><span id="bTxt"></span><span class="row"><button class="btn sm" id="bUndo" hidden>Deshacer</button><button class="btn sm primary" id="bOk" hidden>Listo</button><button class="btn sm" id="bCancel">Cancelar</button></span></div>
 
 <button id="fNorth" hidden aria-label="Norte arriba">N⬆</button>
 <div id="netpill" hidden></div>
 <button id="shpill" hidden onclick="showShare()"></button>
 <div id="fol" hidden></div>
+<div id="grp" hidden></div>
 <div id="rtp" hidden></div>
 <div id="tgt" hidden><div id="tgtArrow">➤</div><div><div id="tgtD">—</div><div id="tgtSub"></div><div id="tgtM"></div></div></div>
 <div id="fabs">
@@ -1356,11 +1374,12 @@ function findRoute(G,mode,from,to,pref){
   const r=astar(G,mode,A.nd,B.nd,pref);if(!r)return {err:'camino'};
   const vleg=mode==='car'?3:G.cfg.vFoot/3.6,vfar=mode==='car'?11:mode==='bike'?4:G.cfg.vFoot/3.6;
   const legT=o=>o<=500?o/vleg:500/vleg+(o-500)/vfar;          /* los tramos largos hasta la red van por una calle o camino de la zona */
-  let dist=A.off+B.off,time=legT(A.off)+legT(B.off),stairs=0,up=0,down=0,fDist=0,fTime=0,fNames=[],fUnver=false;
+  let timeBack=legT(A.off)+legT(B.off),dist=A.off+B.off,time=legT(A.off)+legT(B.off),stairs=0,up=0,down=0,fDist=0,fTime=0,fNames=[],fUnver=false;
   const coords=[[from.lat,from.lon],[G.lat[A.nd],G.lon[A.nd]]];
   for(const {ei,d} of r.edges){
     const e=G.E[ei],v=G.pass(e,mode,d),g=G.slope(e,d);
     const dt=e.len/(v*slopeFactor(mode,g,v));
+    {let vb=G.pass(e,mode,-d);if(!(vb>0))vb=v;timeBack+=e.len/(vb*slopeFactor(mode,-g,vb));}
     dist+=e.len;time+=dt;if(G.W[e.w].hw==='steps')stairs+=e.len;
     if(G.W[e.w].ferry){fDist+=e.len;fTime+=dt;const fw=G.W[e.w];if(fw.name&&!fNames.includes(fw.name))fNames.push(fw.name);if(fw.tags.motor_vehicle==null)fUnver=true;}
     if(g>0)up+=g*e.len;else down-=g*e.len;
@@ -1378,9 +1397,9 @@ function findRoute(G,mode,from,to,pref){
   let avgKmh=null;
   if(G.cfg.avg&&G.cfg.avg[mode]>0){
     avgKmh=G.cfg.avg[mode]*3.6;
-    time=(dist-fDist)/G.cfg.avg[mode]*(1+(G.cfg.avgStops||0)/100)+fTime;
+    time=(dist-fDist)/G.cfg.avg[mode]*(1+(G.cfg.avgStops||0)/100)+fTime;timeBack=time;
   }
-  return {mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,offFrom:A.off,offTo:B.off,coords,eids:r.edges.map(x=>x.ei),elen:r.edges.map(x=>G.E[x.ei].len),stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
+  return {timeBack,mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,offFrom:A.off,offTo:B.off,coords,eids:r.edges.map(x=>x.ei),elen:r.edges.map(x=>G.E[x.ei].len),stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
 }
 
 /* ====================== GUÍA PASO A PASO ====================== */
@@ -1908,7 +1927,7 @@ function joinRoutes(a,b,via){
   b.steps.forEach((s,i)=>{const c=Object.assign({},s,{at:s.at+off});if(i===0&&/^Salí por/.test(c.text))c.text=c.text.replace(/^Salí por/,'Seguí por');steps.push(c);});
   const fa=a.ferry,fb=b.ferry;
   const ferry=(fa||fb)?{dist:(fa?fa.dist:0)+(fb?fb.dist:0),time:(fa?fa.time:0)+(fb?fb.time:0),names:[...(fa?fa.names:[]),...(fb?fb.names:[])],unver:!!((fa&&fa.unver)||(fb&&fb.unver))}:null;
-  const o={mode:a.mode,pref:a.pref,dist:a.dist+b.dist,time:a.time+b.time,avgKmh:a.avgKmh,avgStops:a.avgStops,coords:a.coords.concat(b.coords.slice(1)),eids:(a.eids||[]).concat(b.eids||[]),elen:(a.elen||[]).concat(b.elen||[]),stairs:(a.stairs||0)+(b.stairs||0),steps,up:(a.up||0)+(b.up||0),down:(a.down||0)+(b.down||0),hasZ:a.hasZ,ferry,via:true,stayMin:(a.stayMin||0)+(b.stayMin||0)+(via.stay||0),
+  const o={timeBack:(a.timeBack||a.time)+(b.timeBack||b.time),mode:a.mode,pref:a.pref,dist:a.dist+b.dist,time:a.time+b.time,avgKmh:a.avgKmh,avgStops:a.avgStops,coords:a.coords.concat(b.coords.slice(1)),eids:(a.eids||[]).concat(b.eids||[]),elen:(a.elen||[]).concat(b.elen||[]),stairs:(a.stairs||0)+(b.stairs||0),steps,up:(a.up||0)+(b.up||0),down:(a.down||0)+(b.down||0),hasZ:a.hasZ,ferry,via:true,stayMin:(a.stayMin||0)+(b.stayMin||0)+(via.stay||0),
     offFrom:a.offFrom||0,offTo:b.offTo||0};
   if(a.water!==undefined||b.water!==undefined){                 /* kayak: se suman los tramos de agua, de a pie y de lago */
     for(const k of ['water','portage','lake'])o[k]=(a[k]||0)+(b[k]||0);
@@ -4455,7 +4474,23 @@ function rtPanel(){
     sp=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${line} L${W} ${H} L0 ${H} Z" fill="rgba(255,255,255,.22)"/><path d="${line}" fill="none" stroke="#FFD9C9" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
   }
   const others=RMODES.filter(k=>k!==m&&RT.res[k]&&!RT.res[k].err);
-  const mm=others.length?`<div class="mm">${others.map(k=>`<button data-r="m:${k}">${MI[k]} ${fmtDur(totT(RT.res[k]))}</button>`).join('')}</div>`:'';
+  const mm=`<div class="mm">${others.map(k=>`<button data-r="m:${k}">${MI[k]} ${fmtDur(totT(RT.res[k]))}</button>`).join('')}<button data-r="rt" class="${S.roundTrip?'on':''}">🔁 Ida y vuelta${S.roundTrip?' ✓':''}</button></div>`;
+  /* ida y vuelta: la vuelta por el mismo camino (con la pendiente al revés) + el rato en el destino; y la luz del día */
+  let rtl='';
+  if(S.roundTrip){
+    const back=r.timeBack||r.time,stay=(S.stayB||0)*60,tot=totT(r)+stay+back,ret=start+tot*1000;
+    const P=RT.to||{lat:r.coords[r.coords.length-1][0],lon:r.coords[r.coords.length-1][1]};
+    let sun='';
+    try{let t={};const day=new Date(start).toDateString();
+      for(const k of [-1,0,1]){const x=sunTimes(P.lat,P.lon,start+k*86400000);if(x.set&&new Date(x.set).toDateString()===day){t=x;break;}}
+      if(t.set){const late=ret-t.set;
+        sun=late>0?`<b>⚠️ Volvés ${fmtDur(late/1000)} después de la puesta del sol (${hhmm(t.set)}).</b> Para volver con luz salí antes de las ${hhmm(t.set-tot*1000)}.`
+          :`🌇 Puesta del sol ${hhmm(t.set)}: te sobra${late>-3600000?'n solo':'n'} ${fmtDur(-late/1000)} de luz.`;}
+    }catch(e){}
+    rtl=`<div class="s">🔁 Ida y vuelta <b>${fmtDur(tot)}</b> · volvés ${arrLabel(start,ret)}</div>`
+      +(RT.pExp?`<div class="s">Ida ${fmtDur(totT(r))} · ${stay?`${S.stayB} min en el destino · `:''}vuelta ${fmtDur(back)}${r.timeBack?'':' (estimada igual a la ida)'}</div><div class="s">En el destino: ${[0,15,30,60,120].map(v=>`<button class="stb ${(S.stayB||0)===v?'on':''}" data-r="st:${v}">${v?v<60?v+' min':v/60+' h':'nada'}</button>`).join(' ')}</div>`:'')
+      +(sun?`<div class="s">${sun}</div>`:'');
+  }
   if(rodeo(r)>3)bits.push(`⚠️ vuelta ×${Math.round(rodeo(r))}`);
   let det='';
   if(RT.pExp){
@@ -4469,7 +4504,7 @@ function rtPanel(){
   p.classList.toggle('exp',!!RT.pExp);
   p.innerHTML=`<div id="rtpBody" data-r="exp"><div class="t">${MI[m]} ${fmtDur(totT(r))} <small>${esc(name)}</small></div>
     <div class="s">${bits.join(' · ')}</div>
-    <div class="s">${RT.dep?'Salís '+hhmm(start)+' · ':''}llegás ${arrLabel(start,arr)}</div>${sp}${det}${mm}</div>
+    <div class="s">${RT.dep?'Salís '+hhmm(start)+' · ':''}llegás ${arrLabel(start,arr)}</div>${rtl}${sp}${det}${mm}</div>
     <div class="rb"><button class="go" data-r="nav" aria-label="Guiarme">▶</button><button data-r="prof" aria-label="Perfil">⛰️</button><button data-r="open" aria-label="Rutas">☰</button><button data-r="x" aria-label="Quitar la ruta">✕</button></div>`;
   p.hidden=false;
 }
@@ -4483,6 +4518,8 @@ $('#rtp').addEventListener('click',async e=>{
   }
   const a=e.target.closest('[data-r]');if(!a)return;
   if(a.dataset.r==='exp'){RT.pExp=!RT.pExp;rtPanel();return;}
+  if(a.dataset.r==='rt'){S.roundTrip=!S.roundTrip;saveS();rtPanel();return;}
+  if(a.dataset.r.startsWith('st:')){S.stayB=+a.dataset.r.slice(3);saveS();rtPanel();return;}
   const r=RT.res&&RT.res[RT.sel];
   if(a.dataset.r.startsWith('m:')){RT.sel=a.dataset.r.slice(2);resetCands();drawRoute(true);return;}
   if(a.dataset.r==='x'){rtClear();toast('Ruta, A y B quitados del mapa',2500);}
@@ -5686,6 +5723,12 @@ async function showMapMgr(){
 
 /* Tocar el mapa: poner un pin y ofrecer "Ir hasta acá" */
 let PIN=null;
+/* Street View gratis: abre Google Maps (la app si está instalada) mirando ese punto */
+function openStreetView(lat,lon){
+  const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${(+lat).toFixed(6)},${(+lon).toFixed(6)}`;
+  const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();
+  toast('Abriendo Street View en Google Maps… si no hay fotos justo ahí, te muestra las más cercanas',4000);
+}
 function hidePin(){PIN=null;pinLayer.clearLayers();$('#pin').hidden=true;}
 async function onMapTap(e){
   if(e.originalEvent&&e.originalEvent._owned)return;
@@ -5737,6 +5780,7 @@ $('#pinVia').onclick=async()=>{
   const ll={lat:PIN.lat,lon:PIN.lon};hidePin();
   await addViaAt(ll);
 };
+$('#pinSv').onclick=()=>{if(PIN)openStreetView(PIN.lat,PIN.lon);};
 $('#pinSave').onclick=async()=>{
   if(!PIN)return;
   const n=(await DB.all('kv','wpt:')).filter(w=>w.type==='punto').length+1;
@@ -9482,7 +9526,7 @@ const shBase=()=>{
   if(!isNative()&&/^https?:/.test(location.protocol)&&!/localhost|127\.0\.0\.1/.test(location.hostname))return location.origin+location.pathname;
   return S.shareBase||'https://profehugotdf.github.io/GPS/';
 };
-const shLink=()=>shBase()+'#seguir='+SH.topic+'.'+SH.keyB;
+const shLink=()=>shBase()+(SH.group?'#grupo=':'#seguir=')+SH.topic+'.'+SH.keyB;
 
 /* --- quien comparte --- */
 const SH={tmDirty:false,circ:null,metaOk:false,on:false,topic:'',key:null,keyB:'',mode:'race',name:'',sid:'',seq:0,queue:[],lastSample:0,lastSend:0,sending:false,start:0,fails:0,lastOk:0,bat:null,course:null};
@@ -9503,12 +9547,12 @@ async function shMeta(){
   await shPost(SH.topic,body);
 }
 function shSave(){
-  S.share=SH.on?{topic:SH.topic,keyB:SH.keyB,mode:SH.mode,name:SH.name,sid:SH.sid,seq:SH.seq,start:SH.start}:null;saveS();
+  S.share=SH.on?{topic:SH.topic,keyB:SH.keyB,mode:SH.mode,name:SH.name,sid:SH.sid,seq:SH.seq,start:SH.start,group:!!SH.group}:null;saveS();
   try{localStorage.setItem('rumbo.shq',JSON.stringify(SH.queue.slice(-2000)));}catch(e){}
 }
 async function shStart(o){
-  const raw=crypto.getRandomValues(new Uint8Array(16));
-  Object.assign(SH,{on:true,key:await shKeyFrom(raw),keyB:b64u.enc(raw),topic:'rumbo-'+b64u.enc(crypto.getRandomValues(new Uint8Array(12))),
+  const raw=o.keyB?b64u.dec(o.keyB):crypto.getRandomValues(new Uint8Array(16));
+  Object.assign(SH,{on:true,group:!!o.group,circ:null,metaOk:false,key:await shKeyFrom(raw),keyB:o.keyB||b64u.enc(raw),topic:o.topic||'rumbo-'+b64u.enc(crypto.getRandomValues(new Uint8Array(12))),
     mode:o.mode||'race',name:o.name||'',sid:uid(),seq:0,queue:[],lastSample:0,lastSend:0,start:Date.now(),fails:0,lastOk:0,course:o.course?shCourse():null});
   shSave();
   try{await shMeta();SH.lastOk=Date.now();}catch(e){SH.fails++;toast('Sin conexión por ahora: el seguimiento arranca igual y se envía cuando haya señal',5000);}
@@ -9518,7 +9562,7 @@ async function shStart(o){
 }
 async function shResume(){
   const s=S.share;if(!s||!s.topic||!s.keyB)return;
-  Object.assign(SH,{on:true,topic:s.topic,keyB:s.keyB,key:await shKeyFrom(b64u.dec(s.keyB)),mode:s.mode||'race',name:s.name||'',sid:s.sid||uid(),seq:s.seq||0,start:s.start||Date.now()});
+  Object.assign(SH,{on:true,group:!!s.group,topic:s.topic,keyB:s.keyB,key:await shKeyFrom(b64u.dec(s.keyB)),mode:s.mode||'race',name:s.name||'',sid:s.sid||uid(),seq:s.seq||0,start:s.start||Date.now()});
   try{SH.queue=JSON.parse(localStorage.getItem('rumbo.shq')||'[]');}catch(e){SH.queue=[];}
   if(isNative()&&(!watch||watch.type!=='bg'))try{await startWatch(true,'Compartiendo tu posición');}catch(e){}
   shPill();
@@ -9527,7 +9571,7 @@ async function shStop(){
   if(!SH.on)return;
   try{await shFlush(true);}catch(e){}
   try{await shPost(SH.topic,await shSeal({k:'e',sid:SH.sid,t:Math.round(Date.now()/1000)},SH.key));}catch(e){}
-  SH.on=false;SH.queue=[];shSave();shPill();
+  SH.on=false;SH.group=false;SH.queue=[];shSave();shPill();if(typeof GRP!=='undefined'&&GRP.on)grpPanel();
   if(isNative()&&REC.state==='idle'&&!NAV.on)startWatch(false);
   toast('Dejaste de compartir tu posición',3000);
 }
@@ -9584,6 +9628,7 @@ function shPill(){
   p.textContent=`📡 ${bad?(SH.queue.length?`sin señal · ${SH.queue.length} pts guardados`:'esperando señal'):'en vivo'}${ago!=null&&!bad?` · hace ${ago<60?ago+' s':Math.round(ago/60)+' min'}`:''}`;
 }
 async function shShareLink(){
+  if(SH.group&&GRP.on)return grpShareLink();
   const link=shLink(),txt=`${SH.name||'Te comparto'} mi posición en vivo (${(SH_MODES[SH.mode]||{}).n||''}): ${link}`;
   try{
     if(isNative()){await plugin('Share').share({title:'Seguime en vivo',text:txt,dialogTitle:'Compartir seguimiento'});return;}
@@ -9592,6 +9637,7 @@ async function shShareLink(){
   try{await navigator.clipboard.writeText(link);toast('Link copiado',2500);}catch(e){prompt('Copiá el link:',link);}
 }
 function showShare(){
+  if(SH.on&&SH.group){showGroup();return;}
   if(SH.on){
     const M=SH_MODES[SH.mode]||SH_MODES.race,ago=SH.lastOk?Math.round((Date.now()-SH.lastOk)/1000):null;
     openSheet('📡 Compartiendo tu posición',`<p><b>${M.n}</b> · ${M.d}<br><small class="mut">Desde las ${hhmm(SH.start)} · último envío ${ago==null?'todavía no':ago<60?`hace ${ago} s`:`hace ${Math.round(ago/60)} min`}${SH.queue.length?` · ${SH.queue.length} puntos esperando señal`:''}${SH.bat!=null?` · batería ${SH.bat} %`:''}</small></p>
@@ -9783,7 +9829,7 @@ function showFollowAsk(){
     async a=>{
       if(a==='pst'){try{$('#fl').value=await navigator.clipboard.readText();}catch(e){toast('No pude leer el portapapeles: pegalo a mano',3000);}}
       else if(a==='stop'){folStop();closeSheet();}
-      else if(a==='go'){const p=folParse($('#fl').value);if(!p){toast('Ese link no es de seguimiento',3500);return;}closeSheet();await folStart(p.topic,p.keyB);}
+      else if(a==='go'){const v=$('#fl').value,gp=grpParse(v);if(gp){closeSheet();showGroupJoin(gp);return;}const p=folParse(v);if(!p){toast('Ese link no es de seguimiento',3500);return;}closeSheet();await folStart(p.topic,p.keyB);}
     });
 }
 document.addEventListener('click',e=>{
@@ -9795,6 +9841,165 @@ document.addEventListener('click',e=>{
   else if(f==='g'){FOL.tgt=!FOL.tgt;if(FOL.tgt&&!watch)startWatch(false);if(!FOL.tgt)clearTarget();folDraw();toast(FOL.tgt?'🎯 La flecha te lleva hacia la última posición':'Flecha apagada',2500);}
 });
 addEventListener('hashchange',folFromHash);
+
+/* ---------- 👥 Grupo en vivo: un solo link; quien lo abre comparte y ve a todos ---------- */
+const GRP={on:false,topic:'',key:null,keyB:'',people:new Map(),seen:new Set(),lastId:'',es:null,poll:0,tgt:null,fit:false,min:false,netOk:null};
+const grpLayer=L.layerGroup().addTo(map);
+const GCOL=['#E53935','#1E88E5','#43A047','#FB8C00','#8E24AA','#00897B','#F4511E','#3949AB','#AFB42B','#6D4C41'];
+const grpColor=sid=>{let h=7;for(const c of String(sid))h=(h*31+c.charCodeAt(0))>>>0;return GCOL[h%GCOL.length];};
+function grpParse(str){const m=String(str||'').match(/grupo=([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)/);return m?{topic:m[1],keyB:m[2]}:null;}
+const grpLink=()=>shBase()+'#grupo='+GRP.topic+'.'+GRP.keyB;
+async function grpShareLink(){
+  const link=grpLink(),txt=`Sumate a nuestro grupo en vivo en Rumbo (cada uno ve dónde están los demás): ${link}`;
+  try{
+    if(isNative()){await plugin('Share').share({title:'Grupo en vivo',text:txt,dialogTitle:'Invitar al grupo'});return;}
+    if(navigator.share){await navigator.share({title:'Grupo en vivo',text:txt});return;}
+  }catch(e){if(/cancel|abort/i.test(e.message||e.name||''))return;}
+  try{await navigator.clipboard.writeText(link);toast('Link copiado',2500);}catch(e){prompt('Copiá el link:',link);}
+}
+/* hoja: crear un grupo, unirse con un link, o ver el grupo actual */
+function showGroup(join){
+  if(GRP.on&&!join){
+    const ppl=[...GRP.people.values()].filter(p=>p.sid!==SH.sid);
+    openSheet('👥 Grupo en vivo',`<p>${ppl.length?`${ppl.length} persona${ppl.length>1?'s':''} más en el grupo.`:'Todavía no se sumó nadie más: mandales el link.'}${SH.on&&SH.group?' Vos estás compartiendo tu posición.':' <b>Vos solo estás mirando</b> (no compartís tu posición).'}</p>
+      <div class="row"><button class="btn primary" data-act="lk">📤 Invitar (mandar el link)</button></div>
+      ${SH.on&&SH.group?'':'<div class="row"><button class="btn" data-act="sh">📡 Compartir también mi posición</button></div>'}
+      <label>Modo</label><div class="chips">${Object.entries(SH_MODES).map(([k,m])=>`<button data-act="md" data-k="${k}" class="${SH.on&&SH.group&&k===SH.mode?'on':''}">${m.n}</button>`).join('')}</div>
+      <div class="row" style="margin-top:12px"><button class="btn danger" data-act="out">🚪 Salir del grupo</button></div>
+      <p class="mut">Cada uno se ve en el mapa con su color y su nombre. En el panel de abajo, 🎯 al lado de alguien pone la flecha hacia esa persona.</p>`,
+      async(a,d,el)=>{
+        if(a==='lk')grpShareLink();
+        else if(a==='sh'){closeSheet();await grpShareMe(S.shareName||'',d.k||'meet');}
+        else if(a==='md'){if(SH.on&&SH.group){SH.mode=d.k;shSave();showGroup();}else{closeSheet();await grpShareMe(S.shareName||'',d.k);}}
+        else if(a==='out'){if(armed(el)){closeSheet();grpLeave();}}
+      });
+    return;
+  }
+  const st={name:S.shareName||'',mode:'meet'};
+  const draw=()=>openSheet(join?'👥 Unirte al grupo':'👥 Grupo en vivo',`
+    ${join?'<p>Te invitaron a un grupo en vivo: cada uno ve dónde están los demás.</p>':'<p>Creá un grupo y mandá <b>un solo link</b>: cada uno que lo abra comparte su posición y ve a todos en el mapa. Sirve para una travesía, una salida en grupo o para encontrarse en una largada.</p>'}
+    <label for="gn">Tu nombre (lo ven los demás)</label><input class="in" id="gn" value="${esc(st.name)}" placeholder="Ej: Hugo">
+    <label>Cada cuánto</label>${Object.entries(SH_MODES).map(([k,m])=>`<div class="card ${k===st.mode?'on':''}" data-act="md" data-k="${k}"><b>${m.n}</b><br><small class="mut">${m.d}</small></div>`).join('')}
+    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="go">${join?'👥 Unirme y compartir':'👥 Crear el grupo'}</button>${join?'<button class="btn" data-act="watch">👀 Solo mirar</button>':''}</div>
+    ${join?'':`<h3>¿Te mandaron un link?</h3><input class="in" id="gl" placeholder="https://…#grupo=…" autocomplete="off"><div class="row" style="margin-top:6px"><button class="btn" data-act="pst">📋 Pegar</button><button class="btn" data-act="jl">Unirme con ese link</button></div>`}
+    <p class="mut">Va cifrado: solo lo ven los que tienen el link. Mientras estés en el grupo, tu posición se manda también con la pantalla apagada (en iPhone, solo con Rumbo abierto).</p>`,
+    async(a,d)=>{
+      if(a==='md'){st.mode=d.k;draw();}
+      else if(a==='pst'){try{$('#gl').value=await navigator.clipboard.readText();}catch(e){toast('Pegalo a mano',2500);}}
+      else if(a==='jl'){const p=grpParse($('#gl').value);if(!p){toast('Ese link no es de un grupo',3500);return;}closeSheet();showGroupJoin(p);}
+      else if(a==='go'||a==='watch'){
+        S.shareName=st.name;saveS();
+        if(!window.crypto||!crypto.subtle){toast('Este navegador no permite cifrar: no se puede usar el grupo',5000);return;}
+        closeSheet();
+        if(join){await grpJoin(join.topic,join.keyB);if(a==='go')await grpShareMe(st.name,st.mode);}
+        else{
+          const raw=crypto.getRandomValues(new Uint8Array(16)),topic='rumbo-g'+b64u.enc(crypto.getRandomValues(new Uint8Array(12)));
+          await grpJoin(topic,b64u.enc(raw));await grpShareMe(st.name,st.mode);
+          setTimeout(grpShareLink,400);
+        }
+      }
+    },
+    t=>{if(t.id==='gn')st.name=t.value.trim();});
+  draw();
+}
+const showGroupJoin=p=>{if(GRP.on&&GRP.topic===p.topic){showGroup();return;}showGroup(p);};
+/* compartir mi posición dentro del grupo (usa el mismo envío que el seguimiento, con la clave del grupo) */
+async function grpShareMe(name,mode){
+  if(!GRP.on)return;
+  if(SH.on&&!(SH.group&&SH.topic===GRP.topic))await shStop();
+  if(!SH.on)await shStart({name,mode:mode||'meet',topic:GRP.topic,keyB:GRP.keyB,group:true});
+  grpPanel();
+}
+async function grpJoin(topic,keyB){
+  if(GRP.on&&GRP.topic!==topic)grpLeave(true);
+  let key;try{key=await shKeyFrom(b64u.dec(keyB));}catch(e){toast('El link del grupo no es válido',4000);return;}
+  if(FOL.on)folStop(true);
+  Object.assign(GRP,{on:true,topic,keyB,key,people:new Map(),seen:new Set(),lastId:'',fit:false,tgt:null});
+  S.group={topic,keyB};saveS();
+  if(!watch)try{startWatch(false);}catch(e){}
+  $('#grp').hidden=false;grpPanel();
+  await grpPoll(true);grpLive();
+}
+function grpLeave(quiet){
+  if(GRP.es){try{GRP.es.close();}catch(e){}GRP.es=null;}
+  clearInterval(GRP.poll);GRP.poll=0;
+  if(SH.on&&SH.group)shStop();
+  if(GRP.tgt)clearTarget();
+  GRP.on=false;GRP.tgt=null;grpLayer.clearLayers();$('#grp').hidden=true;
+  S.group=null;saveS();
+  if(/grupo=/.test(location.hash))history.replaceState(null,'',location.pathname+location.search);
+  if(!quiet)toast('Saliste del grupo',2500);
+}
+async function grpHandle(id,msg){
+  if(!msg||GRP.seen.has(id))return;
+  GRP.seen.add(id);if(id)GRP.lastId=id;
+  let o;try{o=await shOpen(msg,GRP.key);}catch(e){return;}
+  if(!o.sid)return;
+  let p=GRP.people.get(o.sid);
+  if(!p){p={sid:o.sid,pts:[],meta:null,bat:null,ended:false,color:grpColor(o.sid)};GRP.people.set(o.sid,p);}
+  if(o.k==='m')p.meta=Object.assign({},p.meta||{},o);
+  else if(o.k==='p'){for(const q of o.pts||[])p.pts.push(q);if(p.pts.length>1500)p.pts.splice(0,p.pts.length-1500);if(o.bat!=null)p.bat=o.bat;p.ended=false;}
+  else if(o.k==='e')p.ended=true;
+}
+async function grpPoll(all){
+  try{
+    const r=await fetch(`${NTFY}${GRP.topic}/json?poll=1&since=${all||!GRP.lastId?'all':GRP.lastId}`);
+    if(!r.ok)throw new Error('http '+r.status);
+    for(const line of (await r.text()).split('\n')){if(!line.trim())continue;let j;try{j=JSON.parse(line);}catch(e){continue;}if(j.event==='message')await grpHandle(j.id,j.message);}
+    GRP.netOk=true;
+  }catch(e){GRP.netOk=false;}
+  grpDraw();
+}
+function grpLive(){
+  if(!GRP.on)return;
+  try{if(typeof EventSource!=='undefined'){const es=new EventSource(`${NTFY}${GRP.topic}/sse${GRP.lastId?'?since='+GRP.lastId:''}`);
+    es.onmessage=async ev=>{let j;try{j=JSON.parse(ev.data);}catch(e){return;}if(j.event==='message'){await grpHandle(j.id,j.message);grpDraw();}};es.onerror=()=>{};GRP.es=es;}}catch(e){}
+  clearInterval(GRP.poll);GRP.poll=setInterval(()=>{if(GRP.on)grpPoll(false);},20000);
+}
+setInterval(()=>{if(GRP.on)grpPanel();},5000);
+const grpLast=p=>{for(let i=p.pts.length-1;i>=0;i--)if(p.pts[i])return p.pts[i];return null;};
+function grpDraw(){
+  if(!GRP.on)return;
+  grpLayer.clearLayers();
+  const now=Date.now()/1000,all=[];
+  for(const p of GRP.people.values()){
+    if(p.sid===SH.sid)continue;
+    const last=grpLast(p);if(!last)continue;
+    const stale=p.ended||now-last[2]>600,col=stale?'#888':p.color,nm=(p.meta&&p.meta.name)||'Sin nombre';
+    const tail=p.pts.filter(q=>last[2]-q[2]<=1800).map(q=>[q[0],q[1]]);
+    if(tail.length>1){L.polyline(tail,{color:'#fff',weight:6,opacity:.8,interactive:false}).addTo(grpLayer);L.polyline(tail,{color:col,weight:3.5,interactive:false}).addTo(grpLayer);}
+    L.marker([last[0],last[1]],{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="grpmk${stale?' old':''}" style="--c:${col}"><span></span><b>${esc(nm)}</b></div>`})}).addTo(grpLayer);
+    all.push([last[0],last[1]]);
+    if(GRP.tgt===p.sid)setTarget(last[0],last[1],nm);
+  }
+  if(!GRP.fit&&all.length){GRP.fit=true;const b=all.slice();if(lastFix)b.push([lastFix.lat,lastFix.lon]);setFollow(false);if(b.length>1)map.fitBounds(L.latLngBounds(b),{padding:[60,60],maxZoom:17});else map.setView(b[0],16);}
+  grpPanel();
+}
+function grpPanel(){
+  const el=$('#grp');if(!el||!GRP.on)return;
+  const now=Date.now()/1000,me=lastFix?[lastFix.lat,lastFix.lon]:null;
+  const ppl=[...GRP.people.values()].filter(p=>p.sid!==SH.sid&&grpLast(p)).sort((a,b)=>((a.meta&&a.meta.name)||'').localeCompare((b.meta&&b.meta.name)||''));
+  const rows=ppl.map(p=>{
+    const l=grpLast(p),ago=Math.max(0,Math.round(now-l[2])),agoT=ago<60?`${ago} s`:ago<3600?`${Math.round(ago/60)} min`:`${(ago/3600).toFixed(1).replace('.',',')} h`;
+    const d=me?hav(me,[l[0],l[1]]):null,dir=me&&d>15?compassWord(bearingTo(me,[l[0],l[1]])):'';
+    return `<div class="gr${p.ended||ago>600?' old':''}"><i style="background:${p.color}"></i><div class="gn"><b>${esc((p.meta&&p.meta.name)||'Sin nombre')}</b><small>${p.ended?'dejó de compartir · ':''}hace ${agoT}${d!=null?` · ${fmtD(d)}${dir?' al '+dir:''}`:''}${p.bat!=null?` · 🔋${p.bat}%`:''}</small></div><button data-g="t" data-s="${p.sid}" class="${GRP.tgt===p.sid?'on':''}" aria-label="Ir hacia">🎯</button><button data-g="c" data-s="${p.sid}" aria-label="Ver">⌖</button></div>`;
+  }).join('');
+  el.classList.toggle('min',GRP.min);
+  el.innerHTML=`<div class="gh" data-g="m"><b>👥 Grupo · ${ppl.length+1}</b><small>${GRP.netOk===false?'⚠️ sin conexión':SH.on&&SH.group?'compartiendo':'solo mirando'}</small><span>${GRP.min?'▲':'▼'}</span></div>
+    ${GRP.min?'':`${rows||'<div class="gr"><small>Esperando a los demás… mandales el link.</small></div>'}<div class="ga"><button data-g="l">📤 Invitar</button><button data-g="o">⚙️ Grupo</button><button data-g="x">✕ Salir</button></div>`}`;
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('#grp [data-g]');if(!b)return;
+  const g=b.dataset.g,p=b.dataset.s&&GRP.people.get(b.dataset.s);
+  if(g==='m'){GRP.min=!GRP.min;grpPanel();}
+  else if(g==='l')grpShareLink();
+  else if(g==='o')showGroup();
+  else if(g==='x'){if(armed(b))grpLeave();}
+  else if(g==='c'&&p){const l=grpLast(p);setFollow(false);map.setView([l[0],l[1]],Math.max(map.getZoom(),16));}
+  else if(g==='t'&&p){if(GRP.tgt===p.sid){GRP.tgt=null;clearTarget();toast('Flecha apagada',2000);}else{GRP.tgt=p.sid;if(!watch)startWatch(false);toast(`🎯 La flecha te lleva hacia ${(p.meta&&p.meta.name)||'esa persona'}`,2500);}grpDraw();}
+});
+function grpFromHash(){const p=grpParse(location.hash);if(p)showGroupJoin(p);}
+addEventListener('hashchange',grpFromHash);
 
 /* ---------- Más, ajustes y backup ---------- */
 function showMoreMenu(){
@@ -9809,9 +10014,10 @@ function showMoreMenu(){
     <button class="btn big" data-act="globe">🌍<br>Globo</button>
     <button class="btn big" data-act="share">📡<br>${SH.on?'Compartiendo':'Compartir en vivo'}</button>
     <button class="btn big" data-act="follow">👀<br>Seguir a alguien</button>
+    <button class="btn big" data-act="group">👥<br>Grupo en vivo${GRP.on?' ✓':''}</button>
     <button class="btn big" data-act="watch">⌚<br>Avisos al reloj${waCfg().on?' ✓':''}</button>
     <button class="btn big" data-act="set">⚙️<br>Ajustes</button></div>`,
-    a=>{if(a==='watch')showWatch();else if(a==='share')showShare();else if(a==='follow')showFollowAsk();else if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
+    a=>{if(a==='group')showGroup();else if(a==='watch')showWatch();else if(a==='share')showShare();else if(a==='follow')showFollowAsk();else if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
 }
 function showMore(){
   const chips=(id,cur,opts)=>`<div class="chips">${opts.map(([k,n])=>`<button data-act="${id}" data-k="${k}" class="${k===cur?'on':''}">${n}</button>`).join('')}</div>`;
@@ -9991,7 +10197,10 @@ if(!isNative()&&location.protocol==='https:'&&'serviceWorker' in navigator){
   if(!(folH&&!isNative()))startWatch(false);
   setTimeout(checkIntent,700);
   try{await shResume();}catch(e){}
-  if(folH)folFromHash();else if(S.follow&&S.follow.topic)folStart(S.follow.topic,S.follow.keyB);
+  const grpH=grpParse(location.hash);
+  if(S.group&&S.group.topic)try{await grpJoin(S.group.topic,S.group.keyB);}catch(e){}
+  if(grpH)grpFromHash();
+  else if(folH)folFromHash();else if(S.follow&&S.follow.topic&&!GRP.on)folStart(S.follow.topic,S.follow.keyB);
   restoreTarget();
   if(S.radarOn)setTimeout(()=>setRadar(true,true),1800);
   drawEdits();
