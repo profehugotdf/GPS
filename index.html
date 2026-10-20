@@ -319,6 +319,8 @@ body.gbOn #tgt{z-index:1060;top:calc(var(--top) + 64px);max-width:calc(100% - 80
 .grpmk span{display:block;width:18px;height:18px;border-radius:50%;background:var(--c);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)}
 .grpmk b{position:absolute;left:22px;white-space:nowrap;background:var(--c);color:#fff;border-radius:8px;padding:1px 6px;font:800 12px system-ui;box-shadow:0 1px 3px rgba(0,0,0,.4)}
 .grpmk.old span{opacity:.6}
+.srlb{transform:translate(-50%,-50%);display:inline-block;white-space:nowrap;background:rgba(255,255,255,.88);border:2px solid var(--c);border-radius:8px;padding:0 5px;font:700 12px system-ui;color:#111;text-align:center}
+.srlb b{color:var(--c)}.srlb small{display:block;font:600 10px system-ui;color:#333}
 
 .hcirc.isf1{display:block}
 .f1{margin-top:2px}
@@ -9954,13 +9956,14 @@ function showGroup(join){
   if(GRP.on&&!join){
     const ppl=[...GRP.people.values()].filter(p=>p.sid!==SH.sid);
     openSheet('👥 Grupo en vivo',`<p>${ppl.length?`${ppl.length} persona${ppl.length>1?'s':''} más en el grupo.`:'Todavía no se sumó nadie más: mandales el link.'}${SH.on&&SH.group?' Vos estás compartiendo tu posición.':' <b>Vos solo estás mirando</b> (no compartís tu posición).'}</p>
-      <div class="row"><button class="btn primary" data-act="lk">📤 Invitar (mandar el link)</button></div>
+      <div class="row"><button class="btn primary" data-act="lk">📤 Invitar (mandar el link)</button><button class="btn" data-act="sr">🔎 Modo búsqueda</button></div>
       ${SH.on&&SH.group?'':'<div class="row"><button class="btn" data-act="sh">📡 Compartir también mi posición</button></div>'}
       <label>Modo</label><div class="chips">${Object.entries(SH_MODES).map(([k,m])=>`<button data-act="md" data-k="${k}" class="${SH.on&&SH.group&&k===SH.mode?'on':''}">${m.n}</button>`).join('')}</div>
       <div class="row" style="margin-top:12px"><button class="btn danger" data-act="out">🚪 Salir del grupo</button></div>
       <p class="mut">Cada uno se ve en el mapa con su color y su nombre. En el panel de abajo, 🎯 al lado de alguien pone la flecha hacia esa persona.</p>`,
       async(a,d,el)=>{
         if(a==='lk')grpShareLink();
+        else if(a==='sr')showSearch();
         else if(a==='sh'){closeSheet();await grpShareMe(S.shareName||'',d.k||'meet');}
         else if(a==='md'){if(SH.on&&SH.group){SH.mode=d.k;shSave();showGroup();}else{closeSheet();await grpShareMe(S.shareName||'',d.k);}}
         else if(a==='out'){if(armed(el)){closeSheet();grpLeave();}}
@@ -10007,6 +10010,7 @@ async function grpJoin(topic,keyB){
   let key;try{key=await shKeyFrom(b64u.dec(keyB));}catch(e){toast('El link del grupo no es válido',4000);return;}
   if(FOL.on)folStop(true);
   Object.assign(GRP,{on:true,topic,keyB,key,people:new Map(),seen:new Set(),lastId:'',fit:false,tgt:null});
+  SR.op=S.search&&S.search[topic]||null;SR.raster=null;SR.img=null;SR.seenOp=null;
   S.group={topic,keyB};saveS();
   if(!watch)try{startWatch(false);}catch(e){}
   $('#grp').hidden=false;grpPanel();
@@ -10017,7 +10021,7 @@ function grpLeave(quiet){
   clearInterval(GRP.poll);GRP.poll=0;
   if(SH.on&&SH.group)shStop();
   if(GRP.tgt)clearTarget();
-  GRP.on=false;GRP.tgt=null;grpLayer.clearLayers();$('#grp').hidden=true;
+  GRP.on=false;GRP.tgt=null;grpLayer.clearLayers();srLayer.clearLayers();SR.op=null;$('#grp').hidden=true;
   S.group=null;saveS();
   if(/grupo=/.test(location.hash))history.replaceState(null,'',location.pathname+location.search);
   if(!quiet)toast('Saliste del grupo',2500);
@@ -10026,6 +10030,7 @@ async function grpHandle(id,msg){
   if(!msg||GRP.seen.has(id))return;
   GRP.seen.add(id);if(id)GRP.lastId=id;
   let o;try{o=await shOpen(msg,GRP.key);}catch(e){return;}
+  if(o.k==='op'||o.k==='ss'){srHandle(o);return;}
   if(!o.sid)return;
   let p=GRP.people.get(o.sid);
   if(!p){p={sid:o.sid,pts:[],meta:null,bat:null,ended:false,color:grpColor(o.sid)};GRP.people.set(o.sid,p);}
@@ -10039,13 +10044,16 @@ async function grpPoll(all){
     if(!r.ok)throw new Error('http '+r.status);
     for(const line of (await r.text()).split('\n')){if(!line.trim())continue;let j;try{j=JSON.parse(line);}catch(e){continue;}if(j.event==='message')await grpHandle(j.id,j.message);}
     GRP.netOk=true;
+    srFlushPend();
+    /* los mensajes quedan unas horas en el servidor: la búsqueda se vuelve a mandar para que la vea quien se sume después */
+    if(SR.op&&(!SR.seenOp||Date.now()-SR.seenOp>6*3600e3)){SR.seenOp=Date.now();srPost({k:'op',sid:SH.sid||'',op:SR.op});}
   }catch(e){GRP.netOk=false;}
-  grpDraw();
+  grpDraw();if(SR.op)srCompute();
 }
 function grpLive(){
   if(!GRP.on)return;
   try{if(typeof EventSource!=='undefined'){const es=new EventSource(`${NTFY}${GRP.topic}/sse${GRP.lastId?'?since='+GRP.lastId:''}`);
-    es.onmessage=async ev=>{let j;try{j=JSON.parse(ev.data);}catch(e){return;}if(j.event==='message'){await grpHandle(j.id,j.message);grpDraw();}};es.onerror=()=>{};GRP.es=es;}}catch(e){}
+    es.onmessage=async ev=>{let j;try{j=JSON.parse(ev.data);}catch(e){return;}if(j.event==='message'){await grpHandle(j.id,j.message);grpDraw();if(SR.op)srCompute();}};es.onerror=()=>{};GRP.es=es;}}catch(e){}
   clearInterval(GRP.poll);GRP.poll=setInterval(()=>{if(GRP.on)grpPoll(false);},20000);
 }
 setInterval(()=>{if(GRP.on)grpPanel();},5000);
@@ -10078,7 +10086,7 @@ function grpPanel(){
   }).join('');
   el.classList.toggle('min',GRP.min);
   el.innerHTML=`<div class="gh" data-g="m"><b>👥 Grupo · ${ppl.length+1}</b><small>${GRP.netOk===false?'⚠️ sin conexión':SH.on&&SH.group?'compartiendo':'solo mirando'}</small><span>${GRP.min?'▲':'▼'}</span></div>
-    ${GRP.min?'':`${rows||'<div class="gr"><small>Esperando a los demás… mandales el link.</small></div>'}<div class="ga"><button data-g="l">📤 Invitar</button><button data-g="o">⚙️ Grupo</button><button data-g="x">✕ Salir</button></div>`}`;
+    ${GRP.min?'':`${rows||'<div class="gr"><small>Esperando a los demás… mandales el link.</small></div>'}${SR.op?(()=>{const m=srSummary();return `<div class="gr" data-g="s"><small>🔎 Búsqueda: ✅ ${m.c.ok} · 🟡 ${m.c.curso} · 🔴 ${m.c.pend}${m.c.redo?` · 🔁 ${m.c.redo}`:''} de ${m.n} sectores</small></div>`;})():''}<div class="ga"><button data-g="l">📤 Invitar</button><button data-g="s">🔎 Búsqueda</button><button data-g="o">⚙️ Grupo</button><button data-g="x">✕ Salir</button></div>`}`;
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('#grp [data-g]');if(!b)return;
@@ -10086,10 +10094,180 @@ document.addEventListener('click',e=>{
   if(g==='m'){GRP.min=!GRP.min;grpPanel();}
   else if(g==='l')grpShareLink();
   else if(g==='o')showGroup();
+  else if(g==='s')showSearch();
   else if(g==='x'){if(armed(b))grpLeave();}
   else if(g==='c'&&p){const l=grpLast(p);setFollow(false);map.setView([l[0],l[1]],Math.max(map.getZoom(),16));}
   else if(g==='t'&&p){if(GRP.tgt===p.sid){GRP.tgt=null;clearTarget();toast('Flecha apagada',2000);}else{GRP.tgt=p.sid;if(!watch)startWatch(false);toast(`🎯 La flecha te lleva hacia ${(p.meta&&p.meta.name)||'esa persona'}`,2500);}grpDraw();}
 });
+
+/* ---------- 🔎 Modo búsqueda (sobre el grupo en vivo): sectores, franja recorrida y estado de cada sector ----------
+   Lo recorrido se pinta con una franja alrededor de cada recorrido. Recorrido NO es revisado: cada sector lo confirma una persona. */
+const SR={op:null,raster:null,cov:{},img:null,t:0,busy:false,lastPost:0};
+const srLayer=L.layerGroup().addTo(map);
+const SR_ST={pend:['Pendiente','#E53935'],curso:['En curso','#F9A825'],ok:['Revisado','#2E7D32'],redo:['Revisar de nuevo','#FB8C00']};
+const srTeams=['Equipo 1','Equipo 2','Equipo 3','Equipo 4','Equipo 5','Equipo 6'];
+const srName=(r,c)=>String.fromCharCode(65+r%26)+(r>=26?Math.floor(r/26):'')+(c+1);
+/* rectángulo de un sector */
+function srCell(op,id){const [r,c]=id.split('-').map(Number),dl=op.m/110540,dn=op.m/(111320*Math.cos(op.n*rad));return {n:op.n-r*dl,s:op.n-(r+1)*dl,w:op.w+c*dn,e:op.w+(c+1)*dn,r,c};}
+function srSave(){if(!GRP.on)return;S.search=S.search||{};S.search[GRP.topic]=SR.op;saveS();}
+async function srPost(obj){
+  if(!GRP.on)return;
+  try{await shPost(GRP.topic,await shSeal(obj,GRP.key));}catch(e){toast('Sin conexión: el cambio se ve en tu teléfono y se manda cuando haya señal',4000);SR.pend=(SR.pend||[]).concat([obj]);}
+}
+async function srFlushPend(){if(!SR.pend||!SR.pend.length||!GRP.on)return;const p=SR.pend;SR.pend=[];for(const o of p)await srPost(o);}
+/* mensajes del grupo: la búsqueda completa (op) y los cambios de un sector (ss) */
+function srHandle(o){
+  if(o.k==='op'){if(!SR.op||(o.op&&o.op.v>SR.op.v)||(!o.op&&o.v>(SR.op.v||0))){SR.op=o.op||null;SR.raster=null;srSave();}SR.seenOp=Date.now();}
+  else if(o.k==='ss'&&SR.op){const st=SR.op.st||(SR.op.st={}),cur=st[o.id];if(!cur||o.t>cur.t){st[o.id]={s:o.s,team:o.team,by:o.by,t:o.t};srSave();}}
+}
+/* --- crear la búsqueda: el perímetro (lo que se ve o un área dibujada) se divide en cuadros --- */
+async function showSearchSetup(){
+  const areas=(await DB.all('kv','edit:')).filter(e=>e.type==='area'&&e.pts&&e.pts.length>=3);
+  const st={src:'view',m:500,sw:30,area:null};
+  const draw=()=>openSheet('🔎 Nueva búsqueda',`<p class="mut">Se divide la zona en sectores cuadrados para repartirlos entre equipos. Todos los del grupo ven los mismos sectores, el estado de cada uno y lo que se fue recorriendo.</p>
+    <label>Zona de búsqueda</label><div class="chips"><button data-act="src" data-k="view" class="${st.src==='view'?'on':''}">Lo que se ve en el mapa</button>${areas.length?`<button data-act="src" data-k="area" class="${st.src==='area'?'on':''}">Un área dibujada</button>`:''}</div>
+    ${st.src==='area'?`<div class="chips" style="margin-top:6px">${areas.slice(0,20).map(a=>`<button data-act="ar" data-k="${a.id}" class="${st.area===a.id?'on':''}">⬛ ${esc(a.name||'Área sin nombre')}</button>`).join('')}</div>`:''}
+    <label>Tamaño de cada sector</label><div class="chips">${[200,300,500,1000].map(m=>`<button data-act="m" data-k="${m}" class="${st.m===m?'on':''}">${m<1000?m+' m':'1 km'}</button>`).join('')}</div>
+    <label>Franja que cubre cada persona al pasar</label><div class="chips">${[10,20,30,50,100].map(m=>`<button data-act="sw" data-k="${m}" class="${st.sw===m?'on':''}">${m} m</button>`).join('')}</div>
+    <p class="mut">La franja es el ancho que alguien puede revisar con la vista al caminar: poco en bosque o quebrada (10–20 m), más en terreno abierto (50–100 m).</p>
+    <p id="srprev" class="mut"></p>
+    <div class="row"><button class="btn primary" data-act="go">🔎 Crear los sectores</button><button class="btn" data-act="back">Volver</button></div>`,
+    async(a,d)=>{
+      if(a==='src'){st.src=d.k;draw();}else if(a==='ar'){st.area=d.k;draw();}
+      else if(a==='m'){st.m=+d.k;draw();}else if(a==='sw'){st.sw=+d.k;draw();}
+      else if(a==='back')showGroup();
+      else if(a==='go'){
+        let per=null,bb;
+        if(st.src==='area'){const ar=areas.find(x=>x.id===st.area);if(!ar){toast('Elegí un área',2500);return;}per=ar.pts.map(p=>[p[0],p[1]]);}
+        if(per){bb={n:-90,s:90,e:-180,w:180};for(const p of per){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}}
+        else{const b=map.getBounds();bb={n:b.getNorth(),s:b.getSouth(),e:b.getEast(),w:b.getWest()};}
+        const [wk,hk]=bbKm(bb);
+        if(wk>12||hk>12){toast('La zona es muy grande (más de 12 km): acercá el mapa o usá un área más chica',5000);return;}
+        const op={v:Date.now(),n:bb.n,w:bb.w,m:st.m,sw:st.sw,rows:Math.ceil(hk*1000/st.m),cols:Math.ceil(wk*1000/st.m),per:per?simplifyDP(per,8).map(p=>[+p[0].toFixed(5),+p[1].toFixed(5)]):null,cells:[],st:{},by:SH.name||S.shareName||''};
+        for(let r=0;r<op.rows;r++)for(let c=0;c<op.cols;c++){
+          const id=r+'-'+c,b=srCell(op,id);
+          if(op.per){const smp=[[b.n,b.w],[b.n,b.e],[b.s,b.w],[b.s,b.e],[(b.n+b.s)/2,(b.e+b.w)/2],[b.n,(b.e+b.w)/2],[b.s,(b.e+b.w)/2],[(b.n+b.s)/2,b.w],[(b.n+b.s)/2,b.e]];
+            if(!smp.some(p=>pip(p[0],p[1],op.per))&&!op.per.some(p=>p[0]<=b.n&&p[0]>=b.s&&p[1]>=b.w&&p[1]<=b.e))continue;}
+          op.cells.push(id);
+        }
+        if(op.cells.length>80){toast(`Saldrían ${op.cells.length} sectores: elegí sectores más grandes (máximo 80)`,5000);return;}
+        if(!op.cells.length){toast('No quedó ningún sector',3000);return;}
+        SR.op=op;SR.raster=null;srSave();closeSheet();
+        await srPost({k:'op',sid:SH.sid||'',op});
+        srCompute(true);showSearch();
+        toast(`🔎 ${op.cells.length} sectores creados. Tocá un sector en el mapa para asignarle equipo.`,5000);
+      }
+    });
+  draw();
+}
+/* --- franja recorrida: una grilla fina sobre toda la zona; se marca lo que queda a menos de media franja de cada recorrido --- */
+function srCompute(force){
+  const op=SR.op;if(!op||!GRP.on)return;
+  if(!force&&Date.now()-SR.t<5000){clearTimeout(SR.tm);SR.tm=setTimeout(()=>srCompute(true),5000);return;}
+  SR.t=Date.now();
+  const W=op.cols*op.m,H=op.rows*op.m,cs=Math.max(op.sw/4,Math.max(W,H)/900,3),nx=Math.ceil(W/cs),ny=Math.ceil(H/cs);
+  const kx=111320*Math.cos(op.n*rad),ky=110540,toX=lon=>(lon-op.w)*kx/cs,toY=lat=>(op.n-lat)*ky/cs;
+  if(!SR.raster||SR.raster.nx!==nx||SR.raster.cs!==cs){
+    /* máscara: dentro de un sector (y del perímetro, si hay) */
+    const inS=new Uint8Array(nx*ny),cells=new Set(op.cells);
+    for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
+      const r=Math.floor(j*cs/op.m),c=Math.floor(i*cs/op.m);if(!cells.has(r+'-'+c))continue;
+      if(op.per){const lat=op.n-(j+.5)*cs/ky,lon=op.w+(i+.5)*cs/kx;if(!pip(lat,lon,op.per))continue;}
+      inS[j*nx+i]=1;
+    }
+    SR.raster={nx,ny,cs,inS};
+  }
+  const R=SR.raster,cov=new Uint8Array(nx*ny),rad_=op.sw/2/cs,ri=Math.ceil(rad_);
+  const mark=(x,y)=>{const x0=Math.max(0,Math.floor(x-ri)),x1=Math.min(nx-1,Math.ceil(x+ri)),y0=Math.max(0,Math.floor(y-ri)),y1=Math.min(ny-1,Math.ceil(y+ri));
+    for(let j=y0;j<=y1;j++)for(let i=x0;i<=x1;i++){const dx=i+.5-x,dy=j+.5-y;if(dx*dx+dy*dy<=rad_*rad_)cov[j*nx+i]=1;}};
+  for(const p of GRP.people.values()){
+    const P=p.pts;
+    for(let k=0;k<P.length;k++){
+      const a=P[k];if(!a)continue;
+      const ax=toX(a[1]),ay=toY(a[0]);
+      if(ax<-ri||ay<-ri||ax>nx+ri||ay>ny+ri)continue;
+      mark(ax,ay);
+      const b=P[k+1];if(!b)continue;
+      /* se une con el siguiente punto si están cerca en el tiempo y en el espacio (si no, hubo un corte) */
+      if(b[2]-a[2]>180||hav(a,b)>250)continue;
+      const bx=toX(b[1]),by=toY(b[0]),L=Math.hypot(bx-ax,by-ay),n=Math.ceil(L/.5);
+      for(let s=1;s<n;s++)mark(ax+(bx-ax)*s/n,ay+(by-ay)*s/n);
+    }
+  }
+  /* porcentaje por sector */
+  const tot={},got={};
+  for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const q=j*nx+i;if(!R.inS[q])continue;const id=Math.floor(j*cs/op.m)+'-'+Math.floor(i*cs/op.m);tot[id]=(tot[id]||0)+1;if(cov[q])got[id]=(got[id]||0)+1;}
+  SR.cov={};for(const id of op.cells)SR.cov[id]=tot[id]?Math.round((got[id]||0)/tot[id]*100):0;
+  /* imagen de lo recorrido */
+  const cv=document.createElement('canvas');cv.width=nx;cv.height=ny;const x=cv.getContext('2d'),im=x.createImageData(nx,ny);
+  for(let q=0;q<nx*ny;q++)if(cov[q]&&R.inS[q]){im.data[q*4]=40;im.data[q*4+1]=170;im.data[q*4+2]=90;im.data[q*4+3]=150;}
+  x.putImageData(im,0,0);SR.img=cv.toDataURL();
+  SR.cells=cov;srDraw();
+}
+const srStatus=id=>{const s=SR.op&&SR.op.st&&SR.op.st[id];if(s&&s.s)return s.s;return (SR.cov[id]||0)>=5?'curso':'pend';};
+function srDraw(){
+  srLayer.clearLayers();
+  const op=SR.op;if(!op||!GRP.on)return;
+  const W=op.cols*op.m,H=op.rows*op.m,s=op.n-H/110540,e=op.w+W/(111320*Math.cos(op.n*rad));
+  if(SR.img)L.imageOverlay(SR.img,[[s,op.w],[op.n,e]],{opacity:.9,interactive:false}).addTo(srLayer);
+  if(op.per)L.polygon(op.per,{color:'#111',weight:2,dashArray:'6 6',fill:false,interactive:false}).addTo(srLayer);
+  for(const id of op.cells){
+    const b=srCell(op,id),stt=srStatus(id),col=SR_ST[stt][1],t=op.st&&op.st[id]&&op.st[id].team;
+    L.rectangle([[b.s,b.w],[b.n,b.e]],{color:col,weight:stt==='ok'?3:2,fillColor:col,fillOpacity:stt==='ok'?.18:.05}).on('click',()=>showSector(id)).addTo(srLayer);
+    L.marker([(b.n+b.s)/2,(b.e+b.w)/2],{interactive:false,icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="srlb" style="--c:${col}"><b>${srName(b.r,b.c)}</b>${SR.cov[id]?` ${SR.cov[id]}%`:''}${t?`<small>${esc(t)}</small>`:''}</div>`})}).addTo(srLayer);
+  }
+}
+function showSector(id){
+  const op=SR.op;if(!op)return;
+  const b=srCell(op,id),cur=op.st&&op.st[id]||{},stt=srStatus(id);
+  openSheet(`🔎 Sector ${srName(b.r,b.c)}`,`<p><b style="color:${SR_ST[stt][1]}">● ${SR_ST[stt][0]}</b> · recorrido el <b>${SR.cov[id]||0} %</b> (franja de ${op.sw} m)${cur.by?`<br><small class="mut">Último cambio: ${esc(cur.by)} a las ${hhmm(cur.t)}</small>`:''}</p>
+    <label>Equipo</label><div class="chips"><button data-act="tm" data-k="" class="${!cur.team?'on':''}">Sin asignar</button>${srTeams.map(t=>`<button data-act="tm" data-k="${t}" class="${cur.team===t?'on':''}">${t}</button>`).join('')}</div>
+    <label>Estado</label><div class="chips">${['pend','ok','redo'].map(k=>`<button data-act="st" data-k="${k}" class="${cur.s===k?'on':''}">${k==='ok'?'✅ ':k==='redo'?'🔁 ':''}${SR_ST[k][0]}</button>`).join('')}</div>
+    <p class="mut">Que esté recorrido no quiere decir que esté revisado: marcá <b>Revisado</b> solo cuando el equipo confirme que lo miró bien.</p>
+    <div class="row"><button class="btn" data-act="go">🎯 Ir al sector</button><button class="btn" data-act="see">🔍 Ver</button><button class="btn" data-act="list">☰ Todos</button></div>`,
+    async(a,d)=>{
+      if(a==='tm'||a==='st'){
+        const c2=SR.op.st&&SR.op.st[id]||{};
+        const o={k:'ss',sid:SH.sid||'',id,s:a==='st'?d.k:c2.s,team:a==='tm'?(d.k||null):c2.team,by:SH.name||S.shareName||'',t:Math.max(Date.now(),(c2.t||0)+1)};
+        srHandle(o);srDraw();showSector(id);await srPost(o);
+      }
+      else if(a==='go'){setTarget((b.n+b.s)/2,(b.e+b.w)/2,'Sector '+srName(b.r,b.c));closeSheet();toast('🎯 La flecha te lleva al centro del sector',3000);}
+      else if(a==='see'){closeSheet();map.fitBounds([[b.s,b.w],[b.n,b.e]],{padding:[40,40]});}
+      else if(a==='list')showSearch();
+    });
+}
+function srSummary(){
+  const op=SR.op;if(!op)return '';
+  const n=op.cells.length,c={pend:0,curso:0,ok:0,redo:0};let sum=0;for(const id of op.cells){c[srStatus(id)]++;sum+=SR.cov[id]||0;}
+  return {n,c,avg:Math.round(sum/n)};
+}
+function showSearch(){
+  if(!GRP.on){toast('El modo búsqueda funciona dentro de un grupo en vivo',4000);showGroup();return;}
+  if(!SR.op){showSearchSetup();return;}
+  const op=SR.op,sm=srSummary();
+  const rows=op.cells.slice().sort((a,b)=>{const o={redo:0,pend:1,curso:2,ok:3};return o[srStatus(a)]-o[srStatus(b)]||(SR.cov[a]||0)-(SR.cov[b]||0);}).map(id=>{const b=srCell(op,id),st=srStatus(id),t=op.st&&op.st[id]&&op.st[id].team;
+    return `<div class="item" data-act="sec" data-id="${id}"><div><b style="color:${SR_ST[st][1]}">●</b> <b>${srName(b.r,b.c)}</b> · ${SR_ST[st][0]} · ${SR.cov[id]||0} %${t?` · ${esc(t)}`:''}</div><span>›</span></div>`;}).join('');
+  openSheet('🔎 Búsqueda',`<p><b>${sm.n} sectores</b> de ${op.m} m · franja de ${op.sw} m<br>✅ ${sm.c.ok} revisados · 🟡 ${sm.c.curso} en curso · 🔴 ${sm.c.pend} pendientes${sm.c.redo?` · 🔁 ${sm.c.redo} a revisar de nuevo`:''}<br><small class="mut">Recorrido en promedio: ${sm.avg} %</small></p>
+    <div class="row"><button class="btn primary" data-act="see">🗺️ Ver en el mapa</button><button class="btn" data-act="exp">📤 Mandar el estado</button></div>
+    ${rows}
+    <div class="row" style="margin-top:10px"><button class="btn" data-act="gj">GeoJSON (sectores y recorridos)</button><button class="btn danger" data-act="del">Terminar la búsqueda</button></div>
+    <p class="mut">La franja recorrida usa las posiciones que comparte cada uno (conviene el modo 🤝 Encuentro, cada 10 s). Sin señal, se completa cuando vuelve la conexión.</p>`,
+    async(a,d,el)=>{
+      if(a==='sec')showSector(d.id);
+      else if(a==='see'){closeSheet();const W=op.cols*op.m,H=op.rows*op.m;map.fitBounds([[op.n-H/110540,op.w],[op.n,op.w+W/(111320*Math.cos(op.n*rad))]],{padding:[20,20]});}
+      else if(a==='exp'){
+        const s=srSummary(),lines=op.cells.map(id=>{const b=srCell(op,id),st=srStatus(id),t=op.st&&op.st[id]&&op.st[id].team;return `${srName(b.r,b.c)}: ${SR_ST[st][0]}, ${SR.cov[id]||0} %${t?` (${t})`:''}`;});
+        const txt=`🔎 Búsqueda – ${hhmm(Date.now())}\n${s.n} sectores · ✅ ${s.c.ok} revisados · 🟡 ${s.c.curso} en curso · 🔴 ${s.c.pend} pendientes${s.c.redo?` · 🔁 ${s.c.redo} a revisar`:''}\n\n${lines.join('\n')}\n\n(Recorrido no es lo mismo que revisado.)`;
+        try{if(isNative())await plugin('Share').share({title:'Estado de la búsqueda',text:txt});else if(navigator.share)await navigator.share({text:txt});else{await navigator.clipboard.writeText(txt);toast('Copiado',2000);}}catch(e){}
+      }
+      else if(a==='gj'){
+        const feats=op.cells.map(id=>{const b=srCell(op,id),st=srStatus(id),t=op.st&&op.st[id]&&op.st[id].team;return {type:'Feature',properties:{sector:srName(b.r,b.c),estado:SR_ST[st][0],recorrido_pct:SR.cov[id]||0,equipo:t||''},geometry:{type:'Polygon',coordinates:[[[b.w,b.n],[b.e,b.n],[b.e,b.s],[b.w,b.s],[b.w,b.n]]]}};});
+        for(const p of GRP.people.values())if(p.pts.length>1)feats.push({type:'Feature',properties:{persona:(p.meta&&p.meta.name)||'Sin nombre'},geometry:{type:'LineString',coordinates:p.pts.map(q=>[q[1],q[0]])}});
+        shareFile('busqueda.geojson',JSON.stringify({type:'FeatureCollection',features:feats}),'application/geo+json');
+      }
+      else if(a==='del'){if(armed(el)){const v=Date.now();SR.op=null;SR.raster=null;SR.img=null;srSave();srDraw();closeSheet();await srPost({k:'op',sid:SH.sid||'',op:null,v});toast('Búsqueda terminada',3000);}}
+    });
+}
 function grpFromHash(){const p=grpParse(location.hash);if(p)showGroupJoin(p);}
 addEventListener('hashchange',grpFromHash);
 
