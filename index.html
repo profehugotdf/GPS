@@ -3854,11 +3854,12 @@ async function importFile(){
 
 /* ---------- Tracks ---------- */
 let shown=null;
-function hideShown(){if(shown){map.removeLayer(shown);shown=null;}}
+let shownTrack=null;
+function hideShown(){if(shown){map.removeLayer(shown);shown=null;}shownTrack=null;}
 function showOnMap(tr){
   hideShown();
   const segs={};tr.pts.forEach(p=>(segs[p[5]]=segs[p[5]]||[]).push([p[0],p[1]]));
-  shown=L.featureGroup(Object.values(segs).map(s=>L.polyline(s,{color:'#1E6BFF',weight:5,opacity:.9}))).addTo(map);
+  shown=L.featureGroup(Object.values(segs).map(s=>L.polyline(s,{color:'#1E6BFF',weight:5,opacity:.9}))).addTo(map);shownTrack=tr;
   setFollow(false);closeSheet();map.fitBounds(shown.getBounds(),{padding:[40,40]});
 }
 const trLaps=tr=>resOf(tr).reduce((a,r)=>a+r.laps.length,0);
@@ -10455,6 +10456,8 @@ function t3Line(o){
 }
 async function open3D(o){
   o=o||{};
+  /* si en el mapa está a la vista un track grabado o importado, el 3D lo toma como track: así aparece 🎬 Revivir con sus datos */
+  if(!o.track&&!o.line&&!o.route&&shownTrack&&shownTrack.pts&&shownTrack.pts.length>1&&!(RT.res&&RT.res[RT.sel]&&!RT.res[RT.sel].err)){o.track=shownTrack;o.line=shownTrack.pts.map(p=>[p[0],p[1]]);o.hint=true;}
   if(T3.on)close3D();
   const line=t3Line(o);
   /* zona: la de la línea (si se pidió) o la que se ve en el mapa */
@@ -10488,6 +10491,7 @@ async function open3D(o){
   $('#t3fly').hidden=!line||!!T3.rel;t3RelBtn();
   t3Overlay();t3Loop();
   t3Sat(my);
+  if(T3.rel&&!o.relive){const hs=[T3.rel.hrS&&'❤️ pulso',T3.rel.pwS&&'⚡ potencia',T3.rel.cadS&&'cadencia'].filter(Boolean);toast(`Tocá 🎬 Revivir para ver el recorrido con velocidad, altura${hs.length?', '+hs.join(', '):''} en cada momento`,6000);}
   if(o.relive&&T3.rel){const t0=Date.now();while(T3.gen===my&&T3.loaded<T3.total*.6&&Date.now()-t0<6000)await new Promise(r=>setTimeout(r,200));if(T3.gen===my)t3RelStart();}
 }
 function close3D(){
