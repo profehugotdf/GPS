@@ -10921,6 +10921,8 @@ function gdAnswer(st,txt){
   const a=GD.ask;
   if(!a&&!GD.mine)return;
   const base=a||GD.mine;
+  /* prueba: no se avisa a nadie, solo se confirma que la respuesta llegó (por ejemplo desde el reloj) */
+  if(base.test){GD.ask=null;gdNoteClear();gdOverlay();toast(`🧪 Prueba OK: respondiste “${(GD_ST[st]||[])[1]||st}”`,5000);gdSay('Prueba recibida');return;}
   gdPost(st,Object.assign({id:base.id,why:base.why,pos:base.pos||gdPos()},txt?{txt}:{}));
   GD.ask=null;gdSiren(false);gdNoteClear();
   GD.moving=false;GD.movSince=0;GD.stopSince=0;GD.impactT=0;
