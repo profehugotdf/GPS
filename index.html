@@ -634,7 +634,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="t3" hidden><canvas id="t3c"></canvas>
   <div class="t3bar"><button data-t3="x" aria-label="Cerrar 3D">✕</button><b>🏔️ 3D</b><span id="t3msg"></span></div>
   <div class="t3r"><button data-t3="n" aria-label="Norte arriba y vista de arriba"><span id="t3cmp">🧭</span></button><button data-t3="in" aria-label="Acercar">+</button><button data-t3="out" aria-label="Alejar">−</button></div>
-  <div class="t3b"><div id="t3tl" hidden><button id="t3pp" data-t3="pp" aria-label="Pausa o seguir">⏸</button><div class="tlw"><input type="range" id="t3sb" min="0" max="1000" step="1" value="0" aria-label="Línea de tiempo"><div id="t3tk"></div></div><span id="t3tt">0:00</span></div><span>Relieve</span><button data-t3="ex" data-ex="1">×1</button><button data-t3="ex" data-ex="1.5">×1,5</button><button data-t3="ex" data-ex="2">×2</button><button id="t3fly" data-t3="fly">▶ Sobrevolar</button><button id="t3rv" data-t3="rv" hidden>🎬 Revivir</button><button id="t3vid" data-t3="vid" hidden>⏺ Video</button></div>
+  <div class="t3b"><div id="t3tl" hidden><button id="t3pp" data-t3="pp" aria-label="Pausa o seguir">⏸</button><button id="t3cm" data-t3="cm" aria-label="Cámara automática o mi vista">🎥</button><div class="tlw"><input type="range" id="t3sb" min="0" max="1000" step="1" value="0" aria-label="Línea de tiempo"><div id="t3tk"></div></div><span id="t3tt">0:00</span></div><span>Relieve</span><button data-t3="ex" data-ex="1">×1</button><button data-t3="ex" data-ex="1.5">×1,5</button><button data-t3="ex" data-ex="2">×2</button><button id="t3fly" data-t3="fly">▶ Sobrevolar</button><button id="t3rv" data-t3="rv" hidden>🎬 Revivir</button><button id="t3vid" data-t3="vid" hidden>⏺ Video</button></div>
   <div id="t3rel" hidden></div><div id="t3mk" hidden></div>
   <div class="t3h">Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar</div>
 </div>
@@ -10694,13 +10694,13 @@ function t3Gestures(cv){
       if(g.d>10&&g0.d>10)c.dist*=g0.d/g.d;
       let da=g.ang-g0.ang;if(da>Math.PI)da-=2*Math.PI;if(da<-Math.PI)da+=2*Math.PI;c.az-=da/rad;
       c.tilt+=(g0.my-g.my)*0.25;
-      T3.g0=g;
+      T3.g0=g;t3MyView();
     }
     T3.dirty=true;
   });
   const up=e=>{pts.delete(e.pointerId);T3.g0=pts.size===2?pair():null;};
   cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
-  cv.addEventListener('wheel',e=>{e.preventDefault();T3.cam.dist*=Math.exp(e.deltaY*.0015);T3.dirty=true;},{passive:false});
+  cv.addEventListener('wheel',e=>{e.preventDefault();T3.cam.dist*=Math.exp(e.deltaY*.0015);T3.dirty=true;t3MyView();},{passive:false});
 }
 /* ---------- 🎬 Revivir un track (estilo Relive): el recorrido se va dibujando, la cámara lo sigue y se ven los datos ---------- */
 /* la línea del track va en una textura aparte: cada píxel guarda en qué parte del recorrido está (0 a 1), así el shader pinta lo recorrido */
@@ -10751,10 +10751,13 @@ function t3RelStart(){
   t3RelBtn();t3TlShow();
 }
 /* ---- barra de tiempo del Revivir: arrastrar para ir a cualquier momento; ⏸/▶ para pausar y seguir ---- */
+/* si cambiás el ángulo, la altura o la orientación durante el Revivir, se conserva al mover la barra o al seguir */
+function t3MyView(){const R=T3.rel;if(!R||!R.started||R.userCam)return;R.userCam=true;t3CamBtn();toast('📌 Se conserva tu vista al mover la barra o seguir. 🎥 vuelve a la cámara automática',4000);}
+function t3CamBtn(){const b=$('#t3cm'),R=T3.rel;if(b)b.textContent=R&&R.userCam?'📌':'🎥';}
 function t3TlShow(){
   const R=T3.rel,tl=$('#t3tl');if(!tl)return;tl.hidden=!R;const h=$('#t3 .t3h');if(h)h.hidden=!!R;if(!R)return;
   $('#t3tk').innerHTML=R.legs?R.legs.map((l,i)=>(i?`<i style="left:${(l.w0*100).toFixed(2)}%"></i>`:'')+`<b style="left:${(((l.w0+l.w1)/2)*100).toFixed(2)}%">${l.lab?'⏱️':(ACT[l.act]||ACT.walk)[0]}</b>`).join(''):'';
-  $('#t3pp').textContent=R.go?'⏸':'▶';
+  $('#t3pp').textContent=R.go?'⏸':'▶';t3CamBtn();
 }
 function t3RelSeek(k){
   const R=T3.rel;if(!R)return;
@@ -10795,7 +10798,9 @@ function t3RelStep(now){
   /* la distancia de la cámara cambia suave entre etapas (nadar se ve de cerca, la bici de más lejos) */
   R.fol=R.fol==null?fol0:R.fol+(fol0-R.fol)*.03;const follow=R.fol;
   T3.kp=s/(R.L||1);
-  if(!R.noIntro&&el<intro){const u=el/intro,e=u*u*(3-2*u);Object.assign(T3.cam,{tx:x,tz:z,az:R.az-40*(1-e),tilt:20+40*e,dist:span*.9*(1-e)+follow*e});}
+  if(R.userCam&&k<1){T3.cam.tx=x;T3.cam.tz=z;}
+  else if(R.userCam){T3.cam.tx=x;T3.cam.tz=z;if(R.end==null)R.end=now;if(now-R.end>outro){R.go=false;R.t0=null;R.done=true;if(T3.recr&&T3.recr.state==='recording')setTimeout(()=>T3.recr&&T3.recr.state==='recording'&&T3.recr.stop(),300);t3RelBtn();}}
+  else if(!R.noIntro&&el<intro){const u=el/intro,e=u*u*(3-2*u);Object.assign(T3.cam,{tx:x,tz:z,az:R.az-40*(1-e),tilt:20+40*e,dist:span*.9*(1-e)+follow*e});}
   else if(k<1)Object.assign(T3.cam,{tx:x,tz:z,az:R.az+8*Math.sin(el/9000),tilt:60,dist:follow});
   else{
     if(R.end==null){R.end=now;R.c0={...T3.cam};const mid=R.XZ[Math.floor(R.XZ.length/2)];R.c1={tx:mid[0],tz:mid[1],az:R.c0.az+30,tilt:42,dist:Math.max(1500,Math.min(T3.N*256*T3.mpp*1.1,R.L*.9))};}
@@ -10924,9 +10929,10 @@ document.addEventListener('click',e=>{
   const a=b.dataset.t3,c=T3.cam;
   if(a==='x')close3D();
   else if(a==='ex'){T3.exag=+b.dataset.ex;S.exag3d=T3.exag;saveS();t3Ui();T3.dirty=true;}
-  else if(a==='in'){c.dist/=1.6;T3.dirty=true;}
-  else if(a==='out'){c.dist*=1.6;T3.dirty=true;}
-  else if(a==='n'){c.az=0;c.tilt=c.tilt>5?0:58;T3.dirty=true;}
+  else if(a==='in'){c.dist/=1.6;T3.dirty=true;t3MyView();}
+  else if(a==='out'){c.dist*=1.6;T3.dirty=true;t3MyView();}
+  else if(a==='n'){c.az=0;c.tilt=c.tilt>5?0:58;T3.dirty=true;t3MyView();}
+  else if(a==='cm'){const R=T3.rel;if(!R)return;R.userCam=!R.userCam;t3CamBtn();toast(R.userCam?'📌 Mi vista: la cámara sigue al recorrido con el ángulo, la altura y la orientación que elegiste':'🎥 Cámara automática: sigue el recorrido mirando hacia adelante',4000);if(!R.userCam){R.az=null;R.fol=null;}if(!R.go&&R.started)t3RelSeek(R.k||0);}
   else if(a==='fly'){if(T3.fly){T3.fly=null;t3FlyBtn();}else t3FlyStart();}
   else if(a==='rv'||a==='pp')t3RelPlay();
   else if(a==='vid')t3VidStart();
