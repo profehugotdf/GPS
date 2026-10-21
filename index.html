@@ -330,6 +330,12 @@ body.gbOn #tgt{z-index:1060;top:calc(var(--top) + 64px);max-width:calc(100% - 80
 #gdov .gdg{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 #gdov .gdbar{height:10px;border-radius:5px;background:rgba(255,255,255,.2);overflow:hidden}#gdov .gdbar i{display:block;height:100%;width:100%;background:#F9A825;transition:width 1s linear}
 .gdhead{border-left:6px solid;padding:6px 10px;margin-bottom:8px;border-radius:6px;background:rgba(0,0,0,.04)}
+.gdq{display:grid;grid-template-columns:1fr 1fr;gap:8px}.gdq button{border:0;border-radius:14px;min-height:54px;font:700 16px system-ui;background:var(--foam,#e8eef0);color:var(--ink,#0E2A36);padding:6px}
+.gdq .qok{background:#2E7D32;color:#fff}.gdq .qhelp{background:#E65100;color:#fff}.gdq .qsos{background:#C62828;color:#fff;font-weight:900}
+#grp button.gmsg{background:#F2A900;color:#111}
+.gdmk{position:absolute;transform:translate(-50%,-50%);width:30px;height:30px;border-radius:50%;background:#fff;border:2px solid #546E7A;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 1px 5px rgba(0,0,0,.4)}
+.gdmk.lv2,.gdmk.lv3{border-color:#C62828;box-shadow:0 0 0 4px rgba(198,40,40,.35)}
+#grp button.gack{height:26px;min-width:0;padding:0 8px;font-size:12px;margin-top:3px;background:#2E7D32}
 .gdsteps{padding-left:20px;margin:4px 0}.gdsteps li{margin:5px 0}
 .grpmk{position:relative;transform:translate(-50%,-50%);display:flex;align-items:center}
 .grpmk span{display:block;width:18px;height:18px;border-radius:50%;background:var(--c);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)}
@@ -10055,7 +10061,7 @@ function showGroup(join){
   if(GRP.on&&!join){
     const ppl=[...GRP.people.values()].filter(p=>p.sid!==SH.sid);
     openSheet('👥 Grupo en vivo',`${SH.on&&SH.group?`<label for="gnm">Tu nombre (así te ven los demás)</label><div class="row"><input class="in" id="gnm" value="${esc(SH.name||'')}" placeholder="Ej: Hugo" style="flex:1"><button class="btn primary" data-act="nm">Guardar</button></div>`:''}<p>${ppl.length?`${ppl.length} persona${ppl.length>1?'s':''} más en el grupo.`:'Todavía no se sumó nadie más: mandales el link.'}${SH.on&&SH.group?' Vos estás compartiendo tu posición.':' <b>Vos solo estás mirando</b> (no compartís tu posición).'}</p>
-      <div class="row"><button class="btn primary" data-act="lk">📤 Invitar (mandar el link)</button><button class="btn" data-act="sr">🔎 Modo búsqueda</button><button class="btn" data-act="gd">🛟 Guardián</button></div>
+      <div class="row"><button class="btn primary" data-act="lk">📤 Invitar (mandar el link)</button><button class="btn" data-act="sr">🔎 Modo búsqueda</button><button class="btn" data-act="gd">🛟 Guardián</button><button class="btn primary" data-act="msg">💬 Avisar</button></div>
       ${SH.on&&SH.group?'':'<div class="row"><button class="btn" data-act="sh">📡 Compartir también mi posición</button></div>'}
       <label>Modo</label><div class="chips">${Object.entries(SH_MODES).map(([k,m])=>`<button data-act="md" data-k="${k}" class="${SH.on&&SH.group&&k===SH.mode?'on':''}">${m.n}</button>`).join('')}</div>
       <div class="row" style="margin-top:12px"><button class="btn danger" data-act="out">🚪 Salir del grupo</button></div>
@@ -10065,6 +10071,7 @@ function showGroup(join){
         else if(a==='nm'){await grpSetName($('#gnm').value);showGroup();}
         else if(a==='sr')showSearch();
         else if(a==='gd')showGuard();
+        else if(a==='msg')showGroupMsg();
         else if(a==='sh'){closeSheet();await grpShareMe(S.shareName||'',d.k||'meet');}
         else if(a==='md'){if(SH.on&&SH.group){SH.mode=d.k;shSave();showGroup();}else{closeSheet();await grpShareMe(S.shareName||'',d.k);}}
         else if(a==='out'){if(armed(el)){closeSheet();grpLeave();}}
@@ -10181,6 +10188,12 @@ function grpDraw(){
     L.marker([last[0],last[1]],{interactive:false,zIndexOffset:1700,icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="grpmk${stale?' old':''}" style="--c:${col}"><span></span><b>${esc(nm)}</b></div>`})}).addTo(grpLayer);
     all.push([last[0],last[1]]);
     if(GRP.tgt===p.sid)setTarget(last[0],last[1],nm);
+    /* donde avisó (baño, pausa, vuelco…): un ícono en el mapa que se va solo al rato */
+    const c=p.ck;
+    if(c&&c.pos&&GD_ST[c.st]&&c.st!=='done'&&c.st!=='ok'&&c.st!=='mov'&&Date.now()-c.t<(GD_ST[c.st][3]>=2?6*3600e3:30*60000)){
+      const ic=c.txt?c.txt.split(' ')[0]:GD_ST[c.st][0];
+      L.marker(c.pos,{interactive:false,zIndexOffset:1650,icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="gdmk lv${GD_ST[c.st][3]}" title="${esc(nm)}">${ic}</div>`})}).addTo(grpLayer);
+    }
   }
   if(!GRP.fit&&all.length){GRP.fit=true;const b=all.slice();if(lastFix)b.push([lastFix.lat,lastFix.lon]);setFollow(false);if(b.length>1)map.fitBounds(L.latLngBounds(b),{padding:[60,60],maxZoom:17});else map.setView(b[0],16);}
   grpPanel();
@@ -10196,7 +10209,7 @@ function grpPanel(){
   }).join('');
   el.classList.toggle('min',GRP.min);
   el.innerHTML=`<div class="gh" data-g="m"><b>👥 Grupo · ${ppl.length+1}</b><small>${GRP.netOk===false?'⚠️ sin conexión':SH.on&&SH.group?`vos: ${SH.name?esc(SH.name):'<u>Sin nombre ✏️</u>'}`:'solo mirando'}</small><span>${GRP.min?'▲':'▼'}</span></div>
-    ${gdBanner()}${GRP.min?'':`${rows||'<div class="gr"><small>Esperando a los demás… mandales el link.</small></div>'}${SR.op?(()=>{const m=srSummary();return `<div class="gr" data-g="s"><small>🔎 Búsqueda: ✅ ${m.c.ok} · 🟡 ${m.c.curso} · 🔴 ${m.c.pend}${m.c.redo?` · 🔁 ${m.c.redo}`:''} de ${m.n} sectores</small></div>`;})():''}<div class="ga"><button data-g="gd">🛟${gdOn()?'':' (apagado)'}</button><button data-g="l">📤 Invitar</button><button data-g="s">🔎 Búsqueda</button><button data-g="o">⚙️ Grupo</button><button data-g="x">✕ Salir</button></div>`}`;
+    ${gdBanner()}${GRP.min?'':`${rows||'<div class="gr"><small>Esperando a los demás… mandales el link.</small></div>'}${SR.op?(()=>{const m=srSummary();return `<div class="gr" data-g="s"><small>🔎 Búsqueda: ✅ ${m.c.ok} · 🟡 ${m.c.curso} · 🔴 ${m.c.pend}${m.c.redo?` · 🔁 ${m.c.redo}`:''} de ${m.n} sectores</small></div>`;})():''}<div class="ga"><button data-g="msg" class="gmsg">💬 Avisar</button><button data-g="gd">🛟${gdOn()?'':' (apagado)'}</button><button data-g="l">📤 Invitar</button><button data-g="s">🔎 Búsqueda</button><button data-g="o">⚙️ Grupo</button><button data-g="x">✕ Salir</button></div>`}`;
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('#grp [data-g]');if(!b)return;
@@ -10208,6 +10221,8 @@ document.addEventListener('click',e=>{
   else if(g==='s')showSearch();
   else if(g==='x'){if(armed(b))grpLeave();}
   else if(g==='gd')showGuard();
+  else if(g==='msg')showGroupMsg();
+  else if(g==='ack'&&p&&p.ck){gdPostAbout(p.sid,'ack',{id:p.ck.id});toast(`👍 Le avisaste a ${gdPname(p)} que lo viste`,2500);}
   else if(g==='e'&&p)gdProtocol(p.sid);
   else if(g==='v'&&p){gdAck(p.ck);gdPostAbout(p.sid,'voy',{id:p.ck&&p.ck.id});toast(`Avisaste que vas hacia ${gdPname(p)}`,3000);}
   else if(g==='q'&&p){if(armed(b)){gdPostAbout(p.sid,'ask',{why:'manual',id:p.sid+'.'+Date.now()});toast(`❓ Le preguntamos a ${gdPname(p)} si está bien`,3500);}}
@@ -10826,7 +10841,7 @@ const GD_ACT={
 const GD_SENS={alta:.5,normal:1,baja:2};
 /* estado: [icono, texto, color, nivel] · nivel 3 = alarma, 2 = ayuda, 1 = preguntando, 0 = informativo */
 const GD_ST={ask:['⚠️','Se detuvo · le estamos preguntando','#F9A825',1],ok:['✅','Está bien','#2E7D32',0],mov:['✅','Siguió en movimiento','#2E7D32',0],
-  flat:['🔧','Problema, lo resuelve','#1E88E5',0],rest:['☕','Pausa / descanso','#1E88E5',0],help:['🤕','Necesita ayuda','#E53935',2],
+  flat:['🔧','Problema, lo resuelve','#1E88E5',0],rest:['☕','Pausa / descanso','#1E88E5',0],note:['💬','Mensaje','#546E7A',0],help:['🤕','Necesita ayuda','#E53935',2],
   sos:['🆘','¡EMERGENCIA!','#B71C1C',3],noans:['🆘','No responde','#B71C1C',3],done:['✔️','Resuelto','#2E7D32',0]};
 const GD_NUMS=[['911','🚓 Emergencias'],['107','🚑 Emergencias médicas'],['106','⚓ Prefectura (agua)'],['100','🚒 Bomberos'],['103','🛟 Defensa Civil']];
 const gdCfg=()=>Object.assign({on:true,sens:'normal',ask:0,impact:true,ice:'',iceTel:''},S.guard||{});
@@ -10902,11 +10917,11 @@ function gdAsk(why,by){
   if(why!=='self'){gdPost('ask',by?{q:by}:null);gdSay(by?`${by} te pregunta si estás bien. Respondé en el teléfono o seguí andando.`:'¿Estás bien? Respondé en el teléfono, o seguí andando.');}
   gdOverlay();if(why!=='self')gdNote();
 }
-function gdAnswer(st){
+function gdAnswer(st,txt){
   const a=GD.ask;
   if(!a&&!GD.mine)return;
   const base=a||GD.mine;
-  gdPost(st,{id:base.id,why:base.why,pos:base.pos||gdPos()});
+  gdPost(st,Object.assign({id:base.id,why:base.why,pos:base.pos||gdPos()},txt?{txt}:{}));
   GD.ask=null;gdSiren(false);gdNoteClear();
   GD.moving=false;GD.movSince=0;GD.stopSince=0;GD.impactT=0;
   if(st==='rest')GD.snooze=Date.now()+15*60000;else if(st==='flat')GD.snooze=Date.now()+30*60000;
@@ -10943,6 +10958,13 @@ function gdHandle(o){
   const mine=o.sid===SH.sid&&SH.on;
   /* alguien me pregunta a mí */
   if(o.st==='ask'&&o.why==='manual'&&mine&&o.from!==SH.sid){if(!GD.ask&&Date.now()-o.t<10*60000)gdAsk('manual',o.nm);return;}
+  if(o.st==='ack'){
+    /* 👍 recibido: a quien mandó el aviso le llega quién lo vio */
+    let p=GRP.people.get(o.sid);if(!p||!p.ck||p.ck.id!==o.id)return;
+    p.ck.acks=[...new Set((p.ck.acks||[]).concat([o.nm||'Alguien']))];
+    if(o.sid===gdMyId()&&o.from!==gdMyId()&&!GD.replay){toast(`👍 ${o.nm||'Alguien'} vio tu aviso`,4000);try{navigator.vibrate&&navigator.vibrate(120);}catch(e){}}
+    gdRefresh();return;
+  }
   if(o.st==='voy'){
     let p=GRP.people.get(o.sid);if(!p||!p.ck||p.ck.id!==o.id)return;
     p.ck.goes=[...new Set((p.ck.goes||[]).concat([o.nm||'Alguien']))];
@@ -10956,7 +10978,7 @@ function gdHandle(o){
   /* cada teléfono tiene su reloj: solo se descarta lo viejo del mismo que lo mandó (el servidor ya los entrega en orden) */
   if(prev&&o.from===prev.from&&o.t<prev.t)return;
   /* el que preguntó a mano queda anotado */
-  p.ck={id:o.id,st:o.st,why:o.why,t:o.t,t0:prev&&prev.id===o.id?prev.t0:o.t,pos:o.pos||(prev&&prev.pos)||null,by:o.nm,from:o.from,act:o.act||(prev&&prev.act),goes:prev&&prev.id===o.id?prev.goes||[]:[],asker:o.q||(o.why==='manual'&&o.st==='ask'&&o.from!==o.sid?o.nm:null)||(prev&&(prev.id===o.id||o.why==='manual')?prev.asker:null)};
+  p.ck={id:o.id,st:o.st,why:o.why,t:o.t,t0:prev&&prev.id===o.id?prev.t0:o.t,pos:o.pos||(prev&&prev.pos)||null,by:o.nm,from:o.from,act:o.act||(prev&&prev.act),txt:o.txt||null,goes:prev&&prev.id===o.id?prev.goes||[]:[],asker:o.q||(o.why==='manual'&&o.st==='ask'&&o.from!==o.sid?o.nm:null)||(prev&&(prev.id===o.id||o.why==='manual')?prev.asker:null)};
   if(mine&&o.st==='done'&&o.from!==SH.sid){GD.mine=null;GD.ask=null;gdSiren(false);gdNoteClear();gdOverlay();toast(`${o.nm||'Alguien'} cerró el aviso`,4000);}
   if(o.from===gdMyId()&&o.sid===gdMyId()){gdRefresh();return;}
   if(GD.replay){gdRefresh();return;}
@@ -10965,6 +10987,13 @@ function gdHandle(o){
   if(lv>=2&&!mine){
     if(!GD.ack[o.id+o.st]){GD.alarm={sid:o.sid,id:o.id,st:o.st,next:0};gdAlarmTick(true);}
   }else if(o.st==='ask'&&!mine&&o.from!==gdMyId()){toast(o.why==='manual'?`❓ ${o.from===o.sid?(o.q||'Alguien'):o.nm} le preguntó a ${nm} si está bien`:`⚠️ ${nm}: ${(GD_WHY[o.why]||'se detuvo').replace('Frenaste','frenó').replace('Estás','está').replace('Se detectó','se detectó')} · le estamos preguntando`,6000);try{beep(660,.25);}catch(e){}}
+  else if(lv===0&&!mine&&o.from!==gdMyId()&&(o.st==='note'||o.why==='quick')){
+    /* mensaje rápido: aviso corto, al reloj y por voz (si está prendida) */
+    const t=o.st==='note'?o.txt:`${GD_ST[o.st][0]} ${GD_ST[o.st][1]}`;
+    toast(`💬 ${nm}: ${t}`,7000);try{beep(990,.15);}catch(e){}try{say(`${nm}: ${String(t).replace(/^\S+\s/,'')}`);}catch(e){}
+    try{waPost(`💬 ${nm}`,t);}catch(e){}
+    if(GD.alarm&&GD.alarm.sid===o.sid&&o.st!=='note'){GD.alarm=null;gdSiren(false);}
+  }
   else if(lv===0&&!mine&&prev&&prev.id===o.id&&prev.st!==o.st){
     const t=`${nm}: ${GD_ST[o.st][1].toLowerCase()}${o.st==='done'&&o.nm?' (lo cerró '+o.nm+')':''}`;
     toast(`${GD_ST[o.st][0]} ${t}`,6000);
@@ -10975,7 +11004,7 @@ function gdHandle(o){
   gdRefresh();
 }
 const gdPname=p=>(p&&p.meta&&p.meta.name)||(p&&p.ck&&p.ck.by)||'Alguien';
-function gdRefresh(){try{grpPanel();}catch(e){}}
+function gdRefresh(){try{grpDraw();}catch(e){try{grpPanel();}catch(e2){}}}
 
 /* alarma en los demás: sirena corta, voz y aviso al reloj; se repite cada minuto hasta que la veas */
 function gdAlarmTick(first){
@@ -10984,10 +11013,10 @@ function gdAlarmTick(first){
   if(!c||c.id!==A.id||(GD_ST[c.st]||[])[3]<2||GD.ack[c.id+c.st]){GD.alarm=null;gdSiren(false);return;}
   if(!first&&Date.now()<A.next)return;
   A.next=Date.now()+60000;
-  const nm=gdPname(p),st=GD_ST[c.st];
+  const nm=gdPname(p),st=c.txt?[c.txt.split(' ')[0],c.txt.replace(/^\S+\s/,'')]:GD_ST[c.st];
   gdSiren(true,12000);
   try{navigator.vibrate&&navigator.vibrate([600,250,600,250,600]);}catch(e){}
-  gdSay(c.st==='noans'?`Atención. ${nm} no responde.`:c.st==='sos'?`Emergencia. ${nm} pide ayuda urgente.`:`${nm} necesita ayuda.`);
+  gdSay(c.st==='noans'?`Atención. ${nm} no responde.`:c.st==='sos'?`Emergencia. ${nm} pide ayuda urgente.`:c.txt?`Atención. ${nm}: ${st[1]}.`:`${nm} necesita ayuda.`);
   try{waPost(`${st[0]} ${nm}: ${st[1]}`,'Abrí Rumbo: posición y protocolo');}catch(e){}
   if(first)toast(`${st[0]} ${nm}: ${st[1]}. Tocá 🆘 en el panel del grupo`,8000);
 }
@@ -11119,9 +11148,48 @@ function gdProtocol(sid){
 function gdAck(c){if(!c)return;GD.ack[c.id+c.st]=true;if(GD.alarm&&GD.alarm.id===c.id){GD.alarm=null;gdSiren(false);}}
 
 /* --- ajustes --- */
+/* --- 💬 avisar al grupo: un toque y lo ven todos (y les vibra el reloj) --- */
+/* [ícono, texto, minutos sin preguntas del Guardián, tipo] · tipo 'help' = hace sonar la alarma corta en todos */
+const GD_QUICK_ACT={
+  bike:[['⛓️','Se me salió la cadena',10],['🚗','¡Cuidado, tránsito!',0],['💧','Paro a hidratarme',10],['🤕','Me caí, estoy bien',10]],
+  kayak:[['🌊','Vuelco / persona al agua',0,'help'],['💦','Me entra agua',10],['🌬️','Mucho viento, reagrupemos',0],['🏖️','Desembarco en la costa',20],['💪','Calambre / cansancio',10]],
+  swim:[['🥶','Tengo frío, salgo',20],['🛟','Me agarro a la boya / kayak',10],['🧭','Perdí la referencia',0],['💪','Calambre, voy despacio',10]],
+  walk:[['🦶','Torcedura / dolor',15],['🧭','Perdí el sendero',0],['🌫️','Niebla, esperemos',10],['⚠️','Obstáculo en el sendero',0],['💧','Paro a hidratarme',10]],
+  run:[['🦶','Torcedura / dolor',15],['🧭','Me perdí',0],['💧','Paro a hidratarme',10]]};
+const GD_QUICK=[['🚻','Paré al baño',15],['⏳','Espérenme',0],['🐢','Voy atrás, sigan',0],['👥','Reagrupemos',5],['▶️','En marcha',0],['↩️','Me vuelvo',0],['🏁','Llegué',0]];
+async function gdQuickSend(st,txt,snz){
+  if(!GRP.on){toast('Primero sumate a un grupo',3000);return;}
+  if(GD.ask&&['ok','rest','flat'].includes(st)){gdAnswer(st);closeSheet();return;}
+  if(GD.mine&&st==='ok'){gdAnswer('ok');closeSheet();return;}
+  if(snz)GD.snooze=Math.max(GD.snooze,Date.now()+snz*60000);
+  if(st!=='note'&&st!=='ok'){GD.moving=false;GD.movSince=0;GD.stopSince=0;}
+  const msg={k:'ck',sid:gdMyId(),from:gdMyId(),nm:gdName(),st,why:'quick',id:gdMyId()+'.'+Date.now(),t:Date.now(),pos:gdPos(),act:gdAct()};
+  if(txt)msg.txt=txt;
+  gdHandle(msg);closeSheet();
+  toast(`Enviado al grupo: ${txt||GD_ST[st][0]+' '+GD_ST[st][1]}`,3000);
+  await gdSend(msg);
+}
+function showGroupMsg(){
+  const P=GD_ACT[gdAct()]||GD_ACT.bike,QA=GD_QUICK_ACT[gdAct()]||[],Q=QA.concat(GD_QUICK);
+  openSheet('💬 Avisar al grupo',`<p class="mut" style="margin:0 0 6px">${(ACT[gdAct()]||ACT.walk)[0]} ${(ACT[gdAct()]||ACT.walk)[1]}</p><div class="gdq">
+      ${Q.map((q,i)=>`<button data-act="q" data-i="${i}"${q[3]==='help'?' class="qhelp"':''}>${q[0]} ${q[1]}</button>`).join('')}
+      <button data-act="st" data-k="rest">☕ Pausa / descanso</button><button data-act="st" data-k="flat">${P.flat}</button>
+      <button data-act="st" data-k="ok" class="qok">✅ Estoy bien</button></div>
+    <div class="row" style="margin-top:8px"><input class="in" id="gdtx" placeholder="Otro mensaje…" maxlength="80" style="flex:1"><button class="btn primary" data-act="tx">Enviar</button></div>
+    <div class="gdq" style="margin-top:12px"><button data-act="help" class="qhelp">🤕 Necesito ayuda</button><button data-act="sos" class="qsos">🆘 EMERGENCIA</button></div>
+    <p class="mut">Lo ven todos al instante, con tu posición, y les vibra el reloj. Pausa y baño frenan las preguntas del Guardián por 15 min.</p>
+    <div class="row"><button class="btn" data-act="set">🛟 Ajustes del Guardián${gdOn()?'':' (apagado)'}</button></div>`,
+    (a,d)=>{
+      if(a==='q'){const q=Q[+d.i];if(q[3]==='help'){closeSheet();if(!GD.ask)gdAsk('self');gdAnswer('help',q[0]+' '+q[1]);}else gdQuickSend('note',q[0]+' '+q[1],q[2]);}
+      else if(a==='st')gdQuickSend(d.k,null,d.k==='rest'?15:d.k==='flat'?30:0);
+      else if(a==='tx'){const v=$('#gdtx').value.trim();if(v)gdQuickSend('note','💬 '+v,0);}
+      else if(a==='help'||a==='sos'){closeSheet();if(!GD.ask)gdAsk('self');gdAnswer(a);}
+      else if(a==='set')showGuard();
+    });
+}
 function showGuard(){
   const c=gdCfg(),P=GD_ACT[gdAct()];
-  openSheet('🛟 Guardián del grupo',`<p>Mientras compartís en el grupo, Rumbo mira tu ritmo. Si cortás de golpe (caída, pinchazo, vuelco) o te quedás quieto mucho rato, te pregunta <b>“¿Estás bien?”</b> con voz, vibración y aviso al reloj. Lo que respondas lo ve todo el grupo. Si no respondés, a todos les suena la alarma con tu última posición y el protocolo de emergencia.</p>
+  openSheet('🛟 Guardián del grupo',`<div class="row"><button class="btn primary" data-act="msg" style="flex:1;min-height:52px;font-size:18px">💬 Avisar al grupo</button></div><p>Mientras compartís en el grupo, Rumbo mira tu ritmo. Si cortás de golpe (caída, pinchazo, vuelco) o te quedás quieto mucho rato, te pregunta <b>“¿Estás bien?”</b> con voz, vibración y aviso al reloj. Lo que respondas lo ve todo el grupo. Si no respondés, a todos les suena la alarma con tu última posición y el protocolo de emergencia.</p>
     <label class="chk"><input type="checkbox" id="gdon" ${c.on?'checked':''}> Guardián activado</label>
     <p class="mut">Ahora: ${P?`${ACT[gdAct()][0]} ${P.n} · pregunta ${P.quick?'si frenás de golpe (sobre todo en bajada), si hay un golpe fuerte o ':'si hay un golpe fuerte o '}si te quedás quieto más de ${Math.round(P.stop*(GD_SENS[c.sens]||1)/60*10)/10} min`:'en auto no se usa'}.</p>
     <label>Sensibilidad</label><div class="chips">${[['alta','Alta (pregunta antes)'],['normal','Normal'],['baja','Baja (menos preguntas)']].map(([k,n])=>`<button data-act="sens" data-k="${k}" class="${c.sens===k?'on':''}">${n}</button>`).join('')}</div>
@@ -11134,6 +11202,7 @@ function showGuard(){
     (a,d)=>{
       if(a==='sens'){S.guard=Object.assign(gdCfg(),{sens:d.k});saveS();showGuard();}
       else if(a==='ask'){S.guard=Object.assign(gdCfg(),{ask:+d.k});saveS();showGuard();}
+      else if(a==='msg')showGroupMsg();
       else if(a==='test'){closeSheet();GD.test=true;gdTest();}
       else if(a==='self'){if(!GRP.on){toast('Primero sumate a un grupo',3000);return;}closeSheet();gdAsk('self');}
     },
@@ -11165,8 +11234,9 @@ function gdAfterReplay(){
 function gdRowNote(p,ago){
   const c=p.ck,out=[];
   if(c&&GD_ST[c.st]&&Date.now()-c.t<(GD_ST[c.st][3]?6*3600e3:20*60000)&&c.st!=='done'){
-    const st=GD_ST[c.st],txt=c.st==='ask'&&c.asker?`${c.asker} le preguntó si está bien`:st[1];
-    out.push(`<span class="gck" style="background:${st[2]}">${st[0]} ${esc(txt)} · ${gdAgo((Date.now()-c.t)/1000)}</span>`);
+    const st=GD_ST[c.st],txt=c.txt?c.txt:c.st==='ask'&&c.asker?`${c.asker} le preguntó si está bien`:st[0]+' '+st[1];
+    const mineAck=(c.acks||[]).includes(gdName());
+    out.push(`<span class="gck" style="background:${st[2]}">${esc(txt)} · ${gdAgo((Date.now()-c.t)/1000)}${c.acks&&c.acks.length?` · 👍 ${esc(c.acks.join(', '))}`:''}</span>${st[3]<2&&c.st!=='ask'&&!mineAck?` <button class="gack" data-g="ack" data-s="${p.sid}">👍 Recibido</button>`:''}`);
   }
   const M=SH_MODES[p.meta&&p.meta.mode]||SH_MODES.meet;
   if(!p.ended&&ago>Math.max(180,M.send*3+60))out.push(`<span class="gck sil">📵 sin datos hace ${gdAgo(ago)}</span>`);
@@ -11177,7 +11247,7 @@ function gdBanner(){
   const now=Date.now(),me=lastFix?[lastFix.lat,lastFix.lon]:null;
   return [...GRP.people.values()].filter(p=>p.sid!==SH.sid&&p.ck&&(GD_ST[p.ck.st]||[])[3]>=1&&now-p.ck.t<6*3600e3).sort((a,b)=>GD_ST[b.ck.st][3]-GD_ST[a.ck.st][3]).map(p=>{
     const c=p.ck,st=GD_ST[c.st],l=grpLast(p),pos=l?[l[0],l[1]]:c.pos,d=me&&pos?hav(me,pos):null;
-    return `<div class="gal lv${st[3]}"><b>${st[0]} ${esc(gdPname(p))}: ${c.st==='ask'&&c.asker?esc(c.asker)+' le preguntó':st[1]}</b><small>hace ${gdAgo((now-c.t0)/1000)}${d!=null?` · ${fmtD(d)} al ${compassWord(bearingTo(me,pos))}`:''}${c.goes&&c.goes.length?` · 🙋 va ${esc(c.goes.join(', '))}`:''}</small>
+    return `<div class="gal lv${st[3]}"><b>${c.txt?esc(c.txt.split(' ')[0]):st[0]} ${esc(gdPname(p))}: ${c.txt?esc(c.txt.replace(/^\S+\s/,'')):c.st==='ask'&&c.asker?esc(c.asker)+' le preguntó':st[1]}</b><small>hace ${gdAgo((now-c.t0)/1000)}${d!=null?` · ${fmtD(d)} al ${compassWord(bearingTo(me,pos))}`:''}${c.goes&&c.goes.length?` · 🙋 va ${esc(c.goes.join(', '))}`:''}</small>
       ${st[3]>=2?`<div><button data-g="e" data-s="${p.sid}">🆘 Protocolo</button><button data-g="t" data-s="${p.sid}">🎯 Ir</button><button data-g="v" data-s="${p.sid}">🙋 Voy yo</button></div>`:''}</div>`;
   }).join('');
 }
