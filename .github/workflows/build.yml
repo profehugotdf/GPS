@@ -64,7 +64,7 @@ jobs:
           open(p,'w').write(s)
           PY
 
-      - name: Abrir archivos GPX con Rumbo (aparece en "Abrir por...")
+      - name: Abrir archivos GPX/TCX y links de invitación con Rumbo
         run: |
           D=android/app/src/main/java/com/profehugo/rumbo
           ls "$D"
@@ -84,6 +84,7 @@ jobs:
               static String fileName = null;
               static String fileText = null;
               static String fileErr = null;
+              static String link = null;
 
               static synchronized void put(String name, String text, String err) {
                   fileName = name;
@@ -91,11 +92,20 @@ jobs:
                   fileErr = err;
               }
 
+              /* Link de invitación (grupo o seguimiento) con el que se abrió Rumbo */
+              static synchronized void putLink(String url) {
+                  link = url;
+              }
+
               @PluginMethod
               public void take(PluginCall call) {
                   JSObject r = new JSObject();
                   synchronized (RumboOpenPlugin.class) {
-                      if (fileText != null || fileErr != null) {
+                      if (link != null) {
+                          r.put("has", true);
+                          r.put("link", link);
+                          link = null;
+                      } else if (fileText != null || fileErr != null) {
                           r.put("has", true);
                           r.put("name", fileName == null ? "archivo" : fileName);
                           if (fileText != null) r.put("text", fileText);
@@ -157,6 +167,11 @@ jobs:
                   }
                   if (uri == null) return false;
                   it.putExtra("rumbo_handled", true);
+                  String sch = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
+                  if (sch.equals("https") || sch.equals("http") || sch.equals("rumbo")) {
+                      RumboOpenPlugin.putLink(uri.toString());
+                      return true;
+                  }
                   String name = displayName(uri);
                   try {
                       InputStream in = getContentResolver().openInputStream(uri);
@@ -245,6 +260,21 @@ jobs:
                   <data android:pathPattern=".*\\.tcx" />
                   <data android:pathPattern=".*\\..*\\.tcx" />
                   <data android:pathPattern=".*\\..*\\..*\\.tcx" />
+              </intent-filter>
+              <!-- RumboLinks: los links de invitación (grupo / seguimiento) se abren en la app -->
+              <intent-filter android:autoVerify="true">
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="https" />
+                  <data android:host="profehugotdf.github.io" />
+                  <data android:pathPrefix="/GPS" />
+              </intent-filter>
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="rumbo" />
               </intent-filter>
               <intent-filter>
                   <action android:name="android.intent.action.SEND" />
