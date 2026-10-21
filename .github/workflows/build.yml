@@ -42,6 +42,26 @@ jobs:
           elif [ -f $R/leaflet-rotate-src.js ]; then cp $R/leaflet-rotate-src.js www/lib/leaflet-rotate.js;
           else echo "::warning::Sin módulo de rotación"; fi
 
+      - name: Achicar el código para la app (la web y el index.html del repo quedan igual)
+        run: |
+          npm install --no-save --legacy-peer-deps esbuild@0.24.0 || echo "::warning::No se pudo instalar esbuild: la app va sin achicar"
+          cat > minify.js <<'JS'
+          /* Achica index.html para el APK: comprime el código de cada <script> y los <style> con esbuild.
+             No renombra nada global (los bloques <script> se comparten las funciones). Si algo falla, deja el original. */
+          const fs=require('fs'),path=process.argv[2],out=process.argv[3]||path;
+          let esb;try{esb=require('esbuild');}catch(e){console.log('::warning::sin esbuild: no se achica');process.exit(0);}
+          const src=fs.readFileSync(path,'utf8');let ok=true,n=0;
+          const html=src.replace(/<script>([\s\S]*?)<\/script>/g,(m,code)=>{
+            try{const r=esb.transformSync(code,{loader:'js',minify:true,target:'es2020',legalComments:'none',charset:'utf8'});n++;return '<script>'+r.code.replace(/<\/script/gi,'<\\/script')+'</script>';}
+            catch(e){ok=false;console.log('::warning::no pude achicar un bloque de script: '+e.message.slice(0,200));return m;}
+          }).replace(/<style>([\s\S]*?)<\/style>/g,(m,css)=>{
+            try{return '<style>'+esb.transformSync(css,{loader:'css',minify:true,charset:'utf8'}).code+'</style>';}catch(e){console.log('::warning::no pude achicar el CSS');return m;}
+          });
+          fs.writeFileSync(out,html);
+          console.log(`index.html: ${(src.length/1024).toFixed(0)} KB → ${(html.length/1024).toFixed(0)} KB (${n} bloques de código${ok?'':', algunos sin achicar'})`);
+          JS
+          node minify.js www/index.html || { echo "::warning::No se pudo achicar: va el original"; cp index.html www/index.html; }
+
       - name: Configurar Capacitor
         run: |
           cat > capacitor.config.json <<'JSON'
