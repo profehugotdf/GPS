@@ -4116,6 +4116,39 @@ async function entWind(ent){
   if(ent.wind||!lastFix)return;
   try{const w=await wxGet(lastFix.lat,lastFix.lon);const cu=w&&w.sum&&w.sum.cur;if(cu&&cu.wind_direction_10m!=null)ent.wind={dir:cu.wind_direction_10m,spd:cu.wind_speed_10m||0};}catch(e){}
 }
+/* ---------- 🧩 Multideporte: varias salidas seguidas (natación, T1, bici, T2, correr) se reviven como una sola ---------- */
+const trBeg=t=>t.pts[0][2],trEnd=t=>t.pts[t.pts.length-1][2];
+async function showMultiPick(id){
+  const all=(await DB.all('kv','track:')).filter(t=>t.pts&&t.pts.length>1&&t.pts[0][2]).sort((a,b)=>trBeg(a)-trBeg(b));
+  const me=all.find(t=>t.id===id);if(!me){toast('Este track no tiene horarios: no se puede encadenar',4000);return;}
+  const cand=all.filter(t=>Math.abs(trBeg(t)-trBeg(me))<14*3600e3),sel=new Set([id]),i=cand.indexOf(me),near=(a,b)=>{const g=trBeg(b)-trEnd(a);return g>-120000&&g<40*60000;};
+  for(let j=i-1;j>=0&&near(cand[j],cand[j+1]);j--)sel.add(cand[j].id);
+  for(let j=i+1;j<cand.length&&near(cand[j-1],cand[j]);j++)sel.add(cand[j].id);
+  const draw=()=>{const ch=cand.filter(t=>sel.has(t.id));
+    openSheet('🧩 Revivir multideporte',`<p class="mut">Marcá las etapas en orden de horario (natación, transiciones, bici, correr…). Ya marqué las que están pegadas a esta.</p>
+    ${cand.map(t=>{const st=t.stats||calcStats(t.pts);return `<label class="item chk" style="gap:10px"><input type="checkbox" data-id="${t.id}" ${sel.has(t.id)?'checked':''}><div><b>${(ACT[t.act]||['❓'])[0]} ${esc(t.name||'Track')}</b><br><small class="mut">${hhmm(trBeg(t))}–${hhmm(trEnd(t))} · ${fmtD(st.dist||0)} · ${fmtT(trEnd(t)-trBeg(t))}</small></div></label>`;}).join('')}
+    <div class="row" style="margin-top:10px"><button class="btn primary" data-act="go" ${ch.length<2?'disabled':''}>🎬 Revivir la secuencia (${ch.length} etapas)</button></div>`,
+    a=>{if(a==='go'){const T=multiTrack(cand.filter(t=>sel.has(t.id)));closeSheet();open3D({line:T.pts.map(p=>[p[0],p[1]]),track:T,relive:true});}},
+    t=>{if(t.dataset.id){if(t.checked)sel.add(t.dataset.id);else sel.delete(t.dataset.id);draw();}});};
+  draw();
+}
+/* une los tracks en uno solo, con las etapas marcadas (y pulso, potencia y cadencia si los hay) */
+function multiTrack(trs){
+  trs=trs.slice().sort((a,b)=>trBeg(a)-trBeg(b));
+  const pts=[],hr=[],pw=[],cad=[],legs=[];let seg=0;
+  for(const t of trs){
+    const i0=pts.length;let mx=0;
+    t.pts.forEach((p,i)=>{pts.push([p[0],p[1],p[2],p[3],p[4],seg+(p[5]||0)]);mx=Math.max(mx,p[5]||0);hr.push(t.hr?t.hr[i]:null);pw.push(t.pw?t.pw[i]:null);cad.push(t.cad?t.cad[i]:null);});
+    seg+=mx+1;
+    const st=t.stats||calcStats(t.pts);
+    legs.push({i0,i1:pts.length-1,act:t.act||guessAct(t)||'walk',name:t.name,dur:trEnd(t)-trBeg(t),dist:st.dist||0});
+  }
+  /* transiciones: etapas cortas entre otras dos */
+  let tn=0;legs.forEach((l,k)=>{if(k>0&&k<legs.length-1&&l.dur<20*60000&&l.dist<2500){l.tr=true;l.lab='T'+(++tn);}});
+  const o={name:'Multideporte · '+legs.filter(l=>!l.tr).map(l=>ACT[l.act][0]).join(' → '),t0:pts[0][2],pts,act:legs[0].act,legs};
+  if(hr.some(v=>v!=null))o.hr=hr;if(pw.some(v=>v!=null))o.pw=pw;if(cad.some(v=>v!=null))o.cad=cad;
+  return o;
+}
 async function showTrackDetail(id){
   const tr=await DB.get('kv','track:'+id);if(!tr){showTracks();return;}
   const s=tr.stats,res0=resOf(tr).filter(r=>r.laps.length||r.races&&r.races.length),u=SP_UNIT[S.speedMode],res=[];
@@ -4143,6 +4176,7 @@ async function showTrackDetail(id){
       <button class="btn primary" data-act="map">Ver en el mapa</button>
       <button class="btn" data-act="v3d">🏔️ Ver en 3D</button>
       <button class="btn primary" data-act="rel">🎬 Revivir en 3D</button>
+      <button class="btn" data-act="multi">🧩 Revivir multideporte (triatlón…)</button>
       <button class="btn" data-act="gpx">Compartir GPX</button>
       <button class="btn" data-act="anal">Medir con un circuito</button>
       <button class="btn primary" data-act="follow">🧭 Guiarme por este recorrido</button>
@@ -4154,6 +4188,7 @@ async function showTrackDetail(id){
       if(a==='map')showOnMap(tr);
       else if(a==='v3d'){closeSheet();open3D({line:tr.pts.map(p=>[p[0],p[1]]),track:tr});}
       else if(a==='rel'){closeSheet();open3D({line:tr.pts.map(p=>[p[0],p[1]]),track:tr,relive:true});}
+      else if(a==='multi')showMultiPick(id);
       else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);showTrackDetail(id);}
       else if(a==='gpx')shareFile((tr.name.replace(/[^\w\-]+/g,'_')||'track')+'.gpx',toGPX([tr],[],esc),'application/gpx+xml');
       else if(a==='anal')showAnalPick(id);
@@ -10686,15 +10721,25 @@ function t3RelPrep(tr){
   for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+hav(pts[i-1],pts[i]));
   const XZ=pts.map(p=>t3XZ(p[0],p[1]));
   let gain=0,ref=null;for(const p of pts){if(p[4]==null)continue;if(ref==null)ref=p[4];else if(Math.abs(p[4]-ref)>=3){if(p[4]>ref)gain+=p[4]-ref;ref=p[4];}}
-  const L=cum[cum.length-1],dur=Math.max(25,Math.min(70,20+L/1000*3))*1000;
-  return {tr,pts,cum,XZ,L,dur,t0:null,az:null,gain,act:tr.act||'walk',end:null,ix,hrS:sensStats(tr.hr),pwS:sensStats(tr.pw),cadS:sensStats(tr.cad)};
+  const L=cum[cum.length-1];let dur=Math.max(25,Math.min(70,20+L/1000*3))*1000;
+  /* multideporte: cada etapa ocupa un tramo de la animación según lo que duró de verdad (las transiciones, un mínimo para que se vean) */
+  let legs=null;
+  if(tr.legs&&tr.legs.length>1){
+    const T=tr.legs.reduce((a,l)=>a+Math.max(1,l.dur),0);
+    legs=tr.legs.map(l=>{let a=ix.findIndex(k=>k>=l.i0),b=-1;for(let q=ix.length-1;q>=0;q--)if(ix[q]<=l.i1){b=q;break;}if(a<0)a=ix.length-1;if(b<a)b=a;
+      return {act:l.act,lab:l.lab||null,name:l.name,s0:cum[a],s1:cum[b],t0:pts[a][2],t1:pts[b][2],w:Math.max(l.tr?.035:.08,l.dur/T),dist:l.dist,dur:l.dur};});
+    const W=legs.reduce((a,l)=>a+l.w,0);let acc=0;for(const l of legs){l.w0=acc/W;acc+=l.w;l.w1=acc/W;}
+    dur=Math.max(40,Math.min(120,legs.length*22))*1000;
+  }
+  return {tr,pts,cum,XZ,L,dur,legs,act0:tr.act||'walk',t0:null,az:null,gain,act:tr.act||'walk',end:null,ix,hrS:sensStats(tr.hr),pwS:sensStats(tr.pw),cadS:sensStats(tr.cad)};
 }
 function t3RelAt(R,s){const {cum}=R;s=Math.max(0,Math.min(R.L,s));let lo=1,hi=cum.length-1;while(lo<hi){const m=(lo+hi)>>1;if(cum[m]<s)lo=m+1;else hi=m;}const i=lo,t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return {i,t};}
 function t3RelStart(){
   const R=T3.rel;if(!R)return;
-  T3.fly=null;T3.flyPos=null;R.t0=null;R.az=null;R.end=null;R.prog=0;R.done=false;R.go=true;
+  T3.fly=null;T3.flyPos=null;R.t0=null;R.az=null;R.end=null;R.prog=0;R.done=false;R.go=true;R.fol=null;
+  if(R.legs){R.leg=R.legs[0];R.act=R.legs[0].act;}
   t3Overlay(true);t3TrackTex(R.pts);T3.km=1;T3.kp=0;
-  $('#t3rel').hidden=false;$('#t3mk').hidden=false;$('#t3mk').textContent=(ACT[R.act]||ACT.walk)[0];
+  $('#t3rel').hidden=false;$('#t3mk').hidden=false;$('#t3mk').textContent=t3Icon(R);
   t3RelBtn();
 }
 function t3RelStop(keep){
@@ -10707,13 +10752,18 @@ function t3RelStop(keep){
 function t3RelStep(now){
   const R=T3.rel;if(R.t0==null)R.t0=now;
   const el=now-R.t0,intro=2500,outro=4000;
-  const k=Math.max(0,Math.min(1,(el-intro*.6)/R.dur)),s=k*R.L,{i,t}=t3RelAt(R,s);
+  const k=Math.max(0,Math.min(1,(el-intro*.6)/R.dur));let s=k*R.L,lg=null;
+  if(R.legs){lg=R.legs.find(l=>k<=l.w1)||R.legs[R.legs.length-1];const u=(k-lg.w0)/((lg.w1-lg.w0)||1);s=lg.s0+Math.max(0,Math.min(1,u))*(lg.s1-lg.s0);
+    if(R.leg!==lg){R.leg=lg;R.act=lg.act;const mk=$('#t3mk');if(mk)mk.textContent=t3Icon(R);}}
+  const {i,t}=t3RelAt(R,s);
   const A=R.XZ[i-1],B=R.XZ[i],x=A[0]+(B[0]-A[0])*t,z=A[1]+(B[1]-A[1])*t;
-  const ahead=t3RelAt(R,s+Math.min(500,R.L*.06)+1),q=R.XZ[ahead.i];
+  const LL=lg?Math.max(300,lg.s1-lg.s0):R.L,ahead=t3RelAt(R,s+Math.min(500,LL*.06)+1),q=R.XZ[ahead.i];
   let az=Math.atan2(q[0]-x,-(q[1]-z))/rad;
   if(R.az==null)R.az=az;let d=az-R.az;while(d>180)d-=360;while(d<-180)d+=360;R.az+=d*0.03;
-  const span=T3.N*256*T3.mpp,follow=Math.max(1100,Math.min(3000,R.L*.25));
-  T3.kp=k;
+  const span=T3.N*256*T3.mpp,fol0=Math.max(lg?500:1100,Math.min(3000,LL*.25));
+  /* la distancia de la cámara cambia suave entre etapas (nadar se ve de cerca, la bici de más lejos) */
+  R.fol=R.fol==null?fol0:R.fol+(fol0-R.fol)*.03;const follow=R.fol;
+  T3.kp=s/(R.L||1);
   if(el<intro){const u=el/intro,e=u*u*(3-2*u);Object.assign(T3.cam,{tx:x,tz:z,az:R.az-40*(1-e),tilt:20+40*e,dist:span*.9*(1-e)+follow*e});}
   else if(k<1)Object.assign(T3.cam,{tx:x,tz:z,az:R.az+8*Math.sin(el/9000),tilt:60,dist:follow});
   else{
@@ -10728,26 +10778,32 @@ function t3RelStep(now){
   /* pulso y cadencia del momento; potencia promedio de los últimos 10 s (la instantánea salta mucho) */
   const sv=(arr,win)=>{if(!arr)return null;const a=arr[R.ix[i-1]],b=arr[R.ix[i]];if(!win){if(a==null&&b==null)return null;if(a==null)return b;if(b==null)return a;return Math.round(a+(b-a)*t);}
     let sum=0,n=0;for(let m=R.ix[i];m>=0;m--){const p=R.tr.pts[m];if(!p||tt-p[2]>win)break;const v=arr[m];if(v!=null){sum+=v;n++;}}return n?Math.round(sum/n):null;};
-  R.now={s,el:tt-R.pts[0][2],alt,v,x,z,y:t3H(x,z),hr:sv(R.tr.hr),pw:sv(R.tr.pw,10000),cad:sv(R.tr.cad)};
+  R.now={s,el:tt-R.pts[0][2],lel:lg?tt-lg.t0:null,alt,v,x,z,y:t3H(x,z),hr:sv(R.tr.hr),pw:sv(R.tr.pw,10000),cad:sv(R.tr.cad)};
   T3.dirty=true;
 }
 function t3RelHud(){
   const R=T3.rel;if(!R||!R.now)return;
   const n=R.now,run=['run','walk'].includes(R.act),sp=n.v?(run&&n.v>0.4?fmtSp(n.v,'minkm')+' /km':R.act==='swim'?fmtSp(n.v,'min500')+' /500 m':(n.v*3.6).toFixed(1).replace('.',',')+' km/h'):'—';
   const done=R.done||R.end!=null;
-  $('#t3rel').innerHTML=`<div class="rt">${(ACT[R.act]||ACT.walk)[0]} <b>${esc(R.tr.name||'Recorrido')}</b><small>${fmtDate(R.tr.t0||R.pts[0][2])}</small></div>
+  const lg=R.leg,li=R.legs?R.legs.indexOf(lg):-1;
+  $('#t3rel').innerHTML=`<div class="rt">${t3Icon(R)} <b>${esc(lg&&!done?(lg.lab||ACT[lg.act][1]):(R.tr.name||'Recorrido'))}</b>${lg&&!done?`<small>etapa ${li+1} de ${R.legs.length} · ${fmtT(Math.max(0,n.lel||0))}</small>`:`<small>${fmtDate(R.tr.t0||R.pts[0][2])}</small>`}</div>
     <div class="rs"><div><b>${(n.s/1000).toFixed(2).replace('.',',')}</b><small>km</small></div><div><b>${fmtT(n.el)}</b><small>tiempo</small></div><div><b>${n.alt!=null?Math.round(n.alt):'—'}</b><small>m altura</small></div><div><b>${sp}</b><small>${done?'':'ahora'}</small></div>
     ${R.hrS?`<div class="hr"><b>❤️ ${n.hr!=null?n.hr:'—'}</b><small>pulso</small></div>`:''}${R.pwS?`<div class="pw"><b>⚡ ${n.pw!=null?n.pw:'—'}</b><small>W (10 s)</small></div>`:''}${R.cadS?`<div><b>${n.cad!=null?n.cad:'—'}</b><small>cadencia</small></div>`:''}</div>
+    ${done&&R.legs?`<div class="re">${R.legs.map(l=>`${l.lab?'⏱️ '+l.lab:ACT[l.act][0]} ${fmtT(l.dur)}`).join(' · ')}</div>`:''}
     ${done?`<div class="re">🏁 ${(R.L/1000).toFixed(2).replace('.',',')} km · ${fmtT(R.pts[R.pts.length-1][2]-R.pts[0][2])}${R.gain>20?` · ↑${Math.round(R.gain)} m`:''}${R.hrS?` · ❤️ ${R.hrS.avg} prom (máx ${R.hrS.max})`:''}${R.pwS?` · ⚡ ${R.pwS.avg} W prom`:''}</div>`:''}`;
   t3MkAt(n.x,n.z,n.y);
 }
+const t3Icon=R=>R&&R.leg&&R.leg.lab?'⏱️':(ACT[R&&R.act]||ACT.walk)[0];
 /* pone el marcador (#t3mk) sobre el punto x,z del terreno */
 function t3MkAt(X,Z,h){
   const mk=$('#t3mk'),M=T3.M;if(!M||!mk)return;
   const Y=(h!=null?h:t3H(X,Z))*T3.exag+8,cx=M[0]*X+M[4]*Y+M[8]*Z+M[12],cy=M[1]*X+M[5]*Y+M[9]*Z+M[13],cw=M[3]*X+M[7]*Y+M[11]*Z+M[15];
   if(cw<=0){mk.style.display='none';return;}
   mk.style.display='';const r=T3.cv.getBoundingClientRect();
-  mk.style.left=(r.left+(cx/cw*.5+.5)*r.width)+'px';mk.style.top=(r.top+(1-(cy/cw*.5+.5))*r.height)+'px';
+  const px=r.left+(cx/cw*.5+.5)*r.width,py=r.top+(1-(cy/cw*.5+.5))*r.height;
+  mk.style.left=px+'px';mk.style.top=py+'px';
+  /* si queda debajo del cartel de datos, no se muestra encima */
+  const hb=$('#t3rel');if(hb&&!hb.hidden){const b=hb.getBoundingClientRect();if(px>b.left-15&&px<b.right+15&&py>b.top-15&&py<b.bottom+15)mk.style.display='none';}
 }
 function t3RelBtn(){const b=$('#t3rv');if(b){b.hidden=!T3.rel;b.textContent=T3.rel&&T3.rel.go?'⏹ Parar':'🎬 Revivir';}const v=$('#t3vid');if(v)v.hidden=!T3.rel||(T3.rel&&T3.rel.go);}
 /* video: se dibuja la vista 3D + los datos en otro lienzo y se graba */
@@ -10758,7 +10814,7 @@ function t3VidFrame(){
   const R=T3.rel,n=R&&R.now;if(!n)return;
   const mk=$('#t3mk'),r=src.getBoundingClientRect();
   if(mk&&mk.style.display!=='none'){const px=(parseFloat(mk.style.left)-r.left)/r.width*src.width*s+(W-dw)/2,py=(parseFloat(mk.style.top)-r.top)/r.height*src.height*s+(H-dh)/2;
-    x.beginPath();x.arc(px,py,W*.03,0,7);x.fillStyle='#fff';x.fill();x.font=`${Math.round(W*.04)}px system-ui`;x.textAlign='center';x.textBaseline='middle';x.fillText((ACT[R.act]||ACT.walk)[0],px,py);}
+    x.beginPath();x.arc(px,py,W*.03,0,7);x.fillStyle='#fff';x.fill();x.font=`${Math.round(W*.04)}px system-ui`;x.textAlign='center';x.textBaseline='middle';x.fillText(t3Icon(R),px,py);}
   x.fillStyle='rgba(14,42,54,.72)';x.fillRect(0,0,W,H*.13);
   x.fillStyle='#fff';x.textAlign='left';x.textBaseline='alphabetic';x.font=`800 ${Math.round(W*.045)}px system-ui`;x.fillText(R.tr.name||'Recorrido',W*.04,H*.045);
   const cols=[[(n.s/1000).toFixed(2).replace('.',','),'km'],[fmtT(n.el),'tiempo'],[n.alt!=null?String(Math.round(n.alt)):'—','m altura']];
