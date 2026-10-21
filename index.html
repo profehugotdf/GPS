@@ -293,6 +293,14 @@ body.gbOn #tgt{z-index:1060;top:calc(var(--top) + 64px);max-width:calc(100% - 80
 #t3 button.on{background:#F2A900;color:#111}
 #t3 .t3r{position:absolute;right:10px;top:calc(var(--top) + 70px);display:flex;flex-direction:column;gap:8px}
 #t3 #t3cmp{display:inline-block;transition:transform .15s}
+#t3 #t3tl{flex-basis:100%;display:flex;align-items:center;gap:8px;background:rgba(14,42,54,.72);border-radius:22px;padding:4px 10px 4px 4px}
+#t3 #t3tl[hidden]{display:none}
+#t3 #t3tl .tlw{flex:1;position:relative;height:40px;display:flex;align-items:center}
+#t3 #t3sb{width:100%;accent-color:#F04A1C;height:28px;margin:0}
+#t3 #t3tk{position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none}
+#t3 #t3tk i{position:absolute;top:4px;bottom:4px;width:2px;background:#fff;opacity:.8}
+#t3 #t3tk b{position:absolute;top:-6px;transform:translateX(-50%);font-size:12px}
+#t3 #t3tt{color:#fff;font:700 13px system-ui;min-width:92px;text-align:right;white-space:nowrap}
 #t3 .t3b{position:absolute;left:8px;right:8px;bottom:calc(var(--bot) + 40px);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 #t3 .t3b span{color:#fff;font:700 13px system-ui;text-shadow:0 1px 3px rgba(0,0,0,.7)}
 #t3 #t3fly,#t3 #t3rv{margin-left:auto;background:#F04A1C}
@@ -626,7 +634,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="t3" hidden><canvas id="t3c"></canvas>
   <div class="t3bar"><button data-t3="x" aria-label="Cerrar 3D">✕</button><b>🏔️ 3D</b><span id="t3msg"></span></div>
   <div class="t3r"><button data-t3="n" aria-label="Norte arriba y vista de arriba"><span id="t3cmp">🧭</span></button><button data-t3="in" aria-label="Acercar">+</button><button data-t3="out" aria-label="Alejar">−</button></div>
-  <div class="t3b"><span>Relieve</span><button data-t3="ex" data-ex="1">×1</button><button data-t3="ex" data-ex="1.5">×1,5</button><button data-t3="ex" data-ex="2">×2</button><button id="t3fly" data-t3="fly">▶ Sobrevolar</button><button id="t3rv" data-t3="rv" hidden>🎬 Revivir</button><button id="t3vid" data-t3="vid" hidden>⏺ Video</button></div>
+  <div class="t3b"><div id="t3tl" hidden><button id="t3pp" data-t3="pp" aria-label="Pausa o seguir">⏸</button><div class="tlw"><input type="range" id="t3sb" min="0" max="1000" step="1" value="0" aria-label="Línea de tiempo"><div id="t3tk"></div></div><span id="t3tt">0:00</span></div><span>Relieve</span><button data-t3="ex" data-ex="1">×1</button><button data-t3="ex" data-ex="1.5">×1,5</button><button data-t3="ex" data-ex="2">×2</button><button id="t3fly" data-t3="fly">▶ Sobrevolar</button><button id="t3rv" data-t3="rv" hidden>🎬 Revivir</button><button id="t3vid" data-t3="vid" hidden>⏺ Video</button></div>
   <div id="t3rel" hidden></div><div id="t3mk" hidden></div>
   <div class="t3h">Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar</div>
 </div>
@@ -10523,7 +10531,7 @@ async function open3D(o){
   if(!dem.size)$('#t3msg').textContent='No hay altura del terreno guardada para esta zona (y no se pudo bajar): se ve plano.';
   else $('#t3msg').textContent='';
   T3.rel=o.track?t3RelPrep(o.track):null;T3.km=0;
-  $('#t3fly').hidden=!line||!!T3.rel;t3RelBtn();
+  $('#t3fly').hidden=!line||!!T3.rel;t3RelBtn();t3TlShow();
   t3Overlay();t3Loop();
   t3Sat(my);
   if(T3.rel&&!o.relive){const hs=[T3.rel.hrS&&'❤️ pulso',T3.rel.pwS&&'⚡ potencia',T3.rel.cadS&&'cadencia'].filter(Boolean);toast(`Tocá 🎬 Revivir para ver el recorrido con velocidad, altura${hs.length?', '+hs.join(', '):''} en cada momento`,6000);}
@@ -10531,7 +10539,7 @@ async function open3D(o){
 }
 function close3D(){
   if(T3.recr&&T3.recr.state==='recording'){T3.vc=null;try{T3.recr.ondataavailable=null;T3.recr.onstop=null;T3.recr.stop();}catch(e){}T3.recr=null;}
-  if(T3.rel){T3.rel.go=false;T3.rel=null;}T3.km=0;$('#t3rel').hidden=true;$('#t3mk').hidden=true;
+  if(T3.rel){T3.rel.go=false;T3.rel=null;}T3.km=0;{const tl=$('#t3tl');if(tl)tl.hidden=true;const h=$('#t3 .t3h');if(h)h.hidden=false;}$('#t3rel').hidden=true;$('#t3mk').hidden=true;
   T3.on=false;T3.gen++;T3.fly=null;T3.flyPos=null;T3.flyK=0;cancelAnimationFrame(T3.raf);T3.raf=0;
   const gl=T3.gl;if(gl){for(const t of [T3.tex,T3.otex])if(t)gl.deleteTexture(t);T3.tex=T3.otex=null;}
   $('#t3').hidden=true;
@@ -10736,12 +10744,35 @@ function t3RelPrep(tr){
 function t3RelAt(R,s){const {cum}=R;s=Math.max(0,Math.min(R.L,s));let lo=1,hi=cum.length-1;while(lo<hi){const m=(lo+hi)>>1;if(cum[m]<s)lo=m+1;else hi=m;}const i=lo,t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return {i,t};}
 function t3RelStart(){
   const R=T3.rel;if(!R)return;
-  T3.fly=null;T3.flyPos=null;R.t0=null;R.az=null;R.end=null;R.prog=0;R.done=false;R.go=true;R.fol=null;
+  T3.fly=null;T3.flyPos=null;R.t0=null;R.az=null;R.end=null;R.prog=0;R.done=false;R.go=true;R.fol=null;R.kStart=0;R.noIntro=false;R.started=true;R.k=0;
   if(R.legs){R.leg=R.legs[0];R.act=R.legs[0].act;}
   t3Overlay(true);t3TrackTex(R.pts);T3.km=1;T3.kp=0;
   $('#t3rel').hidden=false;$('#t3mk').hidden=false;$('#t3mk').textContent=t3Icon(R);
-  t3RelBtn();
+  t3RelBtn();t3TlShow();
 }
+/* ---- barra de tiempo del Revivir: arrastrar para ir a cualquier momento; ⏸/▶ para pausar y seguir ---- */
+function t3TlShow(){
+  const R=T3.rel,tl=$('#t3tl');if(!tl)return;tl.hidden=!R;const h=$('#t3 .t3h');if(h)h.hidden=!!R;if(!R)return;
+  $('#t3tk').innerHTML=R.legs?R.legs.map((l,i)=>(i?`<i style="left:${(l.w0*100).toFixed(2)}%"></i>`:'')+`<b style="left:${(((l.w0+l.w1)/2)*100).toFixed(2)}%">${l.lab?'⏱️':(ACT[l.act]||ACT.walk)[0]}</b>`).join(''):'';
+  $('#t3pp').textContent=R.go?'⏸':'▶';
+}
+function t3RelSeek(k){
+  const R=T3.rel;if(!R)return;
+  if(!R.started){t3RelStart();}
+  R.go=false;R.kStart=Math.max(0,Math.min(.999,k));R.noIntro=true;R.end=null;R.done=false;R.az=null;R.fol=null;R.t0=null;
+  t3RelStep(performance.now());R.t0=null;t3RelBtn();t3TlShow();T3.dirty=true;
+}
+function t3RelPlay(){
+  const R=T3.rel;if(!R)return;
+  if(R.go){R.go=false;}
+  else if(R.started&&!R.done&&R.k!=null&&R.k<.999){R.kStart=R.k;R.noIntro=true;R.t0=null;R.end=null;R.go=true;}
+  else t3RelStart();
+  t3RelBtn();t3TlShow();
+}
+(function(){const sb=document.getElementById('t3sb');if(!sb)return;
+  sb.addEventListener('input',()=>{T3.scrub=true;t3RelSeek(+sb.value/1000);});
+  sb.addEventListener('change',()=>{T3.scrub=false;});
+  sb.addEventListener('pointerdown',e=>e.stopPropagation());})();
 function t3RelStop(keep){
   const R=T3.rel;if(!R)return;
   R.t0=null;R.go=false;
@@ -10752,7 +10783,7 @@ function t3RelStop(keep){
 function t3RelStep(now){
   const R=T3.rel;if(R.t0==null)R.t0=now;
   const el=now-R.t0,intro=2500,outro=4000;
-  const k=Math.max(0,Math.min(1,(el-intro*.6)/R.dur));let s=k*R.L,lg=null;
+  const k=Math.max(0,Math.min(1,R.noIntro?R.kStart+el/R.dur:(el-intro*.6)/R.dur));let s=k*R.L,lg=null;R.k=k;
   if(R.legs){lg=R.legs.find(l=>k<=l.w1)||R.legs[R.legs.length-1];const u=(k-lg.w0)/((lg.w1-lg.w0)||1);s=lg.s0+Math.max(0,Math.min(1,u))*(lg.s1-lg.s0);
     if(R.leg!==lg){R.leg=lg;R.act=lg.act;const mk=$('#t3mk');if(mk)mk.textContent=t3Icon(R);}}
   const {i,t}=t3RelAt(R,s);
@@ -10764,7 +10795,7 @@ function t3RelStep(now){
   /* la distancia de la cámara cambia suave entre etapas (nadar se ve de cerca, la bici de más lejos) */
   R.fol=R.fol==null?fol0:R.fol+(fol0-R.fol)*.03;const follow=R.fol;
   T3.kp=s/(R.L||1);
-  if(el<intro){const u=el/intro,e=u*u*(3-2*u);Object.assign(T3.cam,{tx:x,tz:z,az:R.az-40*(1-e),tilt:20+40*e,dist:span*.9*(1-e)+follow*e});}
+  if(!R.noIntro&&el<intro){const u=el/intro,e=u*u*(3-2*u);Object.assign(T3.cam,{tx:x,tz:z,az:R.az-40*(1-e),tilt:20+40*e,dist:span*.9*(1-e)+follow*e});}
   else if(k<1)Object.assign(T3.cam,{tx:x,tz:z,az:R.az+8*Math.sin(el/9000),tilt:60,dist:follow});
   else{
     if(R.end==null){R.end=now;R.c0={...T3.cam};const mid=R.XZ[Math.floor(R.XZ.length/2)];R.c1={tx:mid[0],tz:mid[1],az:R.c0.az+30,tilt:42,dist:Math.max(1500,Math.min(T3.N*256*T3.mpp*1.1,R.L*.9))};}
@@ -10783,6 +10814,7 @@ function t3RelStep(now){
 }
 function t3RelHud(){
   const R=T3.rel;if(!R||!R.now)return;
+  {const sb=$('#t3sb');if(sb&&!T3.scrub&&R.k!=null)sb.value=Math.round(R.k*1000);const tt=$('#t3tt');if(tt)tt.textContent=`${fmtT(Math.max(0,R.now.el))} / ${fmtT(R.pts[R.pts.length-1][2]-R.pts[0][2])}`;const pp=$('#t3pp');if(pp)pp.textContent=R.go?'⏸':'▶';}
   const n=R.now,run=['run','walk'].includes(R.act),sp=n.v?(run&&n.v>0.4?fmtSp(n.v,'minkm')+' /km':R.act==='swim'?fmtSp(n.v,'min500')+' /500 m':(n.v*3.6).toFixed(1).replace('.',',')+' km/h'):'—';
   const done=R.done||R.end!=null;
   const lg=R.leg,li=R.legs?R.legs.indexOf(lg):-1;
@@ -10805,7 +10837,7 @@ function t3MkAt(X,Z,h){
   /* si queda debajo del cartel de datos, no se muestra encima */
   const hb=$('#t3rel');if(hb&&!hb.hidden){const b=hb.getBoundingClientRect();if(px>b.left-15&&px<b.right+15&&py>b.top-15&&py<b.bottom+15)mk.style.display='none';}
 }
-function t3RelBtn(){const b=$('#t3rv');if(b){b.hidden=!T3.rel;b.textContent=T3.rel&&T3.rel.go?'⏹ Parar':'🎬 Revivir';}const v=$('#t3vid');if(v)v.hidden=!T3.rel||(T3.rel&&T3.rel.go);}
+function t3RelBtn(){const b=$('#t3rv'),R=T3.rel;if(b){b.hidden=!R;b.textContent=R&&R.go?'⏸ Pausa':R&&R.started&&!R.done&&R.k<.999?'▶ Seguir':'🎬 Revivir';}const pp=$('#t3pp');if(pp)pp.textContent=R&&R.go?'⏸':'▶';const v=$('#t3vid');if(v)v.hidden=!T3.rel||(T3.rel&&T3.rel.go);}
 /* video: se dibuja la vista 3D + los datos en otro lienzo y se graba */
 function t3VidFrame(){
   const C=T3.vc;if(!C)return;const x=C.getContext('2d'),W=C.width,H=C.height,src=T3.cv;
@@ -10896,7 +10928,7 @@ document.addEventListener('click',e=>{
   else if(a==='out'){c.dist*=1.6;T3.dirty=true;}
   else if(a==='n'){c.az=0;c.tilt=c.tilt>5?0:58;T3.dirty=true;}
   else if(a==='fly'){if(T3.fly){T3.fly=null;t3FlyBtn();}else t3FlyStart();}
-  else if(a==='rv'){if(T3.rel&&T3.rel.go)t3RelStop();else t3RelStart();}
+  else if(a==='rv'||a==='pp')t3RelPlay();
   else if(a==='vid')t3VidStart();
 });
 
