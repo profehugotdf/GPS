@@ -889,9 +889,13 @@ function fmtT(ms,dec){
   if(dec)o+='.'+tenth;
   return (neg?'−':'')+o;
 }
-const fmtD=m=>m<1000?Math.round(m)+' m':(m/1000).toFixed(2)+' km';
+/* separador decimal: coma (como en Argentina) salvo que elijas punto o "según el teléfono" en Ajustes */
+let DS_AUTO=null;
+const DSEP=()=>{if(!S||S.decSep!=='auto')return S&&S.decSep==='.'?'.':',';if(DS_AUTO==null){try{DS_AUTO=(1.5).toLocaleString(navigator.language||'es-AR').indexOf('.')>=0?'.':',';}catch(e){DS_AUTO=',';}}return DS_AUTO;};
+const dec=(x,n)=>(+x).toFixed(n).replace('.',DSEP());
+const fmtD=m=>m<1000?Math.round(m)+' m':dec(m/1000,2)+' km';
 function fmtSp(mps,mode){
-  if(mode==='kmh')return (mps>0?mps*3.6:0).toFixed(1);
+  if(mode==='kmh')return dec(mps>0?mps*3.6:0,1);
   if(!(mps>0.3))return '–';
   const T=Math.min(5999,Math.round((mode==='minkm'?1000:500)/mps));
   return Math.floor(T/60)+':'+pad2(T%60);
@@ -1665,23 +1669,6 @@ function simplifyDP(pts,tol){
   const keep=dpKeep(pts,tol);
   return pts.filter((_,i)=>keep[i]).map(p=>[p[0],p[1]]);
 }
-function simplifyDP_OLD(pts,tol){
-  if(pts.length<3)return pts.map(p=>[p[0],p[1]]);
-  const k=Math.cos(pts[0][0]*rad),xy=pts.map(p=>[p[1]*111320*k,p[0]*110540]),keep=new Uint8Array(pts.length);
-  keep[0]=keep[pts.length-1]=1;
-  const st=[[0,pts.length-1]];
-  while(st.length){
-    const [s,e]=st.pop();let md=0,mi=-1;
-    const ax=xy[s][0],ay=xy[s][1],dx=xy[e][0]-ax,dy=xy[e][1]-ay,L2=dx*dx+dy*dy;
-    for(let i=s+1;i<e;i++){
-      let t=L2?((xy[i][0]-ax)*dx+(xy[i][1]-ay)*dy)/L2:0;t=Math.max(0,Math.min(1,t));
-      const d=Math.hypot(xy[i][0]-(ax+t*dx),xy[i][1]-(ay+t*dy));
-      if(d>md){md=d;mi=i;}
-    }
-    if(md>tol&&mi>0){keep[mi]=1;st.push([s,mi],[mi,e]);}
-  }
-  return pts.filter((_,i)=>keep[i]).map(p=>[p[0],p[1]]);
-}
 /* Punto a d metros del inicio de una polilínea, con su rumbo */
 function pointAlong(coords,d){
   let acc=0;
@@ -2079,12 +2066,12 @@ function selfIntersects(pts){
   }
   return false;
 }
-const miles=n=>String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g,'.');
-function fmtLen(m){return m<1000?(m<100?m.toFixed(1):String(Math.round(m)))+' m':(m/1000).toFixed(m<10000?3:2)+' km';}
+const miles=n=>String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g,DSEP()===','?'.':',');
+function fmtLen(m){return m<1000?(m<100?dec(m,1):String(Math.round(m)))+' m':dec(m/1000,m<10000?3:2)+' km';}
 function fmtArea(a){
   if(a<10000)return miles(a)+' m²';
-  if(a<1e6)return (a/10000).toFixed(2)+' ha ('+miles(a)+' m²)';
-  return (a/1e6).toFixed(3)+' km² ('+miles(a/10000)+' ha)';
+  if(a<1e6)return dec(a/10000,2)+' ha ('+miles(a)+' m²)';
+  return dec(a/1e6,3)+' km² ('+miles(a/10000)+' ha)';
 }
 
 
@@ -2193,7 +2180,7 @@ function wxSummary(d,hours){
   if(maxGust>=75)add('wind','danger',`Ráfagas muy fuertes (hasta ${Math.round(maxGust)} km/h)`);
   else if(maxGust>=55)add('wind','warn',`Ráfagas fuertes (hasta ${Math.round(maxGust)} km/h)`);
   if(mm3>=6)add('rain','danger',`Lluvia fuerte en las próximas horas (${mm3.toFixed(1)} mm)`);
-  else if(maxPP>=60||mm3>=2)add('rain','warn',`Lluvia probable en las próximas horas (${Math.round(maxPP)} %${mm3>0?', '+mm3.toFixed(1)+' mm':''})`);
+  else if(maxPP>=60||mm3>=2)add('rain','warn',`Lluvia probable en las próximas horas (${Math.round(maxPP)} %${mm3>0?', '+dec(mm3,1)+' mm':''})`);
   if(near.some(r=>(r.code>=71&&r.code<=77)||r.code===85||r.code===86))add('snow','warn','Nevada en las próximas horas');
   if(at<=-8)add('cold','danger',`Sensación térmica muy baja (${Math.round(at)} °)`);
   else if(at<=0)add('cold','warn',`Sensación térmica bajo cero (${Math.round(at)} °)`);
@@ -2368,11 +2355,6 @@ function vInsert(pts,i,closed){            /* inserta un punto en el medio del t
   if(!closed&&i>=n-1)return pts.slice();
   const m=[(pts[i][0]+pts[j][0])/2,(pts[i][1]+pts[j][1])/2];
   const r=pts.slice();r.splice(i+1,0,m);return r;
-}
-function vDelete(pts,i,closed){
-  const min=closed?3:2;
-  if(pts.length<=min)return pts.slice();
-  const r=pts.slice();r.splice(i,1);return r;
 }
 
 
@@ -3253,6 +3235,8 @@ async function commitRuns(tr){
 }
 /* Datos de la versión anterior: le da actividad a los tracks y crea las marcas */
 async function migrate(){
+  /* se hace una sola vez: antes leía TODOS los tracks completos en cada arranque */
+  if(S.migTracks>=1)return;
   for(const tr of await DB.all('kv','track:')){
     let ch=false;
     if(!tr.act){tr.act='bike';ch=true;}
@@ -3262,6 +3246,7 @@ async function migrate(){
     }
     if(ch){await commitRuns(tr);await DB.put('kv','track:'+tr.id,tr);}
   }
+  S.migTracks=1;saveS();
 }
 function updActBtn(){$('#fAct').textContent=ACT[S.act][0];}
 
@@ -3570,7 +3555,7 @@ function tickHud(){
     const gt=at.gt,now=lastFix?lastFix.t+(Date.now()-lastFixWall):Date.now(),b=at.ref(false),closed=at.circ.type!=='p2p';
     let h=`<span>${esc(at.circ.name)}</span><span>${closed?'Vuelta '+(gt.laps.length+1):'Tramo'}</span><b>${fmtT(now-gt.cur.start,true)}</b>`;
     if(b)h+=`<span>🏆 ${fmtT(b.time,true)}</span>`;
-    if(REC.last){const g=REC.last.d!=null&&REC.last.d<0;h+=`<span>${esc(REC.last.txt)}</span>`+(REC.last.d!=null?`<span class="d ${g?'good':''}">${REC.last.d<0?'−':'+'}${(Math.abs(REC.last.d)/1000).toFixed(1)}</span>`:'');}
+    if(REC.last){const g=REC.last.d!=null&&REC.last.d<0;h+=`<span>${esc(REC.last.txt)}</span>`+(REC.last.d!=null?`<span class="d ${g?'good':''}">${REC.last.d<0?'−':'+'}${dec(Math.abs(REC.last.d)/1000,1)}</span>`:'');}
     c.innerHTML=h;
     if(ghost&&ghost.ent===at){
       const el=now-gt.cur.start,p=posAt(ghost.pts,el);
@@ -3725,18 +3710,6 @@ async function showPoints(){
       else if(a==='exp')shareFile('rumbo-puntos.gpx',toGPX([],ws,esc),'application/gpx+xml');
     });
 }
-async function showWptEdit(id){
-  const w=await DB.get('kv','wpt:'+id);if(!w)return;
-  openSheet('Editar punto',`<label for="wn">Nombre</label><input class="in" id="wn" value="${esc(w.name)}">
-    <label>Tipo</label><div class="seg">${Object.entries(WT).map(([k,[e,n]])=>`<button data-act="type" data-k="${k}" class="${k===w.type?'on':''}">${e} ${n}</button>`).join('')}</div>
-    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="ok">Listo</button><button class="btn" data-act="go">Ir al mapa</button><button class="btn danger" data-act="del">Borrar</button></div>`,
-    async(a,d,el)=>{
-      if(a==='type'){w.type=d.k;await DB.put('kv','wpt:'+id,w);addWptMarker(w);showWptEdit(id);}
-      else if(a==='ok'){w.name=$('#wn').value.trim()||w.name;await DB.put('kv','wpt:'+id,w);showPoints();}
-      else if(a==='go'){closeSheet();setFollow(false);map.setView([w.lat,w.lon],Math.max(map.getZoom(),17));}
-      else if(a==='del'&&armed(el)){await DB.del('kv','wpt:'+id);if(wptMk[id]){wptLayer.removeLayer(wptMk[id]);delete wptMk[id];}showPoints();}
-    });
-}
 
 /* ---------- Archivos: compartir e importar ---------- */
 async function shareFile(name,text,mime){
@@ -3855,7 +3828,7 @@ async function importFile(){
     const g=parseTrackFile(f.text),isT=/<TrainingCenterDatabase/i.test(f.text.slice(0,3000));
     for(const t of g.tracks){
       const id=uid(),act=guessAct(t);
-      await DB.put('kv','track:'+id,{id,name:t.name,t0:t.pts[0][2],t1:t.pts[t.pts.length-1][2],pts:t.pts,stats:calcStats(t.pts),circuitId:null,laps:[],src:isT?'tcx':'gpx',...(act?{act}:{}),...(t.hr?{hr:t.hr}:{}),...(t.pw?{pw:t.pw}:{}),...(t.cad?{cad:t.cad}:{})});
+      await DB.put('kv','track:'+id,{id,name:t.name,t0:t.pts[0][2],t1:t.pts[t.pts.length-1][2],pts:t.pts,stats:calcStats(t.pts),circuitId:null,laps:[],src:isT?'tcx':'gpx',act:act||'bike',...(t.hr?{hr:t.hr}:{}),...(t.pw?{pw:t.pw}:{}),...(t.cad?{cad:t.cad}:{})});
     }
     for(const w of g.wpts){await DB.put('kv','wpt:'+w.id,w);addWptMarker(w);}
     toast(`Importado: ${g.tracks.length} tracks, ${g.wpts.length} puntos`);showTracks();
@@ -3909,7 +3882,7 @@ function lapBlock(r){
   h+=secExtraHtml(r,laps,nS);
   return h;
 }
-const fmtDelta=ms=>(ms<0?'−':'+')+(Math.abs(ms)/1000).toFixed(1)+' s';
+const fmtDelta=ms=>(ms<0?'−':'+')+dec(Math.abs(ms)/1000,1)+' s';
 /* ====================== SECTORES TIPO FÓRMULA 1 ====================== */
 /* Cada sector entre puertas puede tener nombre y varias características para comparar: terreno, trazado, viento y corriente */
 const TERR={up:['⬆️','Subida','Subidas'],down:['⬇️','Bajada','Bajadas'],flat:['➡️','Plano','Planos'],roll:['〰️','Ondulado','Ondulados']};
@@ -4084,7 +4057,6 @@ function groupTable(laps,vals,g){
   return `<h3>Por ${SECG[g].n.toLowerCase()}</h3><div class="tblw"><table class="tbl"><tr><th>#</th>${ks.map(k=>`<th>${SECG[g].v[k][0]} ${SECG[g].v[k][2]} (${cnt(k)})</th>`).join('')}</tr>`+
     rows.map(r=>`<tr><td>${r.l.n}</td>${ks.map(k=>`<td class="${rows.length>1&&r.o[k]===best[k]?'bs':''}">${fmtT(r.o[k],true)}</td>`).join('')}</tr>`).join('')+`</table></div>`;
 }
-const terrainTable=(laps,types)=>groupTable(laps,types,'terr');
 /* bloque para las tablas: nombres de sectores, tablas por característica y comparación con el récord anterior */
 function secExtraHtml(r,laps,nS){
   const tags=r.tags||(r.types?{terr:r.types}:{});let h='';
@@ -4479,7 +4451,6 @@ function banner(txt,opts){
   $('#bTxt').textContent=txt;b.hidden=false;
   $('#bUndo').hidden=!(opts&&opts.undo);$('#bOk').hidden=!(opts&&opts.ok);
 }
-function startDraw(id){draw={circId:id,pts:[],mk:[]};closeSheet();banner('Tocá el primer extremo de la puerta');}
 function cancelDraw(){if(draw){draw.mk.forEach(m=>m.remove());const id=draw.circId;draw=null;banner(null);showCircuitEdit(id);}}
 async function onDrawClick(e){
   const ll=[e.latlng.lat,e.latlng.lng];
@@ -4737,7 +4708,7 @@ function rtPanel(){
   let det='';
   if(RT.pExp){
     if(isWater(m))det=kayakLine(r);
-    else det=[r.avgKmh?`<small class="mut">Con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',',')} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:'',
+    else det=[r.avgKmh?`<small class="mut">Con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',DSEP())} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:'',
       r.xc?xcNote(r):offNote(r),
       r.ferry?`<br>⛴️ Ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera.`:'',
       r.hzs&&r.hzs.length?`<br>⚠️ En el camino: ${hzSummary(r.hzs)}`:''].join('');
@@ -4816,7 +4787,7 @@ function resultsHtml(){
       continue;
     }
     if(!r||r.err){h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${errText(r)}</span></div>`;continue;}
-    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(totT(r))}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',',')} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}${r.xc?xcNote(r):offNote(r)}${rodeo(r)>3?`<br><small style="color:#C0392B">⚠️ Da una vuelta: ${Math.round(rodeo(r))} veces la distancia en línea recta</small>`:''}${stagesHtml(r,start)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+totT(r)*1000)}</b></div>`;
+    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(totT(r))}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',DSEP())} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}${r.xc?xcNote(r):offNote(r)}${rodeo(r)>3?`<br><small style="color:#C0392B">⚠️ Da una vuelta: ${Math.round(rodeo(r))} veces la distancia en línea recta</small>`:''}${stagesHtml(r,start)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+totT(r)*1000)}</b></div>`;
   }
   const cmp=RT.alt?`<h3>Comparar para ${MI[RT.sel]}</h3><div class="row">`+PREFS.filter(([k])=>!(RT.sel==='car'&&k==='flat')).map(([k,e])=>{
     const a=RT.alt[k];if(!a||a.err)return '';
@@ -5167,25 +5138,6 @@ async function showFix(){
   });
 }
 const PF={kind:'sendero',name:'',oneway:0};
-function showPathForm(){
-  openSheet('Sendero o escalera nuevos',`<label>Tipo</label>
-    <div class="chips">${Object.entries(KIND_UI).map(([k,[e,n]])=>`<button data-act="kind" data-k="${k}" class="${k===PF.kind?'on':''}">${e} ${n}</button>`).join('')}</div>
-    <label for="pn">Nombre (opcional)</label><input class="in" id="pn" value="${esc(PF.name)}">
-    <label>Sentido (solo importa para bici y auto)</label>
-    <div class="chips">${[[0,'Ambos'],[1,'Solo como lo dibujo'],[-1,'Solo al revés']].map(([v,n])=>`<button data-act="ow" data-v="${v}" class="${v===PF.oneway?'on':''}">${n}</button>`).join('')}</div>
-    <p class="mut">Después vas a dibujarlo tocando puntos en el mapa. Si empieza o termina cerca de una calle (a menos de 25 m), se conecta solo. Una escalera sirve a pie y en bici empujando, no en auto.</p>
-    <button class="btn primary" data-act="draw" style="margin-top:8px">Dibujar en el mapa</button> <button class="btn" data-act="back">Volver</button>`,
-    (a,d)=>{
-      if(a==='kind'){PF.kind=d.k;sBody.querySelectorAll('[data-act=kind]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
-      else if(a==='ow'){PF.oneway=+d.v;sBody.querySelectorAll('[data-act=ow]').forEach(b=>b.classList.toggle('on',+b.dataset.v===PF.oneway));}
-      else if(a==='draw'){
-        PF.name=$('#pn').value.trim();
-        PICK={type:'path',pts:[],mk:[],line:L.polyline([],{color:KCOL[PF.kind],weight:5,dashArray:'6 6',interactive:false}).addTo(pickLayer)};
-        closeSheet();banner('Tocá los puntos del recorrido, uno tras otro',{});
-      }
-      else if(a==='back')showFix();
-    });
-}
 function cancelPick(){
   const p=PICK;PICK=null;pickLayer.clearLayers();banner(null);
   if(p)(p.type==='pt'||p.type==='via'||p.type==='stop'?showRoutes:p.type==='wx'?()=>showWeather(null):p.type==='rsdest'?()=>showSafeReturn():p.type==='ovl'?()=>showOvlAdjust(p.id):showFix)();
@@ -6238,7 +6190,6 @@ function gbProj(lat,lon){
   const x=q[0]*w[0]+q[1]*w[1]+q[2]*w[2],y=q[3]*w[0]+q[4]*w[1]+q[5]*w[2],z=q[6]*w[0]+q[7]*w[1]+q[8]*w[2],dep=GB.D-z;
   return {x:GB.W/2+GB.F*x/dep,y:GB.H/2-GB.F*y/dep,v:GB.D*z>1,z};
 }
-const gbUnproj=(cx,cy)=>gbPick(cx,cy);
 /* nivel de zoom del mapa plano que se vería a la misma escala bajo el centro, y la altura (radios) que corresponde a un zoom */
 function gbZoomOf(){const la=gbView().lat;return Math.log2(2*Math.PI*(GB.F/(GB.D-1))*Math.max(.25,Math.cos(la))/256);}
 const gbHofZ=(z,la)=>GB.F/(256*Math.pow(2,z)/(2*Math.PI*Math.max(.25,Math.cos(la))));
@@ -6816,7 +6767,6 @@ $('#capCtrGo').onclick=capContours;
 const gedLayer=L.layerGroup().addTo(map);
 const GE={on:false,cid:null,idx:null,g:null,c:null};
 const visCenterNow=()=>{try{return map.getCenter();}catch(e){return {lat:0,lng:0};}};
-const ROLE_ORDER=['start','split','lap','finish','startfinish'];
 const ROLE_COL={start:'#F04A1C',split:'#0E2A36',finish:'#2E7D5B',startfinish:'#F04A1C',lap:'#7B3FB5'};
 function gateIconHtml(role,label,brg,dirOnly){
   const s=(role==='start'||role==='startfinish')?' s':'';
@@ -7315,7 +7265,7 @@ function updTarget(){
   const kmh=spd!=null&&fresh?spd*3.6:null;
   const pace=kmh!=null&&kmh>=1&&kmh<16?` (${Math.floor(60/kmh)}:${String(Math.round((60/kmh%1)*60)%60).padStart(2,'0')} /km)`:'';
   $('#tgtM').textContent=fresh
-    ?`⛰️ ${alt!=null?(an.doubt?'≈':'')+Math.round(alt)+' m'+(an.va!=null?' ±'+Math.round(an.va):''):'—'}  ·  ⚡ ${kmh!=null?kmh.toFixed(1)+' km/h'+pace:'—'}`
+    ?`⛰️ ${alt!=null?(an.doubt?'≈':'')+Math.round(alt)+' m'+(an.va!=null?' ±'+Math.round(an.va):''):'—'}  ·  ⚡ ${kmh!=null?dec(kmh,1)+' km/h'+pace:'—'}`
     :'Sin lectura de GPS reciente';
   const d=hav(here,there),brg=bearingTo(here,there);
   /* mover la línea repinta TODO el mapa vectorial: solo se hace si te moviste ~10 m (y no mientras el globo tapa el mapa) */
@@ -7328,7 +7278,7 @@ function updTarget(){
   let eta='';
   if(TGT.hist.length>=8){
     const a=TGT.hist[0],b=TGT.hist[TGT.hist.length-1],v=(a[1]-b[1])/((b[0]-a[0])/1000);
-    if(v>0.3&&d>TGT.alertAt)eta=` · ${(v*3.6).toFixed(1)} km/h → ${fmtDur(d/v)} en línea recta`;
+    if(v>0.3&&d>TGT.alertAt)eta=` · ${dec(v*3.6,1)} km/h → ${fmtDur(d/v)} en línea recta`;
   }
   sub.textContent=`${TGT.label} · ${compassWord(brg)} ${Math.round(brg)}°${eta}`;
   arrow.style.transform=`rotate(${Math.round(brg-getB())}deg)`;
@@ -7772,19 +7722,18 @@ async function waterRouteFor(mode,from,to){
   if(!r.err)r.hzs=[];
   return r;
 }
-const kayakRoute=(f,t)=>waterRouteFor('kayak',f,t);
 function kayakLine(r){
   const sw=r.mode==='swim',a=[];
   if(r.down>500)a.push(`${fmtD(r.down)} a favor de la corriente`);
   if(r.up>500)a.push(`${fmtD(r.up)} en contra`);
   if(r.lake>200)a.push(`${fmtD(r.lake)} en lagos`);
-  const cur=r.down+r.up>500?` y ${String(S.kCur==null?2:S.kCur).replace('.',',')} km/h de corriente`:'';
+  const cur=r.down+r.up>500?` y ${String(S.kCur==null?2:S.kCur).replace('.',DSEP())} km/h de corriente`:'';
   const head=`${sw?'🏊':'🛶'} ${fmtD(r.water)} en el agua${a.length?' ('+a.join(', ')+')':''}`;
   const walk=r.portage>30?`<br>🚶 ${fmtD(r.portage)} ${sw?'caminando hasta el agua':'llevando el kayak hasta el agua'}`:'';
   const hard=r.hard>200?`<br><span style="color:#C0392B"><b>⚠️ ${fmtD(r.hard)} contra una corriente fuerte: ${sw?'nadando':'remando'} avanzás menos de la mitad de tu velocidad.</b></span>`:'';
   const note=sw
-    ?`<br><small class="mut">Ritmo de ${fmtPace100(S.swimSec||120)} (${(swimV(S.swimSec||120)*3.6).toFixed(1).replace('.',',')} km/h)${cur}. ${S.swimShore?`Prefiere ir a menos de ${S.swimShoreM||100} m de la orilla.`:'Va lo más directo posible por el agua.'} Rodea islas y puntas de tierra. <b>Agua fría y corrientes: nadá acompañado, con boya y neoprene según la temperatura.</b> No cuenta el viento ni las olas.</small>`
-    :`<br><small class="mut">A ${String(S.vKayak||7).replace('.',',')} km/h de remada${cur}. No cuenta represas, rápidos ni saltos: revisá el río antes de salir.</small>`;
+    ?`<br><small class="mut">Ritmo de ${fmtPace100(S.swimSec||120)} (${(swimV(S.swimSec||120)*3.6).toFixed(1).replace('.',DSEP())} km/h)${cur}. ${S.swimShore?`Prefiere ir a menos de ${S.swimShoreM||100} m de la orilla.`:'Va lo más directo posible por el agua.'} Rodea islas y puntas de tierra. <b>Agua fría y corrientes: nadá acompañado, con boya y neoprene según la temperatura.</b> No cuenta el viento ni las olas.</small>`
+    :`<br><small class="mut">A ${String(S.vKayak||7).replace('.',DSEP())} km/h de remada${cur}. No cuenta represas, rápidos ni saltos: revisá el río antes de salir.</small>`;
   const off=!sw&&r.maxOff!=null?`<br>${r.coastal?'🏝️ Costera a '+r.coastBuf+' m':'➡️ Directa'}: ${r.maxOff>1500?`<span style="color:#C0392B"><b>se aleja hasta ${fmtD(r.maxOff)} de la costa</b></span>`:`se aleja como máximo ${fmtD(Math.max(10,Math.round(r.maxOff/10)*10))} de la costa`}`:'';
   const KM=S.kCoastM||50,kon=S.kCoast!==false;
   const chips=!sw&&r.maxOff!=null?`<div class="chips" style="margin-top:6px"><button data-act="kc" data-v="0" class="${!kon?'on':''}">➡️ Directa</button>${[10,50,100,250].map(v=>`<button data-act="kc" data-v="${v}" class="${kon&&KM===v?'on':''}">🏝️ ${v} m</button>`).join('')}</div><small class="mut">Costera: va hasta a esa distancia de la orilla y corta las bahías más chicas que eso.</small>`:'';
@@ -8137,7 +8086,7 @@ async function routeProfile(r,out,opts){
 /* ----- diagnóstico ----- */
 const DIAG={rows:[],route:null,fps:null,busy:false};
 const UHU={lat:-54.8019,lon:-68.3030,label:'Ushuaia'},TUC={lat:-26.8083,lon:-65.2176,label:'San Miguel de Tucumán'};
-const msTxt=ms=>ms<1000?Math.round(ms)+' ms':(ms/1000).toFixed(1)+' s';
+const msTxt=ms=>ms<1000?Math.round(ms)+' ms':dec(ms/1000,1)+' s';
 function memTxt(){
   const m=performance&&performance.memory;
   return m&&m.usedJSHeapSize?`${Math.round(m.usedJSHeapSize/1e6)} MB usados de ${Math.round(m.jsHeapSizeLimit/1e6)} MB`:'este WebView no lo informa';
@@ -8967,7 +8916,7 @@ async function saveIncoming(){
     if(dup){last=dup.id;continue;}
     const id=uid();last=id;nuevos++;
     const act=guessAct(t);
-    await DB.put('kv','track:'+id,{id,name:t.name,t0,t1:t.pts[t.pts.length-1][2],pts:t.pts,stats:calcStats(t.pts),circuitId:null,laps:[],src:'gpx',...(act?{act}:{}),...(t.hr?{hr:t.hr}:{}),...(t.pw?{pw:t.pw}:{}),...(t.cad?{cad:t.cad}:{})});
+    await DB.put('kv','track:'+id,{id,name:t.name,t0,t1:t.pts[t.pts.length-1][2],pts:t.pts,stats:calcStats(t.pts),circuitId:null,laps:[],src:'gpx',act:act||'bike',...(t.hr?{hr:t.hr}:{}),...(t.pw?{pw:t.pw}:{}),...(t.cad?{cad:t.cad}:{})});
   }
   const haveW=await DB.all('kv','wpt:');let nw=0;
   for(const w of g.wpts){
@@ -9761,13 +9710,17 @@ function applyNavOp(){document.documentElement.style.setProperty('--navA',String
 const NTFY='https://ntfy.sh/';
 /* ntfy.sh limita cuántos mensajes manda cada conexión (429): se avisa distinto que "sin señal" */
 let NTFYLIM=0;
+/* cupo de mensajes que queda (se consulta cada 10 min mientras compartís) */
+const NTQ={left:null,lim:null,t:0},NTQ_RES=20;
+async function ntfyCheck(){const u=await ntfyUsage();if(u&&u.left!=null){NTQ.left=u.left;NTQ.lim=u.lim;NTQ.t=Date.now();}}
+setInterval(()=>{if(SH.on&&Date.now()-NTQ.t>10*60000)ntfyCheck();},60000);
 const ntfyLimited=()=>Date.now()-NTFYLIM<10*60000;
 /* uso del servidor desde esta conexión (mensajes enviados y límite) */
 async function ntfyUsage(){
   try{const r=await fetch(NTFY+'v1/account');if(!r.ok)return null;const j=await r.json();const st=j.stats||{},li=j.limits||{};
     return {sent:st.messages,left:st.messages_remaining,lim:li.messages,basis:li.basis,emails:st.emails};}catch(e){return null;}
 }
-const SH_MODES={meet:{n:'🤝 Encuentro',d:'un punto cada 10 s, enviados cada 20 s · para reencontrarse',sample:10,send:20},race:{n:'🏃 Carrera',d:'un punto cada 15 s, enviados cada 30 s · para que te sigan en una carrera',sample:15,send:30},trip:{n:'🛶 Travesía',d:'un punto cada 20 s, enviados cada 2 min · ahorra batería',sample:20,send:120}};
+const SH_MODES={meet:{n:'🤝 Encuentro',d:'un punto cada 10 s, enviados cada 20 s · para reencontrarse',sample:10,send:20},race:{n:'🏃 Carrera',d:'un punto cada 15 s, enviados cada 30 s · para que te sigan en una carrera',sample:15,send:30},trip:{n:'🛶 Travesía',d:'un punto cada 20 s, enviados cada 2 min · ahorra batería',sample:20,send:120},exp:{n:'🏔️ Expedición',d:'un punto cada 30 s, enviados cada 5 min · para un día entero',sample:30,send:300}};
 const b64u={
   enc(buf){const b=buf instanceof Uint8Array?buf:new Uint8Array(buf);let s='';for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');},
   dec(str){str=String(str).replace(/-/g,'+').replace(/_/g,'/');while(str.length%4)str+='=';const s=atob(str),b=new Uint8Array(s.length);for(let i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return b;}
@@ -9792,7 +9745,8 @@ async function shOpen(str,key){
 const shKeyFrom=raw=>crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['encrypt','decrypt']);
 async function shPost(topic,body){
   const r=await fetch(NTFY+topic,{method:'POST',body,headers:{'Content-Type':'text/plain'}});
-  if(!r.ok){const e=new Error('ntfy '+r.status);e.status=r.status;if(r.status===429)NTFYLIM=Date.now();throw e;}
+  if(!r.ok){const e=new Error('ntfy '+r.status);e.status=r.status;if(r.status===429){NTFYLIM=Date.now();NTQ.left=0;}throw e;}
+  if(NTQ.left!=null)NTQ.left=Math.max(0,NTQ.left-1);
 }
 const shBase=()=>{
   if(!isNative()&&/^https?:/.test(location.protocol)&&!/localhost|127\.0\.0\.1/.test(location.hostname))return location.origin+location.pathname;
@@ -9858,7 +9812,12 @@ function shTick(f,force){
     try{localStorage.setItem('rumbo.shq',JSON.stringify(SH.queue.slice(-2000)));}catch(e){}
   }
   let every=M.send;if(SH.bat!=null&&SH.bat<20)every=Math.max(every,120);
+  /* reserva para emergencias: si quedan pocos mensajes gratis, las posiciones salen mucho más espaciadas (o se guardan) */
+  if(NTQ.left!=null){if(NTQ.left<=NTQ_RES)return;if(NTQ.left<NTQ_RES*3)every=Math.max(every,600);}
   if(SH.fails)every=Math.min(300,every*Math.min(4,1+SH.fails));
+  /* quieto (te moviste menos de 25 m desde el último envío): solo una señal de vida cada 10 min */
+  const lp=SH.lastSentPos;SH.still=!!(lp&&SH.queue.length&&SH.queue.every(q=>hav(lp,q)<25));
+  if(SH.still&&!SH.tmDirty)every=Math.max(every,600);
   if((SH.queue.length||SH.tmDirty)&&!SH.sending&&(force||SH.tmDirty&&!SH.fails||now-SH.lastSend>=every*1000-400))shFlush();
 }
 /* cronometraje por sectores que viaja con las posiciones (si estás grabando con un circuito) */
@@ -9882,10 +9841,12 @@ async function shFlush(){
     SH.metaOk=true;
     do{
       const n=Math.min(SH.queue.length,60),pts=SH.queue.slice(0,n),msg={k:'p',sid:SH.sid,seq:++SH.seq,pts,bat:SH.bat};
+      if(SH.still)msg.still=1;
       if(T)msg.tm=T.tm;
       SH.tmDirty=false;
       await shPost(SH.topic,await shSeal(msg,SH.key));
       SH.queue.splice(0,n);SH.fails=0;SH.lastOk=Date.now();
+      {const q=pts[pts.length-1];if(!SH.lastSentPos||!SH.still)SH.lastSentPos=[q[0],q[1]];}
     }while(SH.queue.length);
     shSave();
   }catch(e){SH.fails++;SH.metaOk=false;}
@@ -9898,7 +9859,7 @@ function shPill(){
   const ago=SH.lastOk?Math.round((Date.now()-SH.lastOk)/1000):null,M=SH_MODES[SH.mode]||SH_MODES.race;
   const bad=ago==null||ago>Math.max(60,M.send*3);
   p.classList.toggle('bad',bad);
-  p.textContent=`📡 ${bad&&ntfyLimited()?'⚠️ servidor saturado (ntfy) · reintentando':bad?(SH.queue.length?`sin señal · ${SH.queue.length} pts guardados`:'esperando señal'):'en vivo'}${ago!=null&&!bad?` · hace ${ago<60?ago+' s':Math.round(ago/60)+' min'}`:''}`;
+  p.textContent=NTQ.left!=null&&NTQ.left<NTQ_RES*3&&!ntfyLimited()?`📡 ⚠️ quedan ${NTQ.left} mensajes: ${NTQ.left<=NTQ_RES?'posición en pausa, reservados para emergencias':'posición cada 10 min'}`:`📡 ${bad&&ntfyLimited()?'⚠️ servidor saturado (ntfy) · reintentando':bad?(SH.queue.length?`sin señal · ${SH.queue.length} pts guardados`:'esperando señal'):'en vivo'}${ago!=null&&!bad?` · hace ${ago<60?ago+' s':Math.round(ago/60)+' min'}`:''}`;
 }
 async function shShareLink(){
   if(SH.group&&GRP.on)return grpShareLink();
@@ -10071,12 +10032,12 @@ function folPanel(){
   const m=FOL.meta,st=folStats(),M=m&&SH_MODES[m.mode];
   const nm=m&&m.name?esc(m.name):'Seguimiento';
   if(!st){el.innerHTML=`<div class="fb"><div class="t">📡 ${nm}</div><div class="s">${FOL.netOk===false?'No se pudo conectar: revisá internet':m?'Todavía sin posiciones. Aparecen apenas lleguen.':'Esperando datos… (si el link es viejo, puede que ya no haya nada)'}</div></div><div class="rb"><button data-f="x" aria-label="Dejar de seguir">✕</button></div>`;return;}
-  const ago=Math.max(0,Math.round(Date.now()/1000-st.tl)),agoT=ago<60?`hace ${ago} s`:ago<3600?`hace ${Math.round(ago/60)} min`:`hace ${(ago/3600).toFixed(1).replace('.',',')} h`;
+  const ago=Math.max(0,Math.round(Date.now()/1000-st.tl)),agoT=ago<60?`hace ${ago} s`:ago<3600?`hace ${Math.round(ago/60)} min`:`hace ${(ago/3600).toFixed(1).replace('.',DSEP())} h`;
   const late=M?ago>Math.max(90,M.send*3):ago>180;
   const v=st.vRecent||st.vAvg,run=m&&m.mode==='race';
-  const sp=v?(run&&v>0.5?`${Math.floor(1000/v/60)}:${String(Math.round(1000/v%60)).padStart(2,'0')} /km`:`${(v*3.6).toFixed(1).replace('.',',')} km/h`):'—';
+  const sp=v?(run&&v>0.5?`${Math.floor(1000/v/60)}:${String(Math.round(1000/v%60)).padStart(2,'0')} /km`:`${(v*3.6).toFixed(1).replace('.',DSEP())} km/h`):'—';
   const lines=[];
-  if(st.pr)lines.push(`${(st.pr.prog/1000).toFixed(2).replace('.',',')} de ${(st.pr.total/1000).toFixed(1).replace('.',',')} km del circuito`);
+  if(st.pr)lines.push(`${(st.pr.prog/1000).toFixed(2).replace('.',DSEP())} de ${(st.pr.total/1000).toFixed(1).replace('.',DSEP())} km del circuito`);
   else lines.push(`${fmtD(st.dist)} recorridos`);
   lines.push(`ritmo ${sp}`);
   if(FOL.bat!=null)lines.push(`🔋 ${FOL.bat} %`);
@@ -10194,6 +10155,7 @@ async function grpShareMe(name,mode){
   if(!GRP.on)return;
   if(SH.on&&!(SH.group&&SH.topic===GRP.topic))await shStop();
   if(!SH.on)await shStart({name,mode:mode||'meet',topic:GRP.topic,keyB:GRP.keyB,group:true});
+  ntfyCheck();
   grpPanel();
 }
 async function grpJoin(topic,keyB){
@@ -10227,7 +10189,8 @@ async function grpHandle(id,msg){
   let p=GRP.people.get(o.sid);
   if(!p){p={sid:o.sid,pts:[],meta:null,bat:null,ended:false,color:grpColor(o.sid)};GRP.people.set(o.sid,p);}
   if(o.k==='m')p.meta=Object.assign({},p.meta||{},o);
-  else if(o.k==='p'){for(const q of o.pts||[])p.pts.push(q);if(p.pts.length>1500)p.pts.splice(0,p.pts.length-1500);if(o.bat!=null)p.bat=o.bat;p.ended=false;}
+  else if(o.k==='p'){for(const q of o.pts||[])p.pts.push(q);if(p.pts.length>1500)p.pts.splice(0,p.pts.length-1500);if(o.bat!=null)p.bat=o.bat;p.ended=false;
+    p.still=!!o.still;const lq=(o.pts||[])[o.pts.length-1];p.rx=GD.replay&&lq?lq[2]*1000:Date.now();if(GD.sil)delete GD.sil[p.sid];}
   else if(o.k==='e')p.ended=true;
 }
 async function grpPoll(all){
@@ -10288,7 +10251,7 @@ function grpPanel(){
   const hid=all.filter(idle);
   const ppl=all.filter(p=>GRP.showIdle||!idle(p)).sort((a,b)=>((a.meta&&a.meta.name)||'').localeCompare((b.meta&&b.meta.name)||''));
   const rows=ppl.map(p=>{
-    const l=grpLast(p),ago=Math.max(0,Math.round(now-l[2])),agoT=ago<60?`${ago} s`:ago<3600?`${Math.round(ago/60)} min`:`${(ago/3600).toFixed(1).replace('.',',')} h`;
+    const l=grpLast(p),ago=Math.max(0,Math.round(now-l[2])),agoT=ago<60?`${ago} s`:ago<3600?`${Math.round(ago/60)} min`:`${(ago/3600).toFixed(1).replace('.',DSEP())} h`;
     const d=me?hav(me,[l[0],l[1]]):null,dir=me&&d>15?compassWord(bearingTo(me,[l[0],l[1]])):'';
     return `<div class="gr${p.ended||ago>600?' old':''}"><i style="background:${p.color}"></i><div class="gn"><b>${esc((p.meta&&p.meta.name)||'Sin nombre')}</b><small>${p.ended?'dejó de compartir · ':''}hace ${agoT}${d!=null?` · ${fmtD(d)}${dir?' al '+dir:''}`:''}${p.bat!=null?` · 🔋${p.bat}%`:''}</small>${gdRowNote(p,ago)}</div>${p.ended?'':`<button data-g="q" data-s="${p.sid}" aria-label="Preguntar si está bien">❓</button>`}<button data-g="t" data-s="${p.sid}" class="${GRP.tgt===p.sid?'on':''}" aria-label="Ir hacia">🎯</button><button data-g="c" data-s="${p.sid}" aria-label="Ver">⌖</button></div>`;
   }).join('');
@@ -10511,7 +10474,6 @@ const m4={
 const dot3=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],cross3=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],norm3=a=>{const l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];};
 /* lat/lon → metros de la malla (x al este, z al sur, centro de la malla = 0) */
 function t3XZ(lat,lon){const p=tileXY(lat,lon,T3.zd);return [((p.x-T3.x0)*256-T3.half)*T3.mpp,((p.y-T3.y0)*256-T3.half)*T3.mpp];}
-function t3LL(x,z){const n=2**T3.zd,gx=T3.x0+(x/T3.mpp+T3.half)/256,gy=T3.y0+(z/T3.mpp+T3.half)/256;return [Math.atan(Math.sinh(Math.PI*(1-2*gy/n)))*180/Math.PI,gx/n*360-180];}
 /* altura del terreno (sin exagerar) en metros de la malla */
 function t3H(x,z){
   if(!T3.H)return 0;const n=T3.n,fx=(x/T3.mpp+T3.half)/T3.step,fz=(z/T3.mpp+T3.half)/T3.step;
@@ -10804,13 +10766,6 @@ function t3RelPlay(){
   sb.addEventListener('input',()=>{T3.scrub=true;t3RelSeek(+sb.value/1000);});
   sb.addEventListener('change',()=>{T3.scrub=false;});
   sb.addEventListener('pointerdown',e=>e.stopPropagation());})();
-function t3RelStop(keep){
-  const R=T3.rel;if(!R)return;
-  R.t0=null;R.go=false;
-  if(!keep){T3.km=0;$('#t3mk').hidden=true;$('#t3rel').hidden=true;t3Overlay();}
-  if(T3.recr&&T3.recr.state==='recording')T3.recr.stop();
-  t3RelBtn();T3.dirty=true;
-}
 function t3RelStep(now){
   const R=T3.rel;if(R.t0==null)R.t0=now;
   const el=now-R.t0,intro=2500,outro=4000;
@@ -10848,14 +10803,14 @@ function t3RelStep(now){
 function t3RelHud(){
   const R=T3.rel;if(!R||!R.now)return;
   {const sb=$('#t3sb');if(sb&&!T3.scrub&&R.k!=null)sb.value=Math.round(R.k*1000);const tt=$('#t3tt');if(tt)tt.textContent=`${fmtT(Math.max(0,R.now.el))} / ${fmtT(R.pts[R.pts.length-1][2]-R.pts[0][2])}`;const pp=$('#t3pp');if(pp)pp.textContent=R.go?'⏸':'▶';}
-  const n=R.now,run=['run','walk'].includes(R.act),sp=n.v?(run&&n.v>0.4?fmtSp(n.v,'minkm')+' /km':R.act==='swim'?fmtSp(n.v,'min500')+' /500 m':(n.v*3.6).toFixed(1).replace('.',',')+' km/h'):'—';
+  const n=R.now,run=['run','walk'].includes(R.act),sp=n.v?(run&&n.v>0.4?fmtSp(n.v,'minkm')+' /km':R.act==='swim'?fmtSp(n.v,'min500')+' /500 m':(n.v*3.6).toFixed(1).replace('.',DSEP())+' km/h'):'—';
   const done=R.done||R.end!=null;
   const lg=R.leg,li=R.legs?R.legs.indexOf(lg):-1;
   $('#t3rel').innerHTML=`<div class="rt">${t3Icon(R)} <b>${esc(lg&&!done?(lg.lab||ACT[lg.act][1]):(R.tr.name||'Recorrido'))}</b>${lg&&!done?`<small>etapa ${li+1} de ${R.legs.length} · ${fmtT(Math.max(0,n.lel||0))}</small>`:`<small>${fmtDate(R.tr.t0||R.pts[0][2])}</small>`}</div>
-    <div class="rs"><div><b>${(n.s/1000).toFixed(2).replace('.',',')}</b><small>km</small></div><div><b>${fmtT(n.el)}</b><small>tiempo</small></div><div><b>${n.alt!=null?Math.round(n.alt):'—'}</b><small>m altura</small></div><div><b>${sp}</b><small>${done?'':'ahora'}</small></div>
+    <div class="rs"><div><b>${(n.s/1000).toFixed(2).replace('.',DSEP())}</b><small>km</small></div><div><b>${fmtT(n.el)}</b><small>tiempo</small></div><div><b>${n.alt!=null?Math.round(n.alt):'—'}</b><small>m altura</small></div><div><b>${sp}</b><small>${done?'':'ahora'}</small></div>
     ${R.hrS?`<div class="hr"><b>❤️ ${n.hr!=null?n.hr:'—'}</b><small>pulso</small></div>`:''}${R.pwS?`<div class="pw"><b>⚡ ${n.pw!=null?n.pw:'—'}</b><small>W (10 s)</small></div>`:''}${R.cadS?`<div><b>${n.cad!=null?n.cad:'—'}</b><small>cadencia</small></div>`:''}</div>
     ${done&&R.legs?`<div class="re">${R.legs.map(l=>`${l.lab?'⏱️ '+l.lab:ACT[l.act][0]} ${fmtT(l.dur)}`).join(' · ')}</div>`:''}
-    ${done?`<div class="re">🏁 ${(R.L/1000).toFixed(2).replace('.',',')} km · ${fmtT(R.pts[R.pts.length-1][2]-R.pts[0][2])}${R.gain>20?` · ↑${Math.round(R.gain)} m`:''}${R.hrS?` · ❤️ ${R.hrS.avg} prom (máx ${R.hrS.max})`:''}${R.pwS?` · ⚡ ${R.pwS.avg} W prom`:''}</div>`:''}`;
+    ${done?`<div class="re">🏁 ${(R.L/1000).toFixed(2).replace('.',DSEP())} km · ${fmtT(R.pts[R.pts.length-1][2]-R.pts[0][2])}${R.gain>20?` · ↑${Math.round(R.gain)} m`:''}${R.hrS?` · ❤️ ${R.hrS.avg} prom (máx ${R.hrS.max})`:''}${R.pwS?` · ⚡ ${R.pwS.avg} W prom`:''}</div>`:''}`;
   t3MkAt(n.x,n.z,n.y);
 }
 const t3Icon=R=>R&&R.leg&&R.leg.lab?'⏱️':(ACT[R&&R.act]||ACT.walk)[0];
@@ -10882,7 +10837,7 @@ function t3VidFrame(){
     x.beginPath();x.arc(px,py,W*.03,0,7);x.fillStyle='#fff';x.fill();x.font=`${Math.round(W*.04)}px system-ui`;x.textAlign='center';x.textBaseline='middle';x.fillText(t3Icon(R),px,py);}
   x.fillStyle='rgba(14,42,54,.72)';x.fillRect(0,0,W,H*.13);
   x.fillStyle='#fff';x.textAlign='left';x.textBaseline='alphabetic';x.font=`800 ${Math.round(W*.045)}px system-ui`;x.fillText(R.tr.name||'Recorrido',W*.04,H*.045);
-  const cols=[[(n.s/1000).toFixed(2).replace('.',','),'km'],[fmtT(n.el),'tiempo'],[n.alt!=null?String(Math.round(n.alt)):'—','m altura']];
+  const cols=[[(n.s/1000).toFixed(2).replace('.',DSEP()),'km'],[fmtT(n.el),'tiempo'],[n.alt!=null?String(Math.round(n.alt)):'—','m altura']];
   cols.forEach(([v,l],i)=>{const cx=W*(.04+i*.32);x.font=`800 ${Math.round(W*.06)}px system-ui`;x.fillText(v,cx,H*.1);x.font=`600 ${Math.round(W*.03)}px system-ui`;x.fillText(l,cx,H*.123);});
   const ex=[];if(R.hrS)ex.push(['❤️ '+(n.hr!=null?n.hr:'—'),'pulso']);if(R.pwS)ex.push(['⚡ '+(n.pw!=null?n.pw:'—'),'W (10 s)']);if(R.cadS)ex.push([n.cad!=null?String(n.cad):'—','cadencia']);
   if(ex.length){x.fillStyle='rgba(14,42,54,.72)';x.fillRect(0,H*.13,W,H*.075);x.fillStyle='#fff';ex.forEach(([v,l],i)=>{const cx=W*(.04+i*.32);x.font=`800 ${Math.round(W*.05)}px system-ui`;x.fillText(v,cx,H*.18);x.font=`600 ${Math.round(W*.026)}px system-ui`;x.fillText(l,cx,H*.2);});}
@@ -10991,7 +10946,7 @@ const gdOn=()=>!!(gdCfg().on&&SH.on&&SH.group&&GRP.on&&GD_ACT[gdAct()]);
 const gdMyId=()=>SH.sid||GD.me||(GD.me=uid());
 const gdName=()=>SH.name||S.shareName||'Alguien';
 const gdSay=t=>{try{const v=S.voice;S.voice=true;say(t);S.voice=v;}catch(e){}};
-const gdAgo=s=>s<60?`${Math.max(0,Math.round(s))} s`:s<3600?`${Math.round(s/60)} min`:`${(s/3600).toFixed(1).replace('.',',')} h`;
+const gdAgo=s=>s<60?`${Math.max(0,Math.round(s))} s`:s<3600?`${Math.round(s/60)} min`:`${(s/3600).toFixed(1).replace('.',DSEP())} h`;
 
 /* --- detección (en el teléfono de quien se mueve) --- */
 function gdOnFix(f){
@@ -11089,10 +11044,10 @@ async function gdPostAbout(sid,st,extra){
 async function gdSend(msg){
   GD.busy=(GD.busy||0)+1;
   try{await shPost(GRP.topic,await shSeal(msg,GRP.key));}
-  catch(e){GD.pend.push(msg);toast(e&&e.status===429?'⚠️ El servidor de avisos (ntfy.sh) frenó los envíos por exceso de mensajes. Reintento solo en unos minutos; mientras, bajá la frecuencia del grupo a 🛶 Travesía.':e&&e.status?`El servidor de avisos respondió error ${e.status}: reintento solo`:'Sin señal: el aviso sale apenas haya conexión',7000);}
+  catch(e){GD.pend.push(msg);if(msg.sid===gdMyId()&&(GD_ST[msg.st]||[])[3]>=2){GD.failSt=msg.st;try{gdOverlay();}catch(e2){}}toast(e&&e.status===429?'⚠️ El servidor de avisos (ntfy.sh) frenó los envíos por exceso de mensajes. Reintento solo en unos minutos; mientras, bajá la frecuencia del grupo a 🛶 Travesía.':e&&e.status?`El servidor de avisos respondió error ${e.status}: reintento solo`:'Sin señal: el aviso sale apenas haya conexión',7000);}
   finally{GD.busy--;}
 }
-async function gdFlushPend(){if(!GD.pend.length||!GRP.on)return;const p=GD.pend;GD.pend=[];for(const m of p)await gdSend(m);}
+async function gdFlushPend(){if(!GD.pend.length||!GRP.on)return;const p=GD.pend;GD.pend=[];GD.failSt=null;for(const m of p)await gdSend(m);try{gdOverlay();}catch(e){}}
 
 /* --- llega un aviso del grupo --- */
 function gdHandle(o){
@@ -11221,6 +11176,7 @@ function gdOverlay(){
   if(!ov){ov=GD.ov=document.createElement('div');ov.id='gdov';document.body.appendChild(ov);
     ov.addEventListener('click',e=>{const b=e.target.closest('[data-gd]');if(!b)return;const k=b.dataset.gd;
       if(k==='siren'){if(GD.siren)gdSiren(false);else gdSiren(true);gdOverlay();}
+      else if(k==='sms'||k==='shr')gdSmsOut(k);
       else if(k==='close'){GD.ask=null;GD.mine=null;gdSiren(false);gdNoteClear();gdOverlay();}
       else gdAnswer(k);});}
   ov.hidden=false;
@@ -11243,10 +11199,19 @@ function gdOverlay(){
       <p>${M.st==='noans'?'No respondiste a tiempo: todos ven tu última posición.':'Todos los del grupo ven tu aviso y tu posición.'} Tu posición se sigue mandando.</p>
       <button data-gd="ok" class="gok">✅ Ya estoy bien (cancelar el aviso)</button>
       ${M.st!=='sos'?'<button data-gd="sos" class="gsos">🆘 Es una EMERGENCIA</button>':''}
-      <button data-gd="siren" class="ghelp">${GD.siren?'🔇 Apagar la sirena':'🔊 Sirena (para que te encuentren)'}</button>`;
+      <button data-gd="siren" class="ghelp">${GD.siren?'🔇 Apagar la sirena':'🔊 Sirena (para que te encuentren)'}</button>
+      ${GD.failSt?'<p><b>⚠️ El aviso no pudo salir por internet</b> (sin señal o sin cupo del servidor). Mandalo por SMS:</p>':'<p class="mut2">Si no hay internet, también podés avisar por SMS:</p>'}
+      <div class="gdg"><button data-gd="sms">📱 SMS${gdCfg().iceTel?' a '+esc(gdCfg().ice||'mi contacto'):''}</button><button data-gd="shr">📤 WhatsApp / otra app</button></div>`;
   }
 }
 
+/* aviso por SMS o por otra app cuando no sale por internet (los SMS andan con poca señal y sin datos) */
+function gdSmsOut(k){
+  const M=GD.mine||{},st=GD_ST[M.st]||GD_ST.help,p=gdPos()||M.pos,c=gdCfg();
+  const txt=`${st[0]} ${gdName()}: ${M.txt?M.txt.replace(/^\S+\s/,''):st[1].toLowerCase()} (${(GD_ACT[gdAct()]||{n:''}).n}). `+(p?`Posición: ${p[0].toFixed(5)}, ${p[1].toFixed(5)} https://maps.google.com/?q=${p[0].toFixed(6)},${p[1].toFixed(6)}`:'Sin posición GPS')+' · Rumbo';
+  if(k==='sms'){const tel=(c.iceTel||'').replace(/[^\d+]/g,'');const a=document.createElement('a');a.href=`sms:${tel}?body=${encodeURIComponent(txt)}`;document.body.appendChild(a);a.click();a.remove();}
+  else{(async()=>{try{if(isNative())await plugin('Share').share({title:'Emergencia',text:txt});else if(navigator.share)await navigator.share({title:'Emergencia',text:txt});else{await navigator.clipboard.writeText(txt);toast('Mensaje copiado',2500);}}catch(e){}})();}
+}
 /* --- protocolo de emergencia (para los que ayudan) --- */
 function gdMsg(p){
   const c=p.ck||{},l=grpLast(p),pos=l?[l[0],l[1]]:c.pos,act=GD_ACT[c.act]||null,ice=p.meta&&p.meta.ice;
@@ -11381,14 +11346,34 @@ function gdRowNote(p,ago){
     const mineAck=(c.acks||[]).includes(gdName());
     out.push(`<span class="gck" style="background:${st[2]}">${esc(txt)} · ${gdAgo((Date.now()-c.t)/1000)}${c.acks&&c.acks.length?` · 👍 ${esc(c.acks.join(', '))}`:''}</span>${st[3]<2&&c.st!=='ask'&&!mineAck?` <button class="gack" data-g="ack" data-s="${p.sid}">👍 Recibido</button>`:''}`);
   }
-  const M=SH_MODES[p.meta&&p.meta.mode]||SH_MODES.meet;
-  if(!p.ended&&ago>Math.max(180,M.send*3+60))out.push(`<span class="gck sil">📵 sin datos hace ${gdAgo(ago)}</span>`);
+  const M=SH_MODES[p.meta&&p.meta.mode]||SH_MODES.meet,sl=gdSilence(p);
+  if(sl!=null&&sl>Math.max(180,(p.still?600:M.send)*1.5+60))out.push(`<span class="gck sil">📵 sin señal de vida hace ${gdAgo(sl)}</span>`);
+  else if(p.still&&!p.ended)out.push(`<span class="gck" style="background:#546E7A">⏸ quieto</span>`);
   return out.join(' ');
 }
+/* segundos sin recibir nada de esa persona (por la hora de llegada, no por el reloj de su teléfono) */
+function gdSilence(p){if(p.ended)return null;const l=grpLast(p);const t=p.rx||(l?l[2]*1000:null);return t?(Date.now()-t)/1000:null;}
+const GD_SIL=25*60;
+/* sin señal de vida 25 min: aviso amarillo (sin sirena: en el agua o la montaña perder señal es común), una vez por corte */
+function gdSilCheck(){
+  if(!GRP.on)return;GD.sil=GD.sil||{};
+  for(const p of GRP.people.values()){
+    if(p.sid===SH.sid||p.sid===S.devSid||p.ended)continue;
+    const sl=gdSilence(p);if(sl==null||sl<GD_SIL||sl>6*3600||GD.sil[p.sid])continue;
+    GD.sil[p.sid]=Date.now();const nm=gdPname(p);
+    toast(`📵 ${nm}: sin señal de vida hace ${gdAgo(sl)}. Su última posición está en el mapa`,8000);
+    try{beep(520,.3);}catch(e){}try{waPost(`📵 ${nm} sin señal`,`Hace ${gdAgo(sl)} que no llega nada. Última posición en Rumbo`);}catch(e){}
+    try{gdSay(`${nm} sin señal hace ${Math.round(sl/60)} minutos`);}catch(e){}
+  }
+}
+setInterval(gdSilCheck,30000);
 /* cartel arriba del panel con las alarmas abiertas */
 function gdBanner(){
   const now=Date.now(),me=lastFix?[lastFix.lat,lastFix.lon]:null;
-  return [...GRP.people.values()].filter(p=>p.sid!==SH.sid&&p.ck&&(GD_ST[p.ck.st]||[])[3]>=1&&now-p.ck.t<6*3600e3).sort((a,b)=>GD_ST[b.ck.st][3]-GD_ST[a.ck.st][3]).map(p=>{
+  const sil=[...GRP.people.values()].filter(p=>p.sid!==SH.sid&&p.sid!==S.devSid&&!(p.ck&&(GD_ST[p.ck.st]||[])[3]>=1&&now-p.ck.t<6*3600e3)&&(()=>{const s=gdSilence(p);return s!=null&&s>=GD_SIL&&s<6*3600;})()).map(p=>{
+    const l=grpLast(p),pos=l?[l[0],l[1]]:null,d=me&&pos?hav(me,pos):null;
+    return `<div class="gal"><b>📵 ${esc(gdPname(p))}: sin señal de vida</b><small>hace ${gdAgo(gdSilence(p))}${p.still?' · estaba quieto':''}${d!=null?` · última posición a ${fmtD(d)} al ${compassWord(bearingTo(me,pos))}`:''}${p.bat!=null?` · 🔋${p.bat}%`:''}</small><div><button data-g="t" data-s="${p.sid}">🎯 Ir</button><button data-g="c" data-s="${p.sid}">⌖ Ver</button><button data-g="q" data-s="${p.sid}">❓ Preguntar</button></div></div>`;}).join('');
+  return sil+[...GRP.people.values()].filter(p=>p.sid!==SH.sid&&p.ck&&(GD_ST[p.ck.st]||[])[3]>=1&&now-p.ck.t<6*3600e3).sort((a,b)=>GD_ST[b.ck.st][3]-GD_ST[a.ck.st][3]).map(p=>{
     const c=p.ck,st=GD_ST[c.st],l=grpLast(p),pos=l?[l[0],l[1]]:c.pos,d=me&&pos?hav(me,pos):null;
     return `<div class="gal lv${st[3]}"><b>${c.txt?esc(c.txt.split(' ')[0]):st[0]} ${esc(gdPname(p))}: ${c.txt?esc(c.txt.replace(/^\S+\s/,'')):c.st==='ask'&&c.asker?esc(c.asker)+' le preguntó':st[1]}</b><small>hace ${gdAgo((now-c.t0)/1000)}${d!=null?` · ${fmtD(d)} al ${compassWord(bearingTo(me,pos))}`:''}${c.goes&&c.goes.length?` · 🙋 va ${esc(c.goes.join(', '))}`:''}</small>
       ${st[3]>=2?`<div><button data-g="e" data-s="${p.sid}">🆘 Protocolo</button><button data-g="t" data-s="${p.sid}">🎯 Ir</button><button data-g="v" data-s="${p.sid}">🙋 Voy yo</button></div>`:''}</div>`;
@@ -11431,12 +11416,15 @@ function showMore(){
     <label class="chk"><input type="checkbox" id="sGl" ${S.globeAuto!==false?'checked':''}> 🌍 Al alejar el mapa (zoom 3 o menos), pasar al globo (se abre también en Más → Globo)</label>
     <label class="chk"><input type="checkbox" id="s17" ${S.smooth!==false?'checked':''}> Movimiento fluido: el punto y el mapa se deslizan entre una lectura del GPS y la siguiente</label>
     <p class="mut">Casi no gasta procesador (lo hace la placa de video). El punto va hasta 1 segundo detrás de tu posición real.</p>
+    <label>Separador decimal</label>
+    ${chips('ds',S.decSep||',',[['auto','📱 Según el teléfono'],[',','1,5 km (coma)'],['.','1.5 km (punto)']])}
+    <p class="mut">En Argentina se usa coma para los decimales y punto para los miles (1.250 m²). Con punto decimal, los miles van con coma (1,250 m²).</p>
     <h3>🛶 Kayak</h3>
     <label for="kv">Velocidad de remada (km/h)</label><input class="in" id="kv" type="number" min="2" max="15" step="0.5" value="${S.vKayak||7}">
     <label for="kc">Corriente típica de los ríos (km/h)</label><input class="in" id="kc" type="number" min="0" max="10" step="0.5" value="${S.kCur==null?2:S.kCur}">
     <h3>🏊 Aguas abiertas</h3>
     <label for="sw">Ritmo de nado (segundos cada 100 m)</label><input class="in" id="sw" type="number" min="45" max="300" step="5" value="${S.swimSec||120}">
-    <p class="mut" id="swh">${fmtPace100(S.swimSec||120)} · ${(swimV(S.swimSec||120)*3.6).toFixed(1).replace('.',',')} km/h. Con 120 s son 3 km/h.</p>
+    <p class="mut" id="swh">${fmtPace100(S.swimSec||120)} · ${(swimV(S.swimSec||120)*3.6).toFixed(1).replace('.',DSEP())} km/h. Con 120 s son 3 km/h.</p>
     <label for="kcm">Kayak costero: hasta cuántos metros de la orilla (corta las bahías más chicas)</label><input class="in" id="kcm" type="number" min="5" max="1000" step="5" value="${S.kCoastM||50}">
     <label class="chk"><input type="checkbox" id="kcs" ${S.kCoast!==false?'checked':''}> 🏝️ Kayak por la costa: ir cerca de la orilla y de las islas en vez de cruzar en línea recta (más largo, pero más seguro)</label>
     <label class="chk"><input type="checkbox" id="swc" ${S.swimShore?'checked':''}> Costear: preferir nadar cerca de la orilla en vez de cruzar directo (más largo, pero más seguro)</label>
@@ -11510,6 +11498,7 @@ function showMore(){
       else if(a==='diag')showDiag();
       else if(a==='dm'){S.dataMode=d.k;saveS();updNetPill();sBody.querySelectorAll('[data-act=dm]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
       else if(a==='swm'){S.swimShoreM=+d.k;saveS();kayakDrop&&RT.res&&(RT.res.swim=null);sBody.querySelectorAll('[data-act=swm]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
+      else if(a==='ds'){S.decSep=d.k;DS_AUTO=null;saveS();showMore();toast(`Ejemplo: ${fmtD(1396)} · ${fmtArea(12500)}`,3000);}
       else if(a==='nt'){S.night=d.k;saveS();applyNight();sBody.querySelectorAll('[data-act=nt]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
       else if(a==='ori'){if(changeOrient(d.k))sBody.querySelectorAll('[data-act=ori]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
     },
@@ -11526,7 +11515,7 @@ function showMore(){
       else if(t.id==='sGl'){S.globeAuto=t.checked;saveS();}
       else if(t.id==='s17'){S.smooth=t.checked;saveS();}
       else if(t.id==='s19'){S.penMode=t.checked;saveS();}
-      else if(t.id==='sw'){S.swimSec=Math.max(45,Math.min(300,Math.round(+t.value||120)));saveS();const h=$('#swh');if(h)h.textContent=`${fmtPace100(S.swimSec)} · ${(swimV(S.swimSec)*3.6).toFixed(1).replace('.',',')} km/h. Con 120 s son 3 km/h.`;}
+      else if(t.id==='sw'){S.swimSec=Math.max(45,Math.min(300,Math.round(+t.value||120)));saveS();const h=$('#swh');if(h)h.textContent=`${fmtPace100(S.swimSec)} · ${(swimV(S.swimSec)*3.6).toFixed(1).replace('.',DSEP())} km/h. Con 120 s son 3 km/h.`;}
       else if(t.id==='swc'){S.swimShore=t.checked;saveS();}
       else if(t.id==='kcs'){S.kCoast=t.checked;saveS();}
       else if(t.id==='kcm'){S.kCoastM=Math.max(5,Math.min(1000,Math.round(+t.value||50)));saveS();}
@@ -11594,7 +11583,9 @@ if(!isNative()&&location.protocol==='https:'&&'serviceWorker' in navigator){
   setTimeout(checkIntent,700);
   try{await shResume();}catch(e){}
   const grpH=grpParse(location.hash);
-  if(S.group&&S.group.topic)try{await grpJoin(S.group.topic,S.group.keyB);}catch(e){}
+  /* el grupo se reconecta sin frenar el arranque (sin señal, la red podía demorar todo lo demás) */
+  const grpP=S.group&&S.group.topic?grpJoin(S.group.topic,S.group.keyB).catch(()=>{}):null;
+  if(grpH&&grpP)await Promise.race([grpP,new Promise(r=>setTimeout(r,4000))]);
   try{appOpenBanner();}catch(e){}
   if(grpH)grpFromHash();
   else if(folH)folFromHash();else if(S.follow&&S.follow.topic&&!GRP.on)folStart(S.follow.topic,S.follow.keyB);
