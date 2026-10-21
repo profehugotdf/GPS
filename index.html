@@ -790,17 +790,29 @@ class GateTimer{
     this.fin=hasLapFin(c)||this.lap!=null?c.gates.length-1:null;
     this.nLaps=(this.roles[0]==='startfinish'||this.lap!=null)&&c.nLaps>0?Math.round(c.nLaps):null;this.reset();}
   lapsDone(){return this.race?this.laps.length-this.race.lap0:0;}
-  reset(){this.exp=0;this.cur=null;this.laps=[];this.lastT=null;this.race=null;this.races=[];}
+  /* las vueltas planeadas son un plan, no un límite: se puede terminar antes o seguir sumando.
+     Cruzar la llegada aparte con las vueltas del plan (o más) termina enseguida. Antes del plan (o sin plan) queda "a confirmar":
+     si después volvés a pasar por una puerta de la pista, era un roce del GPS y la carrera sigue; si no, termina en ese cruce. */
+  medLap(){const ls=this.race?this.laps.slice(this.race.lap0).map(l=>l.time).sort((a,b)=>a-b):[];return ls.length?ls[Math.floor(ls.length/2)]:null;}
+  pendWait(){const m=this.medLap();return Math.max(45000,m?m*.5:0);}
+  flush(){if(this.pend&&this.race){const t=this.pend.t;this.pend=null;this._finish(t);}}
+  reset(){this.exp=0;this.cur=null;this.laps=[];this.lastT=null;this.race=null;this.races=[];this.pend=null;}
   best(){let b=null;for(const l of this.laps)if(!b||l.time<b.time)b=l;return b;}
   feed(p,q){
     const G=this.c.gates,n=this.fin!=null?this.fin:G.length;
     if(!n||!(q[2]>p[2]))return;
-    /* llegada aparte: vale en cualquier momento de la carrera */
-    if(this.fin!=null&&this.race&&(this.lap==null||this.race.app!=null)){
+    /* llegada a confirmar: si pasó el tiempo sin volver a la pista, termina en el cruce de la llegada */
+    if(this.pend&&q[2]-this.pend.t>this.pendWait())this.flush();
+    /* llegada aparte: vale desde la 1ª vuelta completa */
+    if(this.fin!=null&&this.race&&(this.lap==null||this.race.app!=null)&&this.lapsDone()>=1&&!this.pend){
       const g=G[this.fin],u=crossFrac(p,q,g);
       if(u!=null&&!(g.dirOnly&&g.brg!=null&&!dirOK(p,q,g.brg))){
         const t=p[2]+u*(q[2]-p[2]);
-        if(!(this.lastT!=null&&t-this.lastT<4000)){this.lastT=t;this._finish(t);return;}
+        if(!(this.lastT!=null&&t-this.lastT<4000)){
+          this.lastT=t;
+          if(this.nLaps&&this.lapsDone()>=this.nLaps){this._finish(t);return;}
+          this.pend={t};this.cb.onFinPend&&this.cb.onFinPend(t);return;
+        }
       }
     }
     let gi=this.exp;
@@ -811,6 +823,8 @@ class GateTimer{
     if(g.dirOnly&&g.brg!=null&&!dirOK(p,q,g.brg))return;      /* cruzó al revés: no cuenta */
     const t=p[2]+u*(q[2]-p[2]);
     if(this.lastT!=null&&t-this.lastT<4000)return;
+    /* volvió a pasar por la pista: lo de la llegada fue un roce, la carrera sigue */
+    if(this.pend&&(this.lap==null||gi>=this.lap)){this.pend=null;this.cb.onFinCancel&&this.cb.onFinCancel(t);}
     this.lastT=t; this._cross(gi,t,n);
   }
   _finish(t,atLap){
@@ -818,7 +832,7 @@ class GateTimer{
     const race={n:this.races.length+1,start:R.start,time:t-R.start,laps:laps.length,splits:laps.map(l=>l.start+l.time-R.start).concat(atLap?[]:[t-R.start])};
     if(atLap)race.byCount=true;
     if(this.lap!=null){race.app=R.app;race.pre=(R.marks||[]).map(m=>m-R.start);if(laps.length)race.toFin=t-(laps[laps.length-1].start+laps[laps.length-1].time);}
-    this.races.push(race);this.cur=null;this.exp=0;this.race=null;
+    this.races.push(race);this.cur=null;this.exp=0;this.race=null;this.pend=null;
     this.cb.onFinish&&this.cb.onFinish(race);
   }
   _cross(gi,t,n){
@@ -830,8 +844,9 @@ class GateTimer{
       if(!this.race){this.race={start:t,lap0:this.laps.length,marks:[],app:0};cb.onStart&&cb.onStart(t);}
       if(this.cur){const cur=this.cur;cur.marks.push(t);this.cur=null;this._end(cur);}
       else if(this.race.app==null)this.race.app=t-this.race.start;
-      if(this.nLaps&&this.lapsDone()>=this.nLaps){const was=this.race.done;this.cur=null;this.exp=gi;this.race.done=true;if(!was)cb.onLapsDone&&cb.onLapsDone(t);}
-      else{const first=this.lapsDone()===0;this.cur={start:t,marks:[]};this.exp=gi+1<n?gi+1:gi;if(first)cb.onLoop&&cb.onLoop(t);}
+      /* se sigue contando aunque pases las vueltas del plan; al cumplirlo, un aviso */
+      if(this.nLaps&&this.lapsDone()>=this.nLaps&&!this.race.done){this.race.done=true;cb.onLapsDone&&cb.onLapsDone(t);}
+      const first=this.lapsDone()===0;this.cur={start:t,marks:[]};this.exp=gi+1<n?gi+1:gi;if(first)cb.onLoop&&cb.onLoop(t);
     }else if(this.lap!=null&&gi<this.lap){
       /* parcial del camino de ida, antes de la puerta de vueltas */
       this.race.marks.push(t);this.exp=gi+1;cb.onPre&&cb.onPre(gi,t-this.race.start);
@@ -858,7 +873,7 @@ class GateTimer{
 function analyze(pts,circ){
   const gt=new GateTimer(circ);
   for(let i=1;i<pts.length;i++){ if(pts[i][5]!==pts[i-1][5])continue; gt.feed(pts[i-1],pts[i]); }
-  const L=gt.laps;L.races=gt.races;return L;
+  gt.flush();const L=gt.laps;L.races=gt.races;return L;
 }
 function bestOf(laps){let b=null;for(const l of laps)if(!b||l.time<b.time)b=l;return b;}
 function lapSectors(l){return l.splits.map((s,i)=>s-(i?l.splits[i-1]:0));}
@@ -3296,7 +3311,10 @@ function makeTimer(circ){
     onPre:(gi,rel)=>{REC.last={txt:`Puerta ${gi} ${fmtT(rel,true)}`,d:null};SH.tmDirty=true;cue(`Puerta ${gi}`,null,'gate');},
     onLoop:t=>{const R=ent.gt.race;REC.last={txt:`🔄 A la pista${R&&R.app?' '+fmtT(R.app,true):''}`,d:null};REC.lastEnt=ent;SH.tmDirty=true;
       cue('Vuelta 1',null,'gate');setGhost(ent);ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});},
-    onLapsDone:()=>{setTimeout(()=>cue(`${ent.gt.nLaps} vueltas completas. ¡A la llegada!`,null,'gate'),2500);clearGhost();},
+    onLapsDone:()=>{setTimeout(()=>cue(`${ent.gt.nLaps} vueltas, lo planeado. Podés ir a la llegada o seguir sumando.`,null,'gate'),2500);},
+    onFinPend:t=>{const g=ent.gt;REC.last={txt:`🏁 Llegada con ${g.lapsDone()} vuelta${g.lapsDone()===1?'':'s'}…`,d:null};SH.tmDirty=true;
+      cue(`Llegada con ${g.lapsDone()} vuelta${g.lapsDone()===1?'':'s'}. Si seguís en la pista, sigo contando.`,null,'gate');},
+    onFinCancel:()=>{REC.last={txt:'Sigue la carrera',d:null};cue('Sigue la carrera',null,'gate');},
     onGate:(gi,rel,idx)=>{
       const r=ent.cmp(false),d=r&&r.splits[idx-1]!=null?rel-r.splits[idx-1]:null;
       const marks=ent.gt.cur.marks,sec=rel-(idx>1?marks[idx-2]-ent.gt.cur.start:0);
@@ -3320,7 +3338,7 @@ function makeTimer(circ){
     onLap:lap=>{
       const r=ent.ref(true),pb=!!r&&lap.time<r.time,rc=ent.cmp(true),d=rc?lap.time-rc.time:null;
       lap.pb=pb;REC.lastEnt=ent;SH.tmDirty=true;
-      {const g=ent.gt;if(g.nLaps&&g.race&&g.cur&&g.laps.length-g.race.lap0===g.nLaps-1)setTimeout(()=>cue('¡Última vuelta!',null,'gate'),2500);}
+      {const g=ent.gt;if(g.nLaps&&g.race&&g.cur&&g.laps.length-g.race.lap0===g.nLaps-1)setTimeout(()=>cue('¡Última vuelta del plan!',null,'gate'),2500);}
       try{waSector(ent,lapSectors(lap),rc,lap.n);}catch(e){}
       if(ent.gt.cur){ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});}
       const nm=circ.type==='p2p'?'':`Vuelta ${lap.n}, `;
@@ -3548,7 +3566,7 @@ function tickHud(){
   if(f1e){
     c.hidden=false;
     const now=lastFix?lastFix.t+(Date.now()-lastFixWall):Date.now();
-    const gr=f1e.gt,vn=gr.race?gr.laps.length-gr.race.lap0+1:0,rl=gr.race?`<div class="f1n"><span>🏁 Carrera: <b>${fmtT(now-gr.race.start)}</b> · ${!gr.cur&&gr.lap!=null?`${vn-1} vuelta${vn===2?'':'s'} · ➜ a la llegada 🏆`:`vuelta ${vn}${gr.nLaps?` de ${gr.nLaps}${vn===gr.nLaps?' · ¡última!':''}`:''}${gr.fin!=null?' · la llegada aparte termina':''}`}</span></div>`:'';
+    const gr=f1e.gt,vn=gr.race?gr.laps.length-gr.race.lap0+1:0,rl=gr.race?`<div class="f1n"><span>🏁 Carrera: <b>${fmtT(now-gr.race.start)}</b> · ${gr.pend?`🏁 llegada con ${vn-1} vuelta${vn===2?'':'s'}… (si seguís, sigue contando)`:`vuelta ${vn}${gr.nLaps?(vn>gr.nLaps?` · plan de ${gr.nLaps} ✓ (+${vn-gr.nLaps})`:` de ${gr.nLaps}${vn===gr.nLaps?' · última del plan':''}`):''}${gr.fin!=null&&gr.lapsDone()>=1?' · la llegada 🏆 termina cuando quieras':''}`}</span></div>`:'';
     const lastR=!gr.race&&!at&&gr.races.length?gr.races[gr.races.length-1]:null;
     c.innerHTML=f1Html(f1ModelRec(f1e),now)+rl+(lastR?`<div class="f1n"><span>🏁 Llegada: <b>${fmtT(lastR.time,true)}</b> · ${lastR.laps} vuelta${lastR.laps===1?'':'s'}${REC.last&&REC.last.d!=null?` <span class="${REC.last.d<0?'good':'bad'}">${fmtDelta(REC.last.d)}</span>`:''}</span></div>`:'')+(at||gr.race?'':`<div class="f1n"><span>Vigilando: cruzá una largada para otra vuelta</span></div>`);
     c.classList.add('isf1');
@@ -3616,6 +3634,8 @@ async function stopFlow(){
     });
 }
 async function saveRec(name){
+  /* una llegada que estaba "a confirmar" queda confirmada al terminar la grabación */
+  for(const t of REC.timers||[])try{t.gt.flush();}catch(e){}
   const pts=REC.pts.slice();
   const res=REC.timers.filter(t=>t.gt.laps.length||t.gt.races.length).map(t=>({cid:t.circ.id,name:t.circ.name,type:t.circ.type,wind:t.wind||null,races:t.gt.races.map(R=>Object.assign({},R)),laps:t.gt.laps.map(l=>({n:l.n,start:l.start,time:l.time,splits:l.splits}))}));
   const tr={id:REC.id,name:name||'Salida '+fmtDate(REC.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),act:REC.act,res,src:'rec'};
