@@ -9693,7 +9693,15 @@ function applyNavOp(){document.documentElement.style.setProperty('--navA',String
    Transporte: ntfy.sh (gratis, sin cuentas). Cada mensaje va cifrado (AES-GCM); la clave viaja solo en el link (#…),
    así el servidor guarda texto ilegible. Los mensajes quedan unas horas en ntfy, por eso quien abre el link tarde ve todo el recorrido. */
 const NTFY='https://ntfy.sh/';
-const SH_MODES={meet:{n:'🤝 Encuentro',d:'cada 10 s · para reencontrarse',sample:10,send:10},race:{n:'🏃 Carrera',d:'cada 15 s · para que te sigan en una carrera',sample:15,send:15},trip:{n:'🛶 Travesía',d:'un punto cada 20 s, enviados cada 2 min · ahorra batería',sample:20,send:120}};
+/* ntfy.sh limita cuántos mensajes manda cada conexión (429): se avisa distinto que "sin señal" */
+let NTFYLIM=0;
+const ntfyLimited=()=>Date.now()-NTFYLIM<10*60000;
+/* uso del servidor desde esta conexión (mensajes enviados y límite) */
+async function ntfyUsage(){
+  try{const r=await fetch(NTFY+'v1/account');if(!r.ok)return null;const j=await r.json();const st=j.stats||{},li=j.limits||{};
+    return {sent:st.messages,left:st.messages_remaining,lim:li.messages,basis:li.basis,emails:st.emails};}catch(e){return null;}
+}
+const SH_MODES={meet:{n:'🤝 Encuentro',d:'un punto cada 10 s, enviados cada 20 s · para reencontrarse',sample:10,send:20},race:{n:'🏃 Carrera',d:'un punto cada 15 s, enviados cada 30 s · para que te sigan en una carrera',sample:15,send:30},trip:{n:'🛶 Travesía',d:'un punto cada 20 s, enviados cada 2 min · ahorra batería',sample:20,send:120}};
 const b64u={
   enc(buf){const b=buf instanceof Uint8Array?buf:new Uint8Array(buf);let s='';for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');},
   dec(str){str=String(str).replace(/-/g,'+').replace(/_/g,'/');while(str.length%4)str+='=';const s=atob(str),b=new Uint8Array(s.length);for(let i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return b;}
@@ -9718,7 +9726,7 @@ async function shOpen(str,key){
 const shKeyFrom=raw=>crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['encrypt','decrypt']);
 async function shPost(topic,body){
   const r=await fetch(NTFY+topic,{method:'POST',body,headers:{'Content-Type':'text/plain'}});
-  if(!r.ok)throw new Error('ntfy '+r.status);
+  if(!r.ok){const e=new Error('ntfy '+r.status);e.status=r.status;if(r.status===429)NTFYLIM=Date.now();throw e;}
 }
 const shBase=()=>{
   if(!isNative()&&/^https?:/.test(location.protocol)&&!/localhost|127\.0\.0\.1/.test(location.hostname))return location.origin+location.pathname;
@@ -9824,7 +9832,7 @@ function shPill(){
   const ago=SH.lastOk?Math.round((Date.now()-SH.lastOk)/1000):null,M=SH_MODES[SH.mode]||SH_MODES.race;
   const bad=ago==null||ago>Math.max(60,M.send*3);
   p.classList.toggle('bad',bad);
-  p.textContent=`📡 ${bad?(SH.queue.length?`sin señal · ${SH.queue.length} pts guardados`:'esperando señal'):'en vivo'}${ago!=null&&!bad?` · hace ${ago<60?ago+' s':Math.round(ago/60)+' min'}`:''}`;
+  p.textContent=`📡 ${bad&&ntfyLimited()?'⚠️ servidor saturado (ntfy) · reintentando':bad?(SH.queue.length?`sin señal · ${SH.queue.length} pts guardados`:'esperando señal'):'en vivo'}${ago!=null&&!bad?` · hace ${ago<60?ago+' s':Math.round(ago/60)+' min'}`:''}`;
 }
 async function shShareLink(){
   if(SH.group&&GRP.on)return grpShareLink();
@@ -10065,7 +10073,8 @@ function showGroup(join){
       ${SH.on&&SH.group?'':'<div class="row"><button class="btn" data-act="sh">📡 Compartir también mi posición</button></div>'}
       <label>Modo</label><div class="chips">${Object.entries(SH_MODES).map(([k,m])=>`<button data-act="md" data-k="${k}" class="${SH.on&&SH.group&&k===SH.mode?'on':''}">${m.n}</button>`).join('')}</div>
       <div class="row" style="margin-top:12px"><button class="btn danger" data-act="out">🚪 Salir del grupo</button></div>
-      <p class="mut">Cada uno se ve en el mapa con su color y su nombre. En el panel de abajo, 🎯 al lado de alguien pone la flecha hacia esa persona.</p>`,
+      <p class="mut">Cada uno se ve en el mapa con su color y su nombre. En el panel de abajo, 🎯 al lado de alguien pone la flecha hacia esa persona.</p>
+      <p class="mut" id="ntfyu">📊 Consultando el servidor de avisos…</p>`,
       async(a,d,el)=>{
         if(a==='lk')grpShareLink();
         else if(a==='nm'){await grpSetName($('#gnm').value);showGroup();}
@@ -10076,6 +10085,8 @@ function showGroup(join){
         else if(a==='md'){if(SH.on&&SH.group){SH.mode=d.k;shSave();showGroup();}else{closeSheet();await grpShareMe(S.shareName||'',d.k);}}
         else if(a==='out'){if(armed(el)){closeSheet();grpLeave();}}
       });
+    ntfyUsage().then(u=>{const el=$('#ntfyu');if(!el)return;
+      el.textContent=!u?'📊 No pude consultar el servidor de avisos (ntfy.sh)':`📊 Servidor de avisos (ntfy.sh), desde esta conexión: ${u.sent??'?'} mensajes enviados${u.left!=null?`, quedan ${u.left}`:''}${u.lim?` de ${u.lim}`:''}${ntfyLimited()?' · ⚠️ hace poco frenó envíos por exceso':''}.`;});
     return;
   }
   const st={name:S.shareName||'',mode:'meet'};
@@ -10171,7 +10182,10 @@ function grpLive(){
   if(!GRP.on)return;
   try{if(typeof EventSource!=='undefined'){const es=new EventSource(`${NTFY}${GRP.topic}/sse${GRP.lastId?'?since='+GRP.lastId:''}`);
     es.onmessage=async ev=>{let j;try{j=JSON.parse(ev.data);}catch(e){return;}if(j.event==='message'){await grpHandle(j.id,j.message);grpDraw();if(SR.op)srCompute();}};es.onerror=()=>{};GRP.es=es;}}catch(e){}
-  clearInterval(GRP.poll);GRP.poll=setInterval(()=>{if(GRP.on)grpPoll(false);},20000);
+  clearInterval(GRP.poll);GRP.poll=setInterval(()=>{if(!GRP.on)return;
+    /* si la conexión en vivo (SSE) está abierta, alcanza con revisar cada 2 min (cada pedido cuenta para el límite de ntfy.sh) */
+    const sse=GRP.es&&GRP.es.readyState===1;if(sse&&Date.now()-(GRP.lastPollT||0)<120000)return;
+    GRP.lastPollT=Date.now();grpPoll(false);},20000);
 }
 setInterval(()=>{if(GRP.on)grpPanel();},5000);
 const grpLast=p=>{for(let i=p.pts.length-1;i>=0;i--)if(p.pts[i])return p.pts[i];return null;};
@@ -10856,7 +10870,7 @@ const gdAgo=s=>s<60?`${Math.max(0,Math.round(s))} s`:s<3600?`${Math.round(s/60)}
 /* --- detección (en el teléfono de quien se mueve) --- */
 function gdOnFix(f){
   /* con la pantalla apagada los temporizadores se frenan: cada lectura del GPS también revisa el grupo y la cuenta regresiva */
-  if(GRP.on&&Date.now()-(GD.lastPoll||0)>20000&&document.visibilityState==='hidden'){GD.lastPoll=Date.now();grpPoll(false).catch(()=>{});}
+  if(GRP.on&&!(GRP.es&&GRP.es.readyState===1)&&Date.now()-(GD.lastPoll||0)>30000&&document.visibilityState==='hidden'){GD.lastPoll=Date.now();grpPoll(false).catch(()=>{});}
   try{gdTick();}catch(e){}
   if(!gdOn()){GD.hist.length=0;GD.moving=false;GD.movSince=0;GD.stopSince=0;return;}
   if(f.acc!=null&&f.acc>50)return;
@@ -10949,7 +10963,7 @@ async function gdPostAbout(sid,st,extra){
 async function gdSend(msg){
   GD.busy=(GD.busy||0)+1;
   try{await shPost(GRP.topic,await shSeal(msg,GRP.key));}
-  catch(e){GD.pend.push(msg);toast('Sin señal: el aviso sale apenas haya conexión',4000);}
+  catch(e){GD.pend.push(msg);toast(e&&e.status===429?'⚠️ El servidor de avisos (ntfy.sh) frenó los envíos por exceso de mensajes. Reintento solo en unos minutos; mientras, bajá la frecuencia del grupo a 🛶 Travesía.':e&&e.status?`El servidor de avisos respondió error ${e.status}: reintento solo`:'Sin señal: el aviso sale apenas haya conexión',7000);}
   finally{GD.busy--;}
 }
 async function gdFlushPend(){if(!GD.pend.length||!GRP.on)return;const p=GD.pend;GD.pend=[];for(const m of p)await gdSend(m);}
@@ -11061,6 +11075,7 @@ function gdNoteClear(){
 
 /* --- reloj interno: cuenta regresiva y repetición de avisos (también se llama con cada lectura del GPS, que sigue llegando con la pantalla apagada) --- */
 function gdTick(){
+  if(GD.pend.length&&GRP.on&&!GD.busy&&Date.now()-(GD.retryT||0)>20000){GD.retryT=Date.now();gdFlushPend();}
   const A=GD.ask,now=Date.now();
   if(A&&A.dl){
     const left=Math.ceil((A.dl-now)/1000),el=(now-A.t0)/1000;
