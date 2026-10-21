@@ -364,6 +364,9 @@ body.gbOn #tgt{z-index:1060;top:calc(var(--top) + 64px);max-width:calc(100% - 80
 .f1s{display:flex;gap:3px;margin-top:6px}
 .f1s i{flex:1;min-width:0;border-radius:5px;background:var(--foam);font:700 12px/1.2 var(--num);font-style:normal;font-variant-numeric:tabular-nums;text-align:center;padding:3px 1px;color:var(--ink);overflow:hidden;white-space:nowrap;min-height:14px}
 .f1s i small{display:block;font:700 10px/1.2 system-ui;opacity:.85}
+.f1s i em{display:block;font:800 11px/1.25 var(--num);font-style:normal;margin:2px 3px 0;border-radius:4px;background:rgba(0,0,0,.16)}
+.f1 .f1s i em.good,.f1 .f1s i em.bad,#fol .f1 .f1s i em.good,#fol .f1 .f1s i em.bad{color:inherit}
+.f1h .f1r{font:600 11px system-ui;opacity:.8}
 .f1s i.p{background:#8E3BD8;color:#fff}.f1s i.g{background:#1FA15A;color:#fff}.f1s i.y{background:#F2C200;color:#222}.f1s i.n{background:#7D8C92;color:#fff}
 .f1s i.run{box-shadow:inset 0 0 0 2px var(--ink);animation:f1r 1.2s infinite}
 @keyframes f1r{50%{opacity:.5}}
@@ -3260,7 +3263,7 @@ const ghostCache={};
 function clearGhost(){if(ghost){map.removeLayer(ghost.mk);ghost=null;}}
 async function setGhost(ent){
   clearGhost();
-  const r=ent.ref(false);if(!r||!r.t0)return;
+  const r=(ent.cmp||ent.ref)(false);if(!r||!r.t0)return;
   let all=r.tid===REC.id?REC.pts:ghostCache[r.tid];
   if(!all){const tr=await DB.get('kv','track:'+r.tid);all=tr?tr.pts:null;if(all)ghostCache[r.tid]=all;}
   if(!all||REC.state==='idle')return;
@@ -3279,6 +3282,11 @@ function makeTimer(circ){
     for(const l of ls)if(!b||l.time<b.time)b={time:l.time,splits:l.splits,t0:l.start,tid:REC.id};
     return b;
   };
+  /* contra qué se compara en vivo (panel F1, voz, reloj y fantasma): tu récord o la vuelta anterior */
+  ent.cmp=skipLast=>{
+    if(S.f1Ref==='prev'){const ls=ent.gt.laps,l=ls[ls.length-1-(skipLast?1:0)];if(l)return {time:l.time,splits:l.splits,t0:l.start,tid:REC.id,prev:true};}
+    return ent.ref(skipLast);
+  };
   ent.gt=new GateTimer(circ,{
     onStart:()=>{const lg=ent.gt.lap!=null;cue(circ.name+', largada'+(lg&&ent.gt.nLaps?`, ${ent.gt.nLaps} vueltas`:''),null,'gate');REC.last={txt:circ.name+' · largada',d:null};if(!lg)setGhost(ent);REC.lastEnt=ent;SH.tmDirty=true;
       if((!secTypes(circ)||!circ.terrain.shape)&&nSecOf(circ)>=2&&!ent.terrBusy){ent.terrBusy=true;circTerrain(circ).catch(()=>{});}
@@ -3290,13 +3298,13 @@ function makeTimer(circ){
       cue('Vuelta 1',null,'gate');setGhost(ent);ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});},
     onLapsDone:()=>{setTimeout(()=>cue(`${ent.gt.nLaps} vueltas completas. ¡A la llegada!`,null,'gate'),2500);clearGhost();},
     onGate:(gi,rel,idx)=>{
-      const r=ent.ref(false),d=r&&r.splits[idx-1]!=null?rel-r.splits[idx-1]:null;
+      const r=ent.cmp(false),d=r&&r.splits[idx-1]!=null?rel-r.splits[idx-1]:null;
       const marks=ent.gt.cur.marks,sec=rel-(idx>1?marks[idx-2]-ent.gt.cur.start:0);
       const sb=sectorBests(RUNS,circ.id,REC.act,null);
       for(const l of ent.gt.laps)lapSectors(l).forEach((s,i)=>{if(sb[i]==null||s<sb[i])sb[i]=s;});
       const gold=sb[idx-1]!=null&&sec<sb[idx-1];
       REC.last={txt:`Puerta ${gi} ${fmtT(rel,true)}${gold?' ⚡':''}`,d};SH.tmDirty=true;
-      try{const cs=ent.gt.cur,secs=cs.marks.map((m,i,a)=>m-(i?a[i-1]:cs.start));waSector(ent,secs,ent.ref(false),ent.gt.laps.length+1);}catch(e){}
+      try{const cs=ent.gt.cur,secs=cs.marks.map((m,i,a)=>m-(i?a[i-1]:cs.start));waSector(ent,secs,ent.cmp(false),ent.gt.laps.length+1);}catch(e){}
       cue(`Puerta ${gi}${gold?', sector récord':''}`,d,'gate');
     },
     onFinish:race=>{
@@ -3310,10 +3318,10 @@ function makeTimer(circ){
       try{waSignal(d==null||d<=waTol(),`🏁 Llegada ${fmtT(race.time,true)}${d!=null?' '+fmtDelta(d):''}`,`${race.laps} vueltas`);}catch(e){}
     },
     onLap:lap=>{
-      const r=ent.ref(true),d=r?lap.time-r.time:null,pb=!!r&&lap.time<r.time;
+      const r=ent.ref(true),pb=!!r&&lap.time<r.time,rc=ent.cmp(true),d=rc?lap.time-rc.time:null;
       lap.pb=pb;REC.lastEnt=ent;SH.tmDirty=true;
       {const g=ent.gt;if(g.nLaps&&g.race&&g.cur&&g.laps.length-g.race.lap0===g.nLaps-1)setTimeout(()=>cue('¡Última vuelta!',null,'gate'),2500);}
-      try{waSector(ent,lapSectors(lap),r,lap.n);}catch(e){}
+      try{waSector(ent,lapSectors(lap),rc,lap.n);}catch(e){}
       if(ent.gt.cur){ent.d0=REC.dist;ent.wNext=null;ent.wPrev=0;waProfile(ent).catch(()=>{});}
       const nm=circ.type==='p2p'?'':`Vuelta ${lap.n}, `;
       REC.last={txt:`${circ.type==='p2p'?'Tramo':'Vuelta '+lap.n} ${fmtT(lap.time,true)}${pb?' 🏆':''}`,d};
@@ -3641,6 +3649,7 @@ async function showPreStart(){
       <button data-act="ci" data-k="none" class="${st.circ==='none'?'on':''}">Ninguno</button>
       ${watched.length?`<button data-act="ci" data-k="all" class="${st.circ==='all'?'on':''}">Todos los vigilados (${watched.length})</button>`:''}
       ${cs.map(c=>`<button data-act="ci" data-k="${c.id}" class="${st.circ===c.id?'on':''}">${lapGateOf(c)>=0?'🔄':c.type==='p2p'?'➡️':'🔁'} ${esc(c.name)}${c.nLaps?` · ${c.nLaps} v.`:''}</button>`).join('')}</div>
+    ${cs.length?`<label>🏎️ En los sectores, comparar con</label><div class="chips"><button data-act="ref" data-k="best" class="${S.f1Ref!=='prev'?'on':''}">🏆 Tu récord</button><button data-act="ref" data-k="prev" class="${S.f1Ref==='prev'?'on':''}">⏮ La vuelta anterior</button></div>`:''}
     ${GRP.on?`<label for="psn">👥 Tu nombre en el grupo</label><input class="in" id="psn" value="${esc(st.name)}" placeholder="Ej: Hugo">
       <label class="chk"><input type="checkbox" id="psg" ${gdCfg().on?'checked':''}> 🛟 Guardián activado</label>`:''}
     <label class="chk"><input type="checkbox" id="psv" ${S.voice?'checked':''}> 🔊 Avisos por voz</label>
@@ -3649,6 +3658,7 @@ async function showPreStart(){
     async(a,d)=>{
       if(a==='act'){st.act=d.k;draw();}
       else if(a==='ci'){st.circ=d.k;draw();}
+      else if(a==='ref'){S.f1Ref=d.k;saveS();draw();}
       else if(a==='go'){
         S.act=st.act;updActBtn();
         S.focusCirc=st.circ==='all'?null:st.circ;saveS();
@@ -4017,6 +4027,9 @@ function f1Calc(m,now){
     if(!ref||l.time<ref.time)ref=l;
     lapSectors(l).forEach((s,i)=>{if(sb[i]==null||s<sb[i])sb[i]=s;});
   }
+  /* comparar contra la vuelta anterior (si la hay) en vez del récord */
+  let refK=ref?'best':null;
+  if((m.ref||S.f1Ref)==='prev'){const pv=laps.filter(l=>l.n<L.n&&l.splits&&l.splits.length===n).pop();if(pv){ref=pv;refK='prev';}}
   const tags=m.tags||(m.types?{terr:m.types}:{}),grp=pickGrp(tags,m.grp,m.act),vals=grp?tags[grp]:[];
   const rs=ref?lapSectors(ref):[],sec=lapSectors(L),cells=[];
   for(let i=0;i<n;i++){
@@ -4029,15 +4042,15 @@ function f1Calc(m,now){
   const cd=ref&&done?L.splits[done-1]-ref.splits[done-1]:null;
   const byT={};
   for(const c of cells)if(c.d!=null&&c.k){const b=byT[c.k]=byT[c.k]||{d:0,n:0};b.d+=c.d;b.n++;}
-  return {L,live,ref,cells,el,cd,pred:live&&ref&&cd!=null?ref.time+cd:null,byT,done,n,grp,tags};
+  return {L,live,ref,refK,cells,el,cd,pred:live&&ref&&cd!=null?ref.time+cd:null,byT,done,n,grp,tags};
 }
 function f1Html(m,now){
   const c=f1Calc(m,now);if(!c)return '';
   const g=c.grp,ic=k=>gIcon(g,k),lab=c.n<=10,val=c.n<=5,nm=i=>m.names&&m.names[i]?' · '+esc(m.names[i]):'';
   let h=`<div class="f1" data-f1="1"><div class="f1h"><span>${esc(m.name)} · ${m.closed?'Vuelta '+c.L.n:'Tramo'}${c.live?'':' ✓'}</span><b>${fmtT(c.el,true)}</b>`;
-  if(c.cd!=null)h+=`<span class="d ${c.cd<0?'good':'bad'}">${sgnS(c.cd)}</span>`;
+  if(c.cd!=null)h+=`<span class="d ${c.cd<0?'good':'bad'}">${sgnS(c.cd)}</span><small class="f1r">${c.refK==='prev'?'vs vuelta '+c.ref.n:'vs récord'}</small>`;
   if(c.pred)h+=`<span>→ ${fmtT(c.pred,true)}</span>`;
-  h+=`</div><div class="f1s">`+c.cells.map(x=>`<i class="${x.run?'run':x.col||''}">${lab?`<small>S${x.i+1}${ic(x.k)}</small>`:`<small>${c.n<=16?ic(x.k):''}</small>`}${val?(x.t!=null?fmtT(x.t,true):x.run?fmtT(x.el):'&nbsp;'):''}</i>`).join('')+`</div>`;
+  h+=`</div><div class="f1s">`+c.cells.map(x=>`<i class="${x.run?'run':x.col||''}">${lab?`<small>S${x.i+1}${ic(x.k)}</small>`:`<small>${c.n<=16?ic(x.k):''}</small>`}${val?(x.t!=null?fmtT(x.t,true):x.run?fmtT(x.el):'&nbsp;'):''}${val&&x.d!=null?`<em class="${x.d<0?'good':'bad'}">${sgnS(x.d)}</em>`:val&&x.run&&x.ref!=null?`<em class="${x.el<=x.ref?'good':'bad'}">${sgnS(x.el-x.ref)}</em>`:''}</i>`).join('')+`</div>`;
   const run=c.cells.find(x=>x.run),last=c.done?c.cells[c.done-1]:null,nl=[];
   if(last&&last.t!=null)nl.push(`<span>S${last.i+1}${nm(last.i)} ${ic(last.k)} <b>${fmtT(last.t,true)}</b>${last.d!=null?` <span class="${last.d<0?'good':'bad'}">${sgnS(last.d)}</span>`:''}${last.col==='p'?' ⚡':''}</span>`);
   if(run)nl.push(`<span>Ahora S${run.i+1}${nm(run.i)} ${ic(run.k)} ${fmtT(run.el)}${run.ref!=null?` / ${fmtT(run.ref)}`:''}</span>`);
@@ -4081,9 +4094,10 @@ function showF1Table(m){
   const c=f1Calc(m,Date.now()),gs=SECG_ORD.filter(g=>m.tags&&m.tags[g]);
   let h=`<p class="mut">Colores de cada sector: <b style="color:#8E3BD8">violeta</b> mejor de siempre · <b style="color:#1FA15A">verde</b> más rápido que en tu récord · <b style="color:#C9A000">amarillo</b> más lento · gris sin comparación.</p>`;
   if(gs.length>1)h+=`<label>En el panel, comparar por</label><div class="chips">${gs.map(g=>`<button data-act="grp" data-k="${g}" class="${c&&c.grp===g?'on':''}">${SECG[g].n}</button>`).join('')}</div>`;
+  h+=`<label>Comparar con</label><div class="chips"><button data-act="ref" data-k="best" class="${S.f1Ref!=='prev'?'on':''}">🏆 Tu récord</button><button data-act="ref" data-k="prev" class="${S.f1Ref==='prev'?'on':''}">⏮ La vuelta anterior</button></div><p class="mut">Cambia el panel, la voz, el reloj y el fantasma 👻. El violeta sigue marcando tu mejor sector de siempre.</p>`;
   if(c)h+=f1Html(m,Date.now());
   h+=laps.length?lapBlock({name:m.name,laps,tags:m.tags,names:m.names,wind:m.wind}):'<p class="mut">Todavía no hay vueltas completas.</p>';
-  openSheet('🏎️ Sectores',h,(a,d)=>{if(a==='grp'){S.f1Group=d.k;saveS();showF1Table(Object.assign({},m,{grp:d.k}));if(typeof FOL!=='undefined'&&FOL.on)folPanel();}});
+  openSheet('🏎️ Sectores',h,(a,d)=>{if(a==='ref'){S.f1Ref=d.k;saveS();for(const t of REC.timers||[])if(t.gt.cur)setGhost(t);showF1Table(m);return;}if(a==='grp'){S.f1Group=d.k;saveS();showF1Table(Object.assign({},m,{grp:d.k}));if(typeof FOL!=='undefined'&&FOL.on)folPanel();}});
 }
 function f1ModelRec(ent){
   const c=ent.circ,gt=ent.gt;
