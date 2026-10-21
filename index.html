@@ -9826,7 +9826,7 @@ function shSave(){
 async function shStart(o){
   const raw=o.keyB?b64u.dec(o.keyB):crypto.getRandomValues(new Uint8Array(16));
   Object.assign(SH,{on:true,group:!!o.group,circ:null,metaOk:false,key:await shKeyFrom(raw),keyB:o.keyB||b64u.enc(raw),topic:o.topic||'rumbo-'+b64u.enc(crypto.getRandomValues(new Uint8Array(12))),
-    mode:o.mode||'race',name:o.name||'',sid:uid(),seq:0,queue:[],lastSample:0,lastSend:0,start:Date.now(),fails:0,lastOk:0,course:o.course?shCourse():null});
+    mode:o.mode||'race',name:o.name||'',sid:o.group?(S.devSid||(S.devSid=uid())):uid(),seq:0,queue:[],lastSample:0,lastSend:0,start:Date.now(),fails:0,lastOk:0,course:o.course?shCourse():null});
   shSave();
   try{await shMeta();SH.lastOk=Date.now();}catch(e){SH.fails++;toast('Sin conexión por ahora: el seguimiento arranca igual y se envía cuando haya señal',5000);}
   if(isNative()&&(!watch||watch.type!=='bg'))try{await startWatch(true,'Compartiendo tu posición');}catch(e){}
@@ -10260,8 +10260,9 @@ function grpDraw(){
   grpLayer.clearLayers();
   const now=Date.now()/1000,all=[];
   for(const p of GRP.people.values()){
-    if(p.sid===SH.sid)continue;
+    if(p.sid===SH.sid||p.sid===S.devSid)continue;
     const last=grpLast(p);if(!last)continue;
+    if(!GRP.showIdle&&!(p.ck&&(GD_ST[p.ck.st]||[])[3]>=2)&&(p.ended&&now-last[2]>1800||now-last[2]>2*3600))continue;
     const stale=p.ended||now-last[2]>600,col=stale?'#888':p.color,nm=(p.meta&&p.meta.name)||'Sin nombre';
     const tail=p.pts.filter(q=>last[2]-q[2]<=1800).map(q=>[q[0],q[1]]);
     if(tail.length>1){L.polyline(tail,{color:'#fff',weight:6,opacity:.8,interactive:false}).addTo(grpLayer);L.polyline(tail,{color:col,weight:3.5,interactive:false}).addTo(grpLayer);}
@@ -10281,21 +10282,26 @@ function grpDraw(){
 function grpPanel(){
   const el=$('#grp');if(!el||!GRP.on)return;
   const now=Date.now()/1000,me=lastFix?[lastFix.lat,lastFix.lon]:null;
-  const ppl=[...GRP.people.values()].filter(p=>p.sid!==SH.sid&&grpLast(p)).sort((a,b)=>((a.meta&&a.meta.name)||'').localeCompare((b.meta&&b.meta.name)||''));
+  /* los que dejaron de compartir hace rato (o sesiones viejas de alguien) se ocultan; se pueden ver con "mostrar" */
+  const all=[...GRP.people.values()].filter(p=>p.sid!==SH.sid&&p.sid!==S.devSid&&grpLast(p));
+  const idle=p=>{const l=grpLast(p),ago=now-l[2],al=p.ck&&(GD_ST[p.ck.st]||[])[3]>=2;return !al&&(p.ended&&ago>1800||ago>2*3600);};
+  const hid=all.filter(idle);
+  const ppl=all.filter(p=>GRP.showIdle||!idle(p)).sort((a,b)=>((a.meta&&a.meta.name)||'').localeCompare((b.meta&&b.meta.name)||''));
   const rows=ppl.map(p=>{
     const l=grpLast(p),ago=Math.max(0,Math.round(now-l[2])),agoT=ago<60?`${ago} s`:ago<3600?`${Math.round(ago/60)} min`:`${(ago/3600).toFixed(1).replace('.',',')} h`;
     const d=me?hav(me,[l[0],l[1]]):null,dir=me&&d>15?compassWord(bearingTo(me,[l[0],l[1]])):'';
     return `<div class="gr${p.ended||ago>600?' old':''}"><i style="background:${p.color}"></i><div class="gn"><b>${esc((p.meta&&p.meta.name)||'Sin nombre')}</b><small>${p.ended?'dejó de compartir · ':''}hace ${agoT}${d!=null?` · ${fmtD(d)}${dir?' al '+dir:''}`:''}${p.bat!=null?` · 🔋${p.bat}%`:''}</small>${gdRowNote(p,ago)}</div>${p.ended?'':`<button data-g="q" data-s="${p.sid}" aria-label="Preguntar si está bien">❓</button>`}<button data-g="t" data-s="${p.sid}" class="${GRP.tgt===p.sid?'on':''}" aria-label="Ir hacia">🎯</button><button data-g="c" data-s="${p.sid}" aria-label="Ver">⌖</button></div>`;
   }).join('');
   el.classList.toggle('min',GRP.min);
-  el.innerHTML=`<div class="gh" data-g="m"><b>👥 Grupo · ${ppl.length+1}</b><small>${GRP.netOk===false?'⚠️ sin conexión':SH.on&&SH.group?`vos: ${SH.name?esc(SH.name):'<u>Sin nombre ✏️</u>'}`:'solo mirando'}</small><span>${GRP.min?'▲':'▼'}</span></div>
-    ${gdBanner()}${GRP.min?'':`${rows||'<div class="gr"><small>Esperando a los demás… mandales el link.</small></div>'}${SR.op?(()=>{const m=srSummary();return `<div class="gr" data-g="s"><small>🔎 Búsqueda: ✅ ${m.c.ok} · 🟡 ${m.c.curso} · 🔴 ${m.c.pend}${m.c.redo?` · 🔁 ${m.c.redo}`:''} de ${m.n} sectores</small></div>`;})():''}<div class="ga"><button data-g="msg" class="gmsg">💬 Avisar</button><button data-g="gd">🛟${gdOn()?'':' (apagado)'}</button><button data-g="l">📤 Invitar</button><button data-g="s">🔎 Búsqueda</button><button data-g="o">⚙️ Grupo</button><button data-g="x">✕ Salir</button></div>`}`;
+  el.innerHTML=`<div class="gh" data-g="m"><b>👥 Grupo · ${all.length-hid.length+1}</b><small>${GRP.netOk===false?'⚠️ sin conexión':SH.on&&SH.group?`vos: ${SH.name?esc(SH.name):'<u>Sin nombre ✏️</u>'}`:'solo mirando'}</small><span>${GRP.min?'▲':'▼'}</span></div>
+    ${gdBanner()}${GRP.min?'':`${rows||'<div class="gr"><small>Esperando a los demás… mandales el link.</small></div>'}${hid.length?`<div class="gr" data-g="idle"><small>${GRP.showIdle?'▲ Ocultar':'▼ Mostrar'} ${hid.length} inactivo${hid.length>1?'s':''} (dejaron de compartir o sin datos hace más de 2 h)</small></div>`:''}${SR.op?(()=>{const m=srSummary();return `<div class="gr" data-g="s"><small>🔎 Búsqueda: ✅ ${m.c.ok} · 🟡 ${m.c.curso} · 🔴 ${m.c.pend}${m.c.redo?` · 🔁 ${m.c.redo}`:''} de ${m.n} sectores</small></div>`;})():''}<div class="ga"><button data-g="msg" class="gmsg">💬 Avisar</button><button data-g="gd">🛟${gdOn()?'':' (apagado)'}</button><button data-g="l">📤 Invitar</button><button data-g="s">🔎 Búsqueda</button><button data-g="o">⚙️ Grupo</button><button data-g="x">✕ Salir</button></div>`}`;
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('#grp [data-g]');if(!b)return;
   const g=b.dataset.g,p=b.dataset.s&&GRP.people.get(b.dataset.s);
   if(g==='m'&&e.target.closest('u')){showGroup();return;}
   if(g==='m'){GRP.min=!GRP.min;grpPanel();}
+  else if(g==='idle'){GRP.showIdle=!GRP.showIdle;grpPanel();}
   else if(g==='l')grpShareLink();
   else if(g==='o')showGroup();
   else if(g==='s')showSearch();
