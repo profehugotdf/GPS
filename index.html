@@ -3482,7 +3482,8 @@ async function autoRecCheck(f){
 async function startRec(){
   unlockAudio();
   let circs=(await DB.all('kv','circuit:')).filter(c=>c.gates.length&&c.watch!==false);
-  if(S.focusCirc){const fc=await DB.get('kv','circuit:'+S.focusCirc);if(fc&&fc.gates.length)circs=[fc];}
+  if(S.focusCirc==='none')circs=[];
+  else if(S.focusCirc){const fc=await DB.get('kv','circuit:'+S.focusCirc);if(fc&&fc.gates.length)circs=[fc];}
   Object.assign(REC,{lastEnt:null});
   Object.assign(REC,{state:'rec',id:uid(),t0:Date.now(),pausedMs:0,pauseAt:0,seg:0,pts:[],dist:0,speed:0,last:null,lastSave:Date.now(),act:S.act});
   REC.timers=circs.map(makeTimer);
@@ -3626,7 +3627,43 @@ async function endRec(){
   $('#hud').classList.remove('on');updRecUi();refreshGates();
   setFollow(NAV.on);startWatch(NAV.on||SH.on,NAV.on?'Guiando la ruta':'Compartiendo tu posición');
 }
-$('#recbtn').onclick=()=>{if(REC.state==='idle')startRec();else pauseRec();};
+$('#recbtn').onclick=()=>{if(REC.state==='idle')showPreStart();else pauseRec();};
+/* chequeo antes de salir: disciplina, circuito, grupo y voz */
+async function showPreStart(){
+  unlockAudio();
+  const cs=(await DB.all('kv','circuit:')).filter(c=>c.gates&&c.gates.length).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const st={act:S.act,circ:S.focusCirc||(cs.some(c=>c.watch!==false)?'all':'none'),name:SH.name||S.shareName||''};
+  const watched=cs.filter(c=>c.watch!==false);
+  const draw=()=>openSheet('▶ Antes de salir',`
+    <label>Disciplina</label><div class="chips">${Object.entries(ACT).map(([k,[e,n]])=>`<button data-act="act" data-k="${k}" class="${st.act===k?'on':''}">${e} ${n}</button>`).join('')}</div>
+    <label>Circuito para cronometrar</label><div class="chips">
+      <button data-act="ci" data-k="none" class="${st.circ==='none'?'on':''}">Ninguno</button>
+      ${watched.length?`<button data-act="ci" data-k="all" class="${st.circ==='all'?'on':''}">Todos los vigilados (${watched.length})</button>`:''}
+      ${cs.map(c=>`<button data-act="ci" data-k="${c.id}" class="${st.circ===c.id?'on':''}">${lapGateOf(c)>=0?'🔄':c.type==='p2p'?'➡️':'🔁'} ${esc(c.name)}${c.nLaps?` · ${c.nLaps} v.`:''}</button>`).join('')}</div>
+    ${GRP.on?`<label for="psn">👥 Tu nombre en el grupo</label><input class="in" id="psn" value="${esc(st.name)}" placeholder="Ej: Hugo">
+      <label class="chk"><input type="checkbox" id="psg" ${gdCfg().on?'checked':''}> 🛟 Guardián activado</label>`:''}
+    <label class="chk"><input type="checkbox" id="psv" ${S.voice?'checked':''}> 🔊 Avisos por voz</label>
+    <div class="row" style="margin-top:12px"><button class="btn primary" data-act="go" style="flex:1;font-size:19px;min-height:54px">▶ Empezar · ${ACT[st.act][0]} ${ACT[st.act][1]}</button></div>
+    ${GRP.on?'':'<p class="mut">¿Salís con otros? Antes de empezar podés armar un 👥 grupo en vivo desde Más.</p>'}`,
+    async(a,d)=>{
+      if(a==='act'){st.act=d.k;draw();}
+      else if(a==='ci'){st.circ=d.k;draw();}
+      else if(a==='go'){
+        S.act=st.act;updActBtn();
+        S.focusCirc=st.circ==='all'?null:st.circ;saveS();
+        if(GRP.on&&st.name!==(SH.name||'')){await grpSetName(st.name);}
+        closeSheet();
+        if(st.circ!=='all'&&st.circ!=='none'){const c=cs.find(x=>x.id===st.circ);if(c&&!secTypes(c)&&nSecOf(c)>=2)circTerrain(c).catch(()=>{});}
+        await startRec();
+      }
+    },
+    t=>{
+      if(t.id==='psn')st.name=t.value.trim();
+      else if(t.id==='psv'){S.voice=t.checked;saveS();}
+      else if(t.id==='psg'){S.guard=Object.assign(gdCfg(),{on:t.checked});saveS();}
+    });
+  draw();
+}
 $('#hStop').onclick=stopFlow;
 
 async function offerRecover(rc){
@@ -10017,7 +10054,7 @@ async function grpShareLink(){
 function showGroup(join){
   if(GRP.on&&!join){
     const ppl=[...GRP.people.values()].filter(p=>p.sid!==SH.sid);
-    openSheet('👥 Grupo en vivo',`<p>${ppl.length?`${ppl.length} persona${ppl.length>1?'s':''} más en el grupo.`:'Todavía no se sumó nadie más: mandales el link.'}${SH.on&&SH.group?' Vos estás compartiendo tu posición.':' <b>Vos solo estás mirando</b> (no compartís tu posición).'}</p>
+    openSheet('👥 Grupo en vivo',`${SH.on&&SH.group?`<label for="gnm">Tu nombre (así te ven los demás)</label><div class="row"><input class="in" id="gnm" value="${esc(SH.name||'')}" placeholder="Ej: Hugo" style="flex:1"><button class="btn primary" data-act="nm">Guardar</button></div>`:''}<p>${ppl.length?`${ppl.length} persona${ppl.length>1?'s':''} más en el grupo.`:'Todavía no se sumó nadie más: mandales el link.'}${SH.on&&SH.group?' Vos estás compartiendo tu posición.':' <b>Vos solo estás mirando</b> (no compartís tu posición).'}</p>
       <div class="row"><button class="btn primary" data-act="lk">📤 Invitar (mandar el link)</button><button class="btn" data-act="sr">🔎 Modo búsqueda</button><button class="btn" data-act="gd">🛟 Guardián</button></div>
       ${SH.on&&SH.group?'':'<div class="row"><button class="btn" data-act="sh">📡 Compartir también mi posición</button></div>'}
       <label>Modo</label><div class="chips">${Object.entries(SH_MODES).map(([k,m])=>`<button data-act="md" data-k="${k}" class="${SH.on&&SH.group&&k===SH.mode?'on':''}">${m.n}</button>`).join('')}</div>
@@ -10025,6 +10062,7 @@ function showGroup(join){
       <p class="mut">Cada uno se ve en el mapa con su color y su nombre. En el panel de abajo, 🎯 al lado de alguien pone la flecha hacia esa persona.</p>`,
       async(a,d,el)=>{
         if(a==='lk')grpShareLink();
+        else if(a==='nm'){await grpSetName($('#gnm').value);showGroup();}
         else if(a==='sr')showSearch();
         else if(a==='gd')showGuard();
         else if(a==='sh'){closeSheet();await grpShareMe(S.shareName||'',d.k||'meet');}
@@ -10062,6 +10100,12 @@ function showGroup(join){
 }
 const showGroupJoin=p=>{if(GRP.on&&GRP.topic===p.topic){showGroup();return;}showGroup(p);};
 /* compartir mi posición dentro del grupo (usa el mismo envío que el seguimiento, con la clave del grupo) */
+/* cambiar el nombre con el que te ven en el grupo (se manda de nuevo la ficha) */
+async function grpSetName(name){
+  name=String(name||'').trim().slice(0,30);S.shareName=name;saveS();
+  if(SH.on){SH.name=name;shSave();try{await shMeta();SH.metaOk=true;}catch(e){SH.metaOk=false;}}
+  grpPanel();toast(name?`Ahora te ven como “${name}”`:'Sin nombre',2500);
+}
 async function grpShareMe(name,mode){
   if(!GRP.on)return;
   if(SH.on&&!(SH.group&&SH.topic===GRP.topic))await shStop();
@@ -10151,12 +10195,13 @@ function grpPanel(){
     return `<div class="gr${p.ended||ago>600?' old':''}"><i style="background:${p.color}"></i><div class="gn"><b>${esc((p.meta&&p.meta.name)||'Sin nombre')}</b><small>${p.ended?'dejó de compartir · ':''}hace ${agoT}${d!=null?` · ${fmtD(d)}${dir?' al '+dir:''}`:''}${p.bat!=null?` · 🔋${p.bat}%`:''}</small>${gdRowNote(p,ago)}</div>${p.ended?'':`<button data-g="q" data-s="${p.sid}" aria-label="Preguntar si está bien">❓</button>`}<button data-g="t" data-s="${p.sid}" class="${GRP.tgt===p.sid?'on':''}" aria-label="Ir hacia">🎯</button><button data-g="c" data-s="${p.sid}" aria-label="Ver">⌖</button></div>`;
   }).join('');
   el.classList.toggle('min',GRP.min);
-  el.innerHTML=`<div class="gh" data-g="m"><b>👥 Grupo · ${ppl.length+1}</b><small>${GRP.netOk===false?'⚠️ sin conexión':SH.on&&SH.group?'compartiendo':'solo mirando'}</small><span>${GRP.min?'▲':'▼'}</span></div>
+  el.innerHTML=`<div class="gh" data-g="m"><b>👥 Grupo · ${ppl.length+1}</b><small>${GRP.netOk===false?'⚠️ sin conexión':SH.on&&SH.group?`vos: ${SH.name?esc(SH.name):'<u>Sin nombre ✏️</u>'}`:'solo mirando'}</small><span>${GRP.min?'▲':'▼'}</span></div>
     ${gdBanner()}${GRP.min?'':`${rows||'<div class="gr"><small>Esperando a los demás… mandales el link.</small></div>'}${SR.op?(()=>{const m=srSummary();return `<div class="gr" data-g="s"><small>🔎 Búsqueda: ✅ ${m.c.ok} · 🟡 ${m.c.curso} · 🔴 ${m.c.pend}${m.c.redo?` · 🔁 ${m.c.redo}`:''} de ${m.n} sectores</small></div>`;})():''}<div class="ga"><button data-g="gd">🛟${gdOn()?'':' (apagado)'}</button><button data-g="l">📤 Invitar</button><button data-g="s">🔎 Búsqueda</button><button data-g="o">⚙️ Grupo</button><button data-g="x">✕ Salir</button></div>`}`;
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('#grp [data-g]');if(!b)return;
   const g=b.dataset.g,p=b.dataset.s&&GRP.people.get(b.dataset.s);
+  if(g==='m'&&e.target.closest('u')){showGroup();return;}
   if(g==='m'){GRP.min=!GRP.min;grpPanel();}
   else if(g==='l')grpShareLink();
   else if(g==='o')showGroup();
@@ -11308,9 +11353,10 @@ $('#fLoc').onclick=()=>{
   setFollow(true);map.setView([lastFix.lat,lastFix.lon],Math.max(map.getZoom(),16));
 };
 $('#fAct').onclick=()=>{
-  if(REC.state!=='idle'){toast('La actividad se cambia al terminar la grabación');return;}
   const k=Object.keys(ACT);S.act=k[(k.indexOf(S.act)+1)%k.length];saveS();updActBtn();
-  toast(ACT[S.act][0]+' '+ACT[S.act][1]);
+  /* también durante la grabación: se corrige la disciplina de toda la salida */
+  if(REC.state!=='idle'){REC.act=S.act;SH.metaOk=false;for(const t of REC.timers)t.base=null;toast(`${ACT[S.act][0]} Esta grabación ahora es de ${ACT[S.act][1]}`,3000);}
+  else toast(ACT[S.act][0]+' '+ACT[S.act][1]);
 };
 
 /* ---------- Versión web (iPhone, navegador): que abra sin internet y que no se borre lo guardado ---------- */
