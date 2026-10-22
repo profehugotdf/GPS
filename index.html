@@ -48,6 +48,7 @@ input,select{-webkit-user-select:text;user-select:text}
 #pill i{width:10px;height:10px;border-radius:50%;background:#999;display:block}
 #pill.ok i{background:var(--kelp)} #pill.mid i{background:#E0A100} #pill.bad i{background:var(--buoy)}
 #hud.on ~ #pill{display:none}
+#hHr{font:800 15px var(--num,system-ui);color:#E53935;margin-left:6px}#hHr.old{opacity:.45}
 #banner{position:fixed;left:10px;right:10px;top:calc(var(--top) + 10px);z-index:1200;background:var(--ink);color:#fff;
   border-radius:14px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-weight:600}
 #banner[hidden]{display:none}
@@ -531,7 +532,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
     <div class="hc" id="hSpWrap"><b id="hS">0.0</b><small id="hSU">km/h</small></div>
   </div>
   <div id="hCirc" class="hcirc" hidden></div>
-  <div class="hud-foot"><span id="hGps">Buscando GPS…</span><button class="btn sm" id="hBack">↩︎ Retorno</button><button class="btn sm" id="hStop">Terminar</button></div>
+  <div class="hud-foot"><span id="hGps">Buscando GPS…</span><span id="hHr" hidden></span><button class="btn sm" id="hBack">↩︎ Retorno</button><button class="btn sm" id="hStop">Terminar</button></div>
 </header>
 <div id="pill"><i></i><span>Buscando GPS…</span></div>
 <div id="nav" hidden>
@@ -3512,7 +3513,7 @@ async function startRec(){
   if(S.focusCirc==='none')circs=[];
   else if(S.focusCirc){const fc=await DB.get('kv','circuit:'+S.focusCirc);if(fc&&fc.gates.length)circs=[fc];}
   Object.assign(REC,{lastEnt:null});
-  Object.assign(REC,{state:'rec',id:uid(),t0:Date.now(),pausedMs:0,pauseAt:0,seg:0,pts:[],dist:0,speed:0,last:null,lastSave:Date.now(),act:S.act});
+  Object.assign(REC,{state:'rec',id:uid(),t0:Date.now(),pausedMs:0,pauseAt:0,seg:0,pts:[],hr:[],hrS:null,dist:0,speed:0,last:null,lastSave:Date.now(),act:S.act});
   REC.timers=circs.map(makeTimer);
   REC.poly=L.polyline([],{color:'#F04A1C',weight:5,opacity:.95}).addTo(map);
   try{await startWatch(true);}
@@ -3542,13 +3543,13 @@ function ingest(f){
     REC.speed=f.speed!=null?f.speed:d/dt;
     for(const t of REC.timers)t.gt.feed(last,p);
   }
-  REC.pts.push(p);
+  REC.pts.push(p);(REC.hr||(REC.hr=[])).push(hrNow());
   REC.poly.addLatLng([p[0],p[1]]);
 }
 function autosave(){
   if(REC.state==='idle'||REC.pts.length<2)return;
   REC.lastSave=Date.now();
-  DB.put('kv','rec:current',{id:REC.id,t0:REC.t0,pts:REC.pts,act:REC.act}).catch(()=>{});
+  DB.put('kv','rec:current',{id:REC.id,t0:REC.t0,pts:REC.pts,hr:REC.hr&&REC.hr.some(v=>v!=null)?REC.hr:null,act:REC.act}).catch(()=>{});
 }
 function updRecUi(){
   const b=$('#recbtn');
@@ -3561,6 +3562,7 @@ function tickHud(){
   $('#hD').textContent=fmtD(REC.dist);
   $('#hS').textContent=fmtSp(REC.speed,S.speedMode);
   $('#hSU').textContent=SP_UNIT[S.speedMode];
+  {const e=$('#hHr');if(e){e.hidden=!HR.on&&HR.bpm==null;const b=hrNow();e.textContent='❤️ '+(b!=null?b:(HR.bpm!=null?HR.bpm:'–'));e.classList.toggle('old',b==null);}}
   const c=$('#hCirc'),at=activeTimer();
   const f1e=at&&nSecOf(at.circ)>=2?at:!at&&REC.lastEnt&&REC.timers.includes(REC.lastEnt)&&REC.lastEnt.gt.laps.length&&nSecOf(REC.lastEnt.circ)>=2?REC.lastEnt:null;
   if(f1e){
@@ -3639,8 +3641,10 @@ async function saveRec(name){
   const pts=REC.pts.slice();
   const res=REC.timers.filter(t=>t.gt.laps.length||t.gt.races.length).map(t=>({cid:t.circ.id,name:t.circ.name,type:t.circ.type,wind:t.wind||null,races:t.gt.races.map(R=>Object.assign({},R)),laps:t.gt.laps.map(l=>({n:l.n,start:l.start,time:l.time,splits:l.splits}))}));
   const tr={id:REC.id,name:name||'Salida '+fmtDate(REC.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),act:REC.act,res,src:'rec'};
+  if(REC.hr&&REC.hr.length===pts.length&&REC.hr.some(v=>v!=null))tr.hr=REC.hr.slice();
   await commitRuns(tr);
   await DB.put('kv','track:'+tr.id,tr);
+  try{await mpPublish([tr]);}catch(e){}
   S.act=REC.act;saveS();updActBtn();
   const pb=res.reduce((a,r)=>a+r.laps.filter(l=>l.pb).length,0);
   await endRec();
@@ -3672,6 +3676,7 @@ async function showPreStart(){
     ${cs.length?`<label>🏎️ En los sectores, comparar con</label><div class="chips"><button data-act="ref" data-k="best" class="${S.f1Ref!=='prev'?'on':''}">🏆 Tu récord</button><button data-act="ref" data-k="prev" class="${S.f1Ref==='prev'?'on':''}">⏮ La vuelta anterior</button></div>`:''}
     ${GRP.on?`<label for="psn">👥 Tu nombre en el grupo</label><input class="in" id="psn" value="${esc(st.name)}" placeholder="Ej: Hugo">
       <label class="chk"><input type="checkbox" id="psg" ${gdCfg().on?'checked':''}> 🛟 Guardián activado</label>`:''}
+    <label>❤️ Banda cardíaca</label><div class="row"><button class="btn${HR.on?'':' primary'}" data-act="hr">${HR.on?`✓ ${esc(HR.name)} · ${hrNow()!=null?hrNow()+' lpm':'esperando pulso'} (desconectar)`:'Conectar la banda'}</button></div>
     <label class="chk"><input type="checkbox" id="psv" ${S.voice?'checked':''}> 🔊 Avisos por voz</label>
     <div class="row" style="margin-top:12px"><button class="btn primary" data-act="go" style="flex:1;font-size:19px;min-height:54px">▶ Empezar · ${ACT[st.act][0]} ${ACT[st.act][1]}</button></div>
     ${GRP.on?'':'<p class="mut">¿Salís con otros? Antes de empezar podés armar un 👥 grupo en vivo desde Más.</p>'}`,
@@ -3679,6 +3684,7 @@ async function showPreStart(){
       if(a==='act'){st.act=d.k;draw();}
       else if(a==='ci'){st.circ=d.k;draw();}
       else if(a==='ref'){S.f1Ref=d.k;saveS();draw();}
+      else if(a==='hr'){if(HR.on)await hrDisconnect();else await hrConnect();draw();}
       else if(a==='go'){
         S.act=st.act;updActBtn();
         S.focusCirc=st.circ==='all'?null:st.circ;saveS();
@@ -3703,7 +3709,7 @@ async function offerRecover(rc){
     <div class="row"><button class="btn primary" data-act="rsave">Guardar como track</button><button class="btn danger" data-act="rdel">Descartar</button></div>`,
     async a=>{
       if(a==='rsave'){
-        const pts=rc.pts,tr={id:rc.id,name:'Recuperada '+fmtDate(rc.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),act:rc.act||'bike',res:[],src:'rec'};
+        const pts=rc.pts,tr={id:rc.id,name:'Recuperada '+fmtDate(rc.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),act:rc.act||'bike',res:[],src:'rec'};if(rc.hr&&rc.hr.length===pts.length)tr.hr=rc.hr;
         await DB.put('kv','track:'+tr.id,tr);await DB.del('kv','rec:current');showTrackDetail(tr.id);
       }else if(a==='rdel'){await DB.del('kv','rec:current');closeSheet();}
     });
@@ -3879,9 +3885,11 @@ const trLaps=tr=>resOf(tr).reduce((a,r)=>a+r.laps.length,0);
 const trPbs=tr=>resOf(tr).reduce((a,r)=>a+r.laps.filter(l=>l.pb).length,0);
 async function showTracks(){
   const ts=(await DB.all('kv','track:')).sort((a,b)=>b.t0-a.t0);
-  openSheet('Tracks',`<div class="row"><button class="btn" data-act="imp">Importar GPX, TCX o backup</button>${shown?'<button class="btn" data-act="hide">Ocultar del mapa</button>':''}</div>
+  const lim=Date.now()-90*864e5,pend=ts.filter(t=>!t.mp&&t.src==='rec'&&MP_DISC[t.act]&&t.pts&&t.pts.length>1&&t.pts[0][2]>lim);
+  openSheet('Tracks',`<div class="row"><button class="btn" data-act="imp">Importar GPX, TCX o backup</button>${shown?'<button class="btn" data-act="hide">Ocultar del mapa</button>':''}${pend.length?`<button class="btn primary" data-act="mp">📤 Mandar a Mi plan (${pend.length})</button>`:''}</div>
     ${ts.map(t=>{const pb=trPbs(t),nl=trLaps(t);return `<div class="item" data-act="open" data-id="${t.id}"><div><b>${(ACT[t.act]||ACT.bike)[0]} ${esc(t.name)}</b><br><small class="mut">${fmtDate(t.t0)} · ${fmtD(t.stats.dist)}${t.stats.time?' · '+fmtT(t.stats.time):''}${nl?' · '+nl+' marcas':''}${pb?' · 🏆'+pb:''}</small></div><span>›</span></div>`;}).join('')||'<p class="mut">Todavía no hay tracks. Tocá el botón rojo para grabar.</p>'}`,
-    (a,d)=>{if(a==='open')showTrackDetail(d.id);else if(a==='imp')importFile();else if(a==='hide'){hideShown();showTracks();}});
+    async(a,d)=>{if(a==='open')showTrackDetail(d.id);else if(a==='imp')importFile();else if(a==='hide'){hideShown();showTracks();}
+      else if(a==='mp'){await mpPublish(pend.slice().reverse(),true);showTracks();}});
 }
 function barChart(vals,labels,bestIdx){
   const W=320,H=110,mx=Math.max(...vals),mn=Math.min(...vals),lo=mn*.9,bw=(W-8)/vals.length;
@@ -4184,9 +4192,12 @@ async function showTrackDetail(id){
       <div><b>${fmtSp(s.max,S.speedMode)}</b><small>máxima (${u})</small></div>
       <div><b>+${s.gain} / −${s.loss} m</b><small>desnivel</small></div>
       ${(h=>h?`<div><b>❤️ ${h.avg} / ${h.max}</b><small>pulso prom. / máx.</small></div>`:'')(sensStats(tr.hr))}
-      ${(h=>h?`<div><b>⚡ ${h.avg} / ${h.max} W</b><small>potencia prom. / máx.</small></div>`:'')(sensStats(tr.pw))}
+      ${(p=>{if(!p)return '';const ftp=bkCfg().ftp,k=ftp?p.np/ftp:0;
+        return `<div><b>⚡ ${p.est?'~':''}${p.avg} W</b><small>potencia media${p.est?' (estimada)':''}</small></div><div><b>${p.est?'~':''}${p.np} W</b><small>normalizada (NP)</small></div>`+
+          (ftp?`<div><b>${dec(k,2)} · ${Math.round(100*(p.segMov/3600)*k*k)}</b><small>IF · TSS (FTP ${ftp} W)</small></div>`:'');})(bikePower(tr))}
       ${(h=>h?`<div><b>${h.avg}</b><small>cadencia prom.</small></div>`:'')(sensStats(tr.cad))}
     </div>
+    ${tr.act==='bike'&&!(tr.pw&&tr.pw.some(x=>x>0))?`<p class="mut">⚡ Potencia estimada con la velocidad, la pendiente y tus datos de ${bkCfg().src||'Ajustes'} (peso, CdA, Crr). En subida es bastante fiel; en llano y bajada el viento, el freno y el ir a rueda la pueden correr bastante.</p>`:''}
     ${res.map(lapBlock).join('')}
     <div class="row" style="margin-top:8px">
       <button class="btn primary" data-act="map">Ver en el mapa</button>
@@ -4194,6 +4205,7 @@ async function showTrackDetail(id){
       <button class="btn primary" data-act="rel">🎬 Revivir en 3D</button>
       <button class="btn" data-act="multi">🧩 Revivir multideporte (triatlón…)</button>
       <button class="btn" data-act="gpx">Compartir GPX</button>
+      ${MP_DISC[tr.act]?`<button class="btn" data-act="mp">📤 ${tr.mp?'Volver a mandar':'Mandar'} a Mi plan</button>`:''}
       <button class="btn" data-act="anal">Medir con un circuito</button>
       <button class="btn primary" data-act="follow">🧭 Guiarme por este recorrido</button>
       <button class="btn" data-act="followrev">↩︎ Hacerlo al revés</button>
@@ -4205,6 +4217,7 @@ async function showTrackDetail(id){
       else if(a==='v3d'){closeSheet();open3D({line:tr.pts.map(p=>[p[0],p[1]]),track:tr});}
       else if(a==='rel'){closeSheet();open3D({line:tr.pts.map(p=>[p[0],p[1]]),track:tr,relive:true});}
       else if(a==='multi')showMultiPick(id);
+      else if(a==='mp'){await mpPublish([tr],true);showTrackDetail(id);}
       else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);showTrackDetail(id);}
       else if(a==='gpx')shareFile((tr.name.replace(/[^\w\-]+/g,'_')||'track')+'.gpx',toGPX([tr],[],esc),'application/gpx+xml');
       else if(a==='anal')showAnalPick(id);
@@ -10989,6 +11002,203 @@ document.addEventListener('click',e=>{
   else if(a==='vid')t3VidStart();
 });
 
+
+/* ---------- ❤️ Banda cardíaca (Bluetooth, servicio estándar de pulso): se ve en vivo y se guarda con cada punto ---------- */
+const HR={on:false,bpm:null,t:0,dev:null,name:'',src:null};
+const HR_SVC='0000180d-0000-1000-8000-00805f9b34fb',HR_CHR='00002a37-0000-1000-8000-00805f9b34fb';
+const hrParse=b=>(b[0]&1)?(b[1]|(b[2]<<8)):b[1];
+const hrNow=()=>HR.bpm!=null&&Date.now()-HR.t<10000?HR.bpm:null;
+function hrBytes(v){
+  if(!v)return [];
+  if(typeof v==='string'){const h=v.replace(/^0x/i,'').replace(/[^0-9a-f]/gi,'');const o=[];for(let i=0;i+1<h.length;i+=2)o.push(parseInt(h.substr(i,2),16));return o;}
+  if(Array.isArray(v))return v;
+  try{const dv=v instanceof DataView?v:new DataView(v.buffer||v);const o=[];for(let i=0;i<dv.byteLength;i++)o.push(dv.getUint8(i));return o;}catch(e){return [];}
+}
+function hrIn(b){
+  if(b.length<2)return;const bpm=hrParse(b);if(!(bpm>25&&bpm<250))return;
+  HR.bpm=bpm;HR.t=Date.now();
+}
+async function hrConnect(){
+  try{
+    const BL=isNative()?plugin('BluetoothLe'):null;
+    if(BL&&BL.requestDevice){
+      await BL.initialize({androidNeverForLocation:true});
+      const d=await BL.requestDevice({services:[HR_SVC]});
+      await BL.connect({deviceId:d.deviceId});
+      try{BL.addListener(`disconnected|${d.deviceId}`,()=>{HR.on=false;toast('❤️ Se desconectó la banda',4000);});}catch(e){}
+      await BL.addListener(`notification|${d.deviceId}|${HR_SVC}|${HR_CHR}`,ev=>hrIn(hrBytes(ev&&ev.value)));
+      await BL.startNotifications({deviceId:d.deviceId,service:HR_SVC,characteristic:HR_CHR});
+      Object.assign(HR,{on:true,dev:d.deviceId,name:d.name||'Banda',src:'ble'});
+    }else if(navigator.bluetooth&&navigator.bluetooth.requestDevice){
+      const dev=await navigator.bluetooth.requestDevice({filters:[{services:['heart_rate']}]});
+      const srv=await dev.gatt.connect(),ch=await (await srv.getPrimaryService('heart_rate')).getCharacteristic('heart_rate_measurement');
+      ch.addEventListener('characteristicvaluechanged',e=>hrIn(hrBytes(e.target.value)));
+      await ch.startNotifications();
+      dev.addEventListener('gattserverdisconnected',()=>{HR.on=false;toast('❤️ Se desconectó la banda',4000);});
+      Object.assign(HR,{on:true,dev,name:dev.name||'Banda',src:'web'});
+    }else{toast(isNative()?'Esta versión de la app no tiene Bluetooth para la banda: instalá el APK nuevo':'Este navegador no permite conectar la banda por Bluetooth (en Android usá Brave o Chrome)',6000);return false;}
+    toast(`❤️ Banda conectada: ${HR.name}`,3000);return true;
+  }catch(e){if(!/cancel|chosen|abort|User/i.test(e.message||''))toast('No se pudo conectar la banda: '+(e.message||e),5000);return false;}
+}
+async function hrDisconnect(){
+  try{if(HR.src==='ble'){const BL=plugin('BluetoothLe');await BL.stopNotifications({deviceId:HR.dev,service:HR_SVC,characteristic:HR_CHR}).catch(()=>{});await BL.disconnect({deviceId:HR.dev});}
+    else if(HR.src==='web'&&HR.dev&&HR.dev.gatt)HR.dev.gatt.disconnect();}catch(e){}
+  Object.assign(HR,{on:false,dev:null,src:null});
+}
+
+/* ---------- 📤 Mi plan: cada salida se suma a tu periodización (Forma, calendario, cumplimiento) ----------
+   La versión web (profehugotdf.github.io/GPS/) comparte el almacenamiento con Mi plan: escribe directo.
+   La app instalada tiene su propio almacenamiento: las manda abriendo Mi plan con las sesiones en el link. */
+/* ---------- ⚡ Potencia en bici sin potenciómetro ----------
+   Misma física que Bici Indoor, pero al revés: allá la potencia del rodillo mueve la bici virtual; acá la velocidad
+   y la pendiente reales dicen cuánta potencia hizo falta: gravedad + rodadura + aire + aceleración. Toma tu peso,
+   el de la bici, CdA, Crr y FTP de Bici Indoor (o de Ajustes). Lo que no ve: el viento, el freno y el rebufo. */
+const BK_RHO=1.225,BK_G=9.81;
+function bkCfg(){
+  const b={w:75,b:9,cda:.32,crr:.005,ftp:null,src:''},num=x=>{const v=parseFloat(String(x==null?'':x).replace(',','.'));return v>0?v:null;};
+  try{const c=JSON.parse(localStorage.getItem('bici_config')||'null');if(c){for(const [k,q] of [['weight','w'],['bike','b'],['cda','cda'],['crr','crr'],['ftp','ftp']]){const v=num(c[k]);if(v)b[q]=v;}b.src='Bici Indoor';}}catch(e){}
+  try{const u=JSON.parse(localStorage.getItem('entrenamiento_umbrales')||'null');if(u&&num(u.ftpBici))b.ftp=num(u.ftpBici);}catch(e){}
+  const o=S.bk||{};for(const k of ['w','b','cda','crr','ftp'])if(num(o[k]))b[k]=num(o[k]);
+  return b;
+}
+/* serie segundo a segundo de potencia (W) → media en movimiento, NP (media móvil 30 s a la cuarta, como Bici), máx. 5 s */
+function pwSummary(serie){
+  if(serie.length<60)return null;
+  let su=0,s4=0,n=0,tot=0,m5=0,s5=0;
+  for(let k=0;k<serie.length;k++){const w=serie[k];tot+=w;su+=w;s5+=w;if(k>=30)su-=serie[k-30];if(k>=5)s5-=serie[k-5];if(k>=4)m5=Math.max(m5,s5/5);if(k>=29){s4+=(su/30)**4;n++;}}
+  return {avg:Math.round(tot/serie.length),np:Math.round(Math.pow(s4/n,.25)),max5:Math.round(m5),segMov:serie.length};
+}
+function pwEst(P,c){
+  c=c||bkCfg();if(!P||P.length<3)return null;
+  const m=c.w+c.b,N=P.length,cum=[0];for(let i=1;i<N;i++)cum.push(cum[i-1]+(P[i][5]===P[i-1][5]?hav(P[i-1],P[i]):0));
+  // velocidad: cuerda entre los puntos de ±5 s (el error del GPS del teléfono, de unos metros, se diluye en 10 s;
+  // sumar tramito a tramito lo infla, y la potencia del aire va al cubo de la velocidad)
+  const vs=new Array(N).fill(0);let i0=0,j0=0;
+  for(let k=0;k<N;k++){
+    if(i0<k&&P[i0][5]!==P[k][5])i0=k;while(i0<k&&(P[k][2]-P[i0][2]>5000||P[i0][5]!==P[k][5]))i0++;
+    if(j0<k)j0=k;while(j0+1<N&&P[j0+1][5]===P[k][5]&&P[j0+1][2]-P[k][2]<=5000)j0++;
+    const dt=(P[j0][2]-P[i0][2])/1000;vs[k]=dt>=2?hav(P[i0],P[j0])/dt:0;
+  }
+  const conAlt=P.filter(p=>p[4]!=null).length>=N*.8,serie=[];let a=0,b=0,i1=0,j1=0;
+  for(let k=0;k+1<N;k++){
+    if(P[k+1][5]!==P[k][5])continue;
+    const dt=(P[k+1][2]-P[k][2])/1000;if(!(dt>0)||dt>10)continue;
+    const v=vs[k];if(!(v>=1))continue;                                        // parado: no cuenta
+    let gr=0;if(conAlt){const d=cum[k];while(a<k&&cum[a]<d-50)a++;if(b<k)b=k;while(b+1<N&&cum[b+1]<=d+50)b++;const dd=cum[b]-cum[a];if(dd>=40&&P[a][4]!=null&&P[b][4]!=null)gr=Math.max(-.25,Math.min(.25,(P[b][4]-P[a][4])/dd));}
+    // aceleración: cambio de la velocidad suavizada en ±5 s
+    while(i1<k&&(P[k][2]-P[i1][2]>5000||P[i1][5]!==P[k][5]))i1++;if(j1<k)j1=k;while(j1+1<N&&P[j1+1][5]===P[k][5]&&P[j1+1][2]-P[k][2]<=5000)j1++;
+    const dta=(P[j1][2]-P[i1][2])/1000,acc=dta>=4?Math.max(-1.5,Math.min(1.5,(vs[j1]-vs[i1])/dta)):0,th=Math.atan(gr);
+    const w=Math.max(0,Math.min(2000,v*(m*BK_G*(c.crr*Math.cos(th)+Math.sin(th))+.5*BK_RHO*c.cda*v*v+m*acc)));
+    for(let q=0;q<Math.round(dt);q++)serie.push(w);
+  }
+  const r=pwSummary(serie);if(r)r.est=true;return r;
+}
+/* potencia real (Garmin con potenciómetro, importada) alineada con los puntos */
+function pwReal(tr){
+  const P=tr.pts,W=tr.pw;if(!W||!W.some(x=>x>0))return null;const serie=[];
+  for(let k=0;k+1<P.length;k++){if(P[k+1][5]!==P[k][5])continue;const dt=(P[k+1][2]-P[k][2])/1000;if(!(dt>0)||dt>10)continue;const w=W[k]||0;if(!(w>0)&&hav(P[k],P[k+1])/dt<1)continue;for(let q=0;q<Math.round(dt);q++)serie.push(w);}
+  return pwSummary(serie);
+}
+const bikePower=tr=>tr&&tr.act==='bike'&&tr.pts?(pwReal(tr)||pwEst(tr.pts)):null;
+const MP_URL='https://profehugotdf.github.io/Mi-plan/';
+const MP_DISC={run:'carrera',walk:'caminata',bike:'bici',kayak:'kayak',swim:'natacion'};
+const mpSameSite=()=>!isNative()&&/(^|\.)profehugotdf\.github\.io$/.test(location.hostname);
+function mpResumen(tr){
+  const dep=MP_DISC[tr.act];if(!dep||!tr.pts||tr.pts.length<2||!(tr.pts[0][2]>0))return null;
+  const P=tr.pts;let act=0,dist=0;
+  for(let i=1;i<P.length;i++)if(P[i][5]===P[i-1][5]){const dt=(P[i][2]-P[i-1][2])/1000;if(dt>0&&dt<600)act+=dt;dist+=hav(P[i-1],P[i]);}
+  const hs=sensStats(tr.hr),st=tr.stats||calcStats(P);
+  const o={id:'rumbo_'+tr.id,inicioISO:new Date(P[0][2]).toISOString(),fecha:new Date(P[0][2]).toISOString(),deporte:dep,duracionSeg:Math.round(act),distanciaM:Math.round(dist),nombre:tr.name||''};
+  if(hs){o.pulsoPromedio=hs.avg;o.pulsoMax=hs.max;}
+  if(st.gain)o.desnivelM=st.gain;
+  if(dist>0&&act>0)o.ritmoSegKm=Math.round(act/(dist/1000));
+  if(dep==='carrera'){const n=mpNgp(P);if(n){o.ngpSegKm=Math.round(10000/n.vn)/10;o.segMov=n.segMov;}}
+  if(dep==='bici'){const pw=bikePower(tr);if(pw){o.potenciaW=pw.avg;o.npW=pw.np;o.segMov=pw.segMov;if(pw.est)o.potenciaEstimada=true;const c=bkCfg();if(c.ftp)o.ftpW=c.ftp;}}
+  return o;
+}
+/* Ritmo normalizado ajustado por pendiente, igual que Correr (calcularTSSSesion): costo de Minetti,
+   pendiente media en ±25 m, media móvil de 30 s a la cuarta. Se usa para el TSS de carrera. */
+const costoMinetti=i=>155.4*i**5-30.4*i**4-43.3*i**3+46.3*i**2+19.5*i+3.6;
+function mpNgp(P){
+  const cum=[0];for(let i=1;i<P.length;i++)cum.push(cum[i-1]+(P[i][5]===P[i-1][5]?hav(P[i-1],P[i]):0));
+  const conAlt=P.filter(p=>p[4]!=null).length>=P.length*.8,serie=[];let a=0,b=0;
+  for(let k=0;k+1<P.length;k++){
+    if(P[k+1][5]!==P[k][5])continue;
+    const dt=(P[k+1][2]-P[k][2])/1000,v=(cum[k+1]-cum[k])/dt;if(!(dt>0)||dt>5||!(v>=.5))continue;
+    let pend=0;if(conAlt){const d=cum[k];while(a<k&&cum[a]<d-25)a++;if(b<k)b=k;while(b+1<P.length&&cum[b+1]<=d+25)b++;const dd=cum[b]-cum[a];if(dd>=20&&P[a][4]!=null&&P[b][4]!=null)pend=Math.max(-30,Math.min(30,(P[b][4]-P[a][4])/dd*100));}
+    const i=Math.max(-.45,Math.min(.45,pend/100)),vv=v*costoMinetti(i)/3.6;
+    for(let q=0;q<Math.round(dt);q++)serie.push(vv);
+  }
+  if(serie.length<60)return null;
+  let su=0,s4=0,n=0;for(let k=0;k<serie.length;k++){su+=serie[k];if(k>=30)su-=serie[k-30];if(k>=29){s4+=(su/30)**4;n++;}}
+  return {vn:Math.pow(s4/n,.25),segMov:serie.length};
+}
+/* ¿la misma salida ya la registró Correr, Kayak o Bici Indoor? (arranque a menos de 10 min) — así no se cuenta dos veces */
+function mpDupDe(o){
+  const t=Date.parse(o.inicioISO),cerca=x=>x!=null&&isFinite(x)&&Math.abs(x-t)<10*60000;
+  const get=k=>{try{return JSON.parse(localStorage.getItem(k))||[];}catch(e){return [];}};
+  if(o.deporte==='carrera'&&get('correr_sesiones').some(x=>cerca(x.inicioISO?Date.parse(x.inicioISO):Date.parse(x.fecha)-(x.duracionSeg||0)*1000)))return 'Correr';
+  // Kayak Indoor: las cargadas a mano quedan a las 12:00 (sin hora real) → mismo día y duración parecida (±25 %)
+  const dia=x=>{const d=new Date(x);return d.getFullYear()*400+d.getMonth()*32+d.getDate();};
+  if(o.deporte==='kayak'&&get('kayak_sesiones').some(x=>/^k_manual_/.test(x.id||'')?dia(x.fecha)===dia(t)&&Math.abs((x.duracionSeg||0)-o.duracionSeg)<=.25*o.duracionSeg:cerca(Date.parse(x.fecha))))return 'Kayak';
+  if(o.deporte==='bici'&&get('bici_sesiones').some(x=>cerca(+x.date)))return 'Bici Indoor';
+  return null;
+}
+/* TSS con tus umbrales de Mi plan (misma cuenta que las apps hermanas): ritmo en carrera, si no pulso */
+function mpTss(o,u){
+  const h=(o.duracionSeg||0)/3600;if(!h)return null;u=u||{};
+  if(o.deporte==='carrera'&&o.ngpSegKm&&o.segMov&&u.ritmoUmbralCarreraSegKm){const k=u.ritmoUmbralCarreraSegKm/o.ngpSegKm;return Math.round(100*(o.segMov/3600)*k*k);}
+  const ftp=u.ftpBici||o.ftpW;
+  if(o.deporte==='bici'&&o.npW&&o.segMov&&ftp){const k=o.npW/ftp;return Math.round(100*(o.segMov/3600)*k*k);}   // como Bici Indoor: NP / FTP
+  if(o.deporte==='carrera'&&o.ritmoSegKm&&u.ritmoUmbralCarreraSegKm){const k=u.ritmoUmbralCarreraSegKm/o.ritmoSegKm;return Math.round(100*h*k*k);}
+  const um=o.deporte==='kayak'?u.pulsoUmbralKayak:o.deporte==='bici'?(u.pulsoUmbralBici||u.pulsoUmbralCarrera):o.deporte==='natacion'?null:u.pulsoUmbralCarrera;
+  if(o.pulsoPromedio&&um){const k=o.pulsoPromedio/um;return Math.round(100*h*k*k);}
+  return null;
+}
+function mpWriteLocal(list){
+  const get=k=>{try{return JSON.parse(localStorage.getItem(k))||[];}catch(e){return [];}};
+  let u={};try{u=JSON.parse(localStorage.getItem('entrenamiento_umbrales'))||{};}catch(e){}
+  const ses=get('rumbo_sesiones');let reg=get('entrenamiento_forma_registro');let nt=0,nd=0;
+  for(const o of list){
+    const dup=mpDupDe(o);
+    if(dup){o.dup=dup;nd++;reg=reg.filter(r=>r.id!==o.id);const i=ses.findIndex(x=>x.id===o.id);if(i>=0)ses[i]=o;else ses.push(o);continue;}
+    delete o.dup;
+    const tss=mpTss(o,u);if(tss!=null)o.tss=tss;
+    const i=ses.findIndex(x=>x.id===o.id);if(i>=0)ses[i]=o;else ses.push(o);
+    if(tss!=null){const d=new Date(o.inicioISO),fecha=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      const j=reg.findIndex(r=>r.id===o.id),e=Object.assign(j>=0?reg[j]:{},{fecha,deporte:o.deporte,tss,id:o.id});if(j>=0)reg[j]=e;else reg.push(e);nt++;}
+  }
+  ses.sort((a,b)=>a.inicioISO<b.inicioISO?-1:1);
+  localStorage.setItem('rumbo_sesiones',JSON.stringify(ses.slice(-600)));
+  localStorage.setItem('entrenamiento_forma_registro',JSON.stringify(reg));
+  if(nd&&nd===list.length)toast(`Esa salida ya la registró ${list.find(o=>o.dup).dup}: en Mi plan cuenta una sola vez`,5000);
+  return nt+nd;
+}
+/* después de guardar o importar: en la versión web se escribe solo; en la app queda pendiente para mandar */
+async function mpPublish(trs,force){
+  const list=trs.map(mpResumen).filter(Boolean);if(!list.length)return 0;
+  if(mpSameSite()){
+    const nt=mpWriteLocal(list);
+    for(const tr of trs){tr.mp=Date.now();await DB.put('kv','track:'+tr.id,tr);}
+    const nd=list.filter(o=>o.dup).length;
+    if(nd<list.length)toast(`📤 Sumada${list.length-nd>1?'s':''} a Mi plan${nt<list.length?' (sin TSS: falta tu umbral en Mi plan → Datos)':''}${nd?` · ${nd} ya estaba${nd>1?'n':''} en ${list.find(o=>o.dup).dup}`:''}`,4500);
+    return list.length;
+  }
+  if(force){mpOpen(list);for(const tr of trs){tr.mp=Date.now();await DB.put('kv','track:'+tr.id,tr);}}
+  return 0;
+}
+function mpOpen(list){
+  const json=JSON.stringify({v:1,s:list});
+  const b=btoa(unescape(encodeURIComponent(json))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  const a=document.createElement('a');a.href=MP_URL+'#rumbo='+b;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();
+}
+/* salidas sin mandar (de los últimos 90 días) */
+async function mpPending(){
+  const out=[];const lim=Date.now()-90*864e5;
+  for(const k of await DB.keys('kv','track:')){const tr=await DB.get('kv',k);if(tr&&!tr.mp&&tr.src==='rec'&&MP_DISC[tr.act]&&tr.pts&&tr.pts.length>1&&tr.pts[0][2]>lim)out.push(tr);}
+  return out.sort((a,b)=>a.pts[0][2]-b.pts[0][2]);
+}
+
 /* ---------- 🛟 Guardián del grupo: si alguien corta su ritmo de golpe (caída, pinchazo, vuelco), se le pregunta y todos ven la respuesta ----------
    Corre en el teléfono de cada uno mientras comparte en un grupo. Mira la velocidad del GPS (y, con la pantalla prendida, los golpes del acelerómetro):
    - parada brusca después de venir rápido (bici, sobre todo en bajada) → pregunta enseguida;
@@ -11487,6 +11697,14 @@ function showMore(){
     <label>Separador decimal</label>
     ${chips('ds',S.decSep||',',[['auto','📱 Según el teléfono'],[',','1,5 km (coma)'],['.','1.5 km (punto)']])}
     <p class="mut">En Argentina se usa coma para los decimales y punto para los miles (1.250 m²). Con punto decimal, los miles van con coma (1,250 m²).</p>
+    <h3>🚴 Bici: potencia estimada</h3>
+    ${(c=>`<p class="mut">Sin potenciómetro, Rumbo calcula la potencia con la velocidad, la pendiente y estos datos. ${c.src?'Vacío = lo que tenés en <b>Bici Indoor</b>.':'Si usás Bici Indoor en este mismo teléfono y navegador, se toman de ahí.'} El FTP es para el IF y el TSS.</p>
+    <div class="row"><label style="flex:1">Tu peso (kg)<input class="in" id="bkw" type="number" step="0.5" min="30" max="160" value="${(S.bk||{}).w||''}" placeholder="${c.w}"></label>
+    <label style="flex:1">Bici (kg)<input class="in" id="bkb" type="number" step="0.5" min="3" max="30" value="${(S.bk||{}).b||''}" placeholder="${c.b}"></label></div>
+    <div class="row"><label style="flex:1">CdA<input class="in" id="bkc" type="number" step="0.01" min="0.15" max="0.8" value="${(S.bk||{}).cda||''}" placeholder="${c.cda}"></label>
+    <label style="flex:1">Crr<input class="in" id="bkr" type="number" step="0.001" min="0.002" max="0.03" value="${(S.bk||{}).crr||''}" placeholder="${c.crr}"></label>
+    <label style="flex:1">FTP (W)<input class="in" id="bkf" type="number" step="5" min="50" max="600" value="${(S.bk||{}).ftp||''}" placeholder="${c.ftp||''}"></label></div>
+    <p class="mut">CdA: 0,25 acoplado · 0,32 manos abajo · 0,40 arriba / MTB. Crr: 0,004 asfalto liso · 0,006 asfalto común · 0,012 ripio.</p>`)(bkCfg())}
     <h3>🛶 Kayak</h3>
     <label for="kv">Velocidad de remada (km/h)</label><input class="in" id="kv" type="number" min="2" max="15" step="0.5" value="${S.vKayak||7}">
     <label for="kc">Corriente típica de los ríos (km/h)</label><input class="in" id="kc" type="number" min="0" max="10" step="0.5" value="${S.kCur==null?2:S.kCur}">
@@ -11587,6 +11805,7 @@ function showMore(){
       else if(t.id==='swc'){S.swimShore=t.checked;saveS();}
       else if(t.id==='kcs'){S.kCoast=t.checked;saveS();}
       else if(t.id==='kcm'){S.kCoastM=Math.max(5,Math.min(1000,Math.round(+t.value||50)));saveS();}
+      else if(/^bk[wbcrf]$/.test(t.id)){const k={bkw:'w',bkb:'b',bkc:'cda',bkr:'crr',bkf:'ftp'}[t.id],v=parseFloat(String(t.value).replace(',','.'));S.bk=S.bk||{};if(v>0)S.bk[k]=v;else delete S.bk[k];saveS();}
       else if(t.id==='kv'){S.vKayak=Math.max(2,Math.min(15,+t.value||7));saveS();}
       else if(t.id==='kc'){S.kCur=Math.max(0,Math.min(10,+t.value||0));saveS();kayakDrop();}
       else if(t.id==='s18'){S.wxWatch=t.checked;saveS();}
