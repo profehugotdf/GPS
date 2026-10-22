@@ -4452,10 +4452,10 @@ async function showCircuitEdit(id){
       else if(a==='gup'||a==='gdn'){
         const i=+d.i,j=a==='gup'?i-1:i+1;
         await freezeGates(c);[c.gates[i],c.gates[j]]=[c.gates[j],c.gates[i]];
-        await save();await resetRunsOf(id);showCircuitEdit(id);
+        await save();remeasureCircuit(id);showCircuitEdit(id);
       }
       else if(a==='ok')showCircuitDetail(id);
-      else if(a==='tolap'){await freezeGates(c);c.gates[0].role='startfinish';await save();await resetRunsOf(id);toast('Listo: cada paso por la puerta marca una vuelta. Abajo podés poner la cantidad de vueltas.',5000);showCircuitEdit(id);}
+      else if(a==='tolap'){await freezeGates(c);c.gates[0].role='startfinish';await save();remeasureCircuit(id);toast('Listo: cada paso por la puerta marca una vuelta. Abajo podés poner la cantidad de vueltas.',5000);showCircuitEdit(id);}
       else if(a==='del'&&armed(el)){await DB.del('kv','circuit:'+id);await resetRunsOf(id);editingCirc=null;refreshGates();showCircuits();}
     },
     async t=>{
@@ -4472,12 +4472,46 @@ async function setCircLaps(c,val){
   toast(c.nLaps?`Carrera a ${c.nLaps} vuelta${c.nLaps>1?'s':''}${REC.state!=='idle'?' (ya cuenta en esta grabación)':''}`:'Vueltas sin límite',3000);
 }
 /* Si cambian las puertas, las marcas viejas dejan de ser comparables */
-async function resetRunsOf(cid){
-  const del=RUNS.filter(r=>r.cid===cid);
+const ofCirc=(r,cid)=>r.cid===cid||r.cid.startsWith(cid+'#race');
+async function resetRunsOf(cid,quiet){
+  const del=RUNS.filter(r=>ofCirc(r,cid));
   if(!del.length)return;
   for(const r of del)await DB.del('kv','run:'+r.id);
-  RUNS=RUNS.filter(r=>r.cid!==cid);
-  toast('Cambiaron las puertas: se reiniciaron las marcas de este circuito',4500);
+  RUNS=RUNS.filter(r=>!ofCirc(r,cid));
+  if(!quiet)toast('Se borraron las marcas de este circuito',4500);
+}
+/* Cambiaron las puertas: se vuelven a medir solas todas las salidas que pasan por el circuito (en orden de fecha, así los récords quedan bien) */
+let REMEAS=null;
+function remeasureCircuit(cid){
+  if(REMEAS){REMEAS.again=cid;return REMEAS.p;}
+  REMEAS={again:null};
+  REMEAS.p=(async()=>{
+    try{
+      const c=await DB.get('kv','circuit:'+cid);
+      await resetRunsOf(cid,true);
+      if(!c||!c.gates||!c.gates.length)return;
+      const roles=gateRoles(c),G=c.gates.map((g,i)=>upgradeGate(g,roles[i]).c),near=(p)=>G.some(g=>Math.abs(p[0]-g[0])<.004&&Math.abs(p[1]-g[1])<.006);
+      const ids=(await DB.keys('kv','track:')).map(k=>k.slice(6));
+      const metas=[];
+      for(const id of ids){const tr=await DB.get('kv','track:'+id);if(!tr||!tr.pts||tr.pts.length<2||!(tr.pts[0][2]>0))continue;
+        const had=resOf(tr).some(r=>r.cid===cid);let close=had;if(!close)for(let i=0;i<tr.pts.length;i+=5)if(near(tr.pts[i])){close=true;break;}
+        if(close)metas.push({id,t0:tr.t0||tr.pts[0][2]});}
+      metas.sort((a,b)=>a.t0-b.t0);
+      let nT=0,nL=0,nR=0;
+      if(metas.length)toast(`🔁 Volviendo a medir ${metas.length} salida${metas.length>1?'s':''} con las puertas nuevas…`,3000);
+      for(const m of metas){
+        const tr=await DB.get('kv','track:'+m.id);if(!tr)continue;
+        const laps=analyze(tr.pts,c);
+        tr.res=resOf(tr).filter(r=>r.cid!==cid);
+        if(laps.length||laps.races.length){tr.res.push({cid,name:c.name,type:c.type,laps:laps.slice(),races:laps.races});nT++;nL+=laps.length;nR+=laps.races.length;}
+        tr.act=tr.act||'bike';
+        await commitRuns(tr);await DB.put('kv','track:'+tr.id,tr);
+      }
+      toast(metas.length?`🔁 Listo: ${nT} salida${nT===1?'':'s'} con pasadas · ${nL} vuelta${nL===1?'':'s'}${nR?` · ${nR} carrera${nR===1?'':'s'}`:''}`:'Cambiaron las puertas: todavía no hay salidas que pasen por acá',5000);
+    }catch(e){toast('No pude volver a medir las salidas: '+(e.message||e),5000);}
+    finally{const a=REMEAS.again;REMEAS=null;if(a)remeasureCircuit(a);}
+  })();
+  return REMEAS.p;
 }
 function banner(txt,opts){
   const b=$('#banner');
@@ -4493,7 +4527,7 @@ async function onDrawClick(e){
   if(draw.pts.length===1){banner('Ahora tocá el otro extremo');return;}
   const id=draw.circId,pts=draw.pts;draw.mk.forEach(m=>m.remove());draw=null;banner(null);
   const c=await DB.get('kv','circuit:'+id);c.gates.push({a:pts[0],b:pts[1]});
-  await DB.put('kv','circuit:'+id,c);await resetRunsOf(id);showCircuitEdit(id);
+  await DB.put('kv','circuit:'+id,c);remeasureCircuit(id);showCircuitEdit(id);
 }
 
 /* ---------- Red de calles y rutas ---------- */
@@ -6869,7 +6903,7 @@ async function saveGateEd(){
   if(GE.idx==null)c.gates.push(ng);else c.gates[GE.idx]=ng;
   c.type=circType(c);
   await DB.put('kv','circuit:'+GE.cid,c);
-  await resetRunsOf(GE.cid);
+  remeasureCircuit(GE.cid);
   closeGateEditor(true);
 }
 const setRole=r=>{GE.g.role=r;drawGateEd();};
@@ -6920,7 +6954,7 @@ $('#gDel').onclick=async()=>{
   const roles=gateRoles(c);
   c.gates=c.gates.map((x,i)=>upgradeGate(x,roles[i]));
   c.gates.splice(GE.idx,1);c.type=circType(c);
-  await DB.put('kv','circuit:'+GE.cid,c);await resetRunsOf(GE.cid);
+  await DB.put('kv','circuit:'+GE.cid,c);remeasureCircuit(GE.cid);
   closeGateEditor(true);
 };
 
