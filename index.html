@@ -10561,6 +10561,45 @@ function t3H(x,z){
   const i=Math.max(0,Math.min(n-2,Math.floor(fx))),j=Math.max(0,Math.min(n-2,Math.floor(fz))),a=Math.max(0,Math.min(1,fx-i)),b=Math.max(0,Math.min(1,fz-j)),H=T3.H;
   return (H[j*n+i]*(1-a)+H[j*n+i+1]*a)*(1-b)+(H[(j+1)*n+i]*(1-a)+H[(j+1)*n+i+1]*a)*b;
 }
+/* ---------- 🛣️ que un track grabado parezca un camino ----------
+   1) en planta: el GPS zigzaguea unos metros; se promedia cada punto con los de ±15 m (±25 m en el agua).
+   2) en altura: el relieve bajo el camino tiene escalones y pozos del modelo del terreno; se le "abre la traza",
+      como una ruta de verdad: a lo largo del recorrido la altura se suaviza (±60 m) y una franja de terreno se
+      acomoda a esa altura, mezclándose de a poco con el resto. Así la línea, el ícono y la cámara no saltan. */
+function t3SmoothLL(pts,W){
+  const n=pts.length;if(n<3)return pts.map(p=>p.slice());
+  const cum=[0];for(let i=1;i<n;i++)cum.push(cum[i-1]+hav(pts[i-1],pts[i]));
+  /* promedio a lo largo del camino (no por puntos: el GPS no los da parejos): se remuestrea cada 2 m */
+  const L=cum[n-1],st=2,m=Math.floor(L/st)+1,pa=new Float64Array(m+1),po=new Float64Array(m+1);let j=1;
+  for(let k=0;k<m;k++){const d=k*st;while(j<n-1&&cum[j]<d)j++;const t=Math.max(0,Math.min(1,(d-cum[j-1])/((cum[j]-cum[j-1])||1)));
+    pa[k+1]=pa[k]+pts[j-1][0]+(pts[j][0]-pts[j-1][0])*t;po[k+1]=po[k]+pts[j-1][1]+(pts[j][1]-pts[j-1][1])*t;}
+  const out=pts.map((p,i)=>{const q=p.slice(),r=Math.min(cum[i],L-cum[i],W),k0=Math.max(0,Math.round((cum[i]-r)/st)),k1=Math.min(m-1,Math.round((cum[i]+r)/st));
+    if(k1>k0){q[0]=(pa[k1+1]-pa[k0])/(k1-k0+1);q[1]=(po[k1+1]-po[k0])/(k1-k0+1);}return q;});
+  return out;
+}
+/* los puntos de un track tal como se animan: sin los repetidos (parado) y suavizados */
+function t3TrackPts(tr){
+  const src=tr.pts||[],pts=[],ix=[];
+  for(let k=0;k<src.length;k++){const p=src[k];if(!p||!isFinite(p[0]))continue;if(pts.length&&hav(pts[pts.length-1],p)<3)continue;pts.push(p);ix.push(k);}
+  return {pts:t3SmoothLL(pts,['swim','kayak'].includes(tr.act)&&!tr.legs?25:15),ix};
+}
+function t3Carve(ll){
+  if(!T3.H||!ll||ll.length<2)return;
+  const n=T3.n,H=T3.H,cell=T3.step*T3.mpp,gs=cell/2,S=[];let prev=null;
+  for(const p of ll){const q=t3XZ(p[0],p[1]);if(prev){const d=Math.hypot(q[0]-prev[0],q[1]-prev[1]),k=Math.ceil(d/gs);for(let j=1;j<=k;j++)S.push([prev[0]+(q[0]-prev[0])*j/k,prev[1]+(q[1]-prev[1])*j/k]);}else S.push(q);prev=q;}
+  if(S.length<2)return;
+  const half=Math.max(1,Math.round(60/gs)),ma=a=>{const o=new Float32Array(a.length);let sm=0,l=0,r=-1;for(let i=0;i<a.length;i++){while(r<Math.min(a.length-1,i+half)){r++;sm+=a[r];}while(l<i-half){sm-=a[l];l++;}o[i]=sm/(r-l+1);}return o;};
+  const hp=ma(ma(S.map(q=>t3H(q[0],q[1]))));
+  const R1=Math.max(12,cell*.9),R2=R1+cell*2,rr=Math.ceil(R2/cell)+1,best=new Float32Array(n*n).fill(1e9),tgt=new Float32Array(n*n);
+  for(let k=0;k<S.length;k++){
+    const [x,z]=S[k],fi=Math.round((x/T3.mpp+T3.half)/T3.step),fj=Math.round((z/T3.mpp+T3.half)/T3.step);
+    for(let j=Math.max(0,fj-rr);j<=Math.min(n-1,fj+rr);j++)for(let i=Math.max(0,fi-rr);i<=Math.min(n-1,fi+rr);i++){
+      const d=Math.hypot((i*T3.step-T3.half)*T3.mpp-x,(j*T3.step-T3.half)*T3.mpp-z),q=j*n+i;if(d<best[q]){best[q]=d;tgt[q]=hp[k];}
+    }
+  }
+  for(let q=0;q<n*n;q++){const d=best[q];if(d<R2){const w=d<=R1?1:.5+.5*Math.cos(Math.PI*(d-R1)/(R2-R1));H[q]=H[q]*(1-w)+tgt[q]*w;}}
+  t3MeshBuf();
+}
 /* la línea a mostrar: la ruta elegida, o la que se pasa (un track) */
 function t3Line(o){
   if(o&&o.line&&o.line.length>1)return o.line;
@@ -10573,6 +10612,7 @@ async function open3D(o){
   /* si en el mapa está a la vista un track grabado o importado, el 3D lo toma como track: así aparece 🎬 Revivir con sus datos */
   if(!o.track&&!o.line&&!o.route&&shownTrack&&shownTrack.pts&&shownTrack.pts.length>1&&!(RT.res&&RT.res[RT.sel]&&!RT.res[RT.sel].err)){o.track=shownTrack;o.line=shownTrack.pts.map(p=>[p[0],p[1]]);o.hint=true;}
   if(T3.on)close3D();
+  if(o.track&&o.track.pts&&o.track.pts.length>1)o.line=t3TrackPts(o.track).pts.map(p=>[p[0],p[1]]);
   const line=t3Line(o);
   /* zona: la de la línea (si se pidió) o la que se ve en el mapa */
   let bb;
@@ -10597,6 +10637,7 @@ async function open3D(o){
   const dem=use.length?await fetchDemList(use,zd,(d,n)=>{if(T3.gen===my)$('#t3msg').textContent=`Bajando la altura del terreno… ${d} de ${n}`;}):new Map();
   if(T3.gen!==my)return;
   t3Mesh(dem);
+  if(line&&dem.size)t3Carve(line);
   const cam=T3.cam,[cx,cz]=t3XZ(c[0],c[1]),span=N*256*T3.mpp;
   Object.assign(cam,{tx:cx,tz:cz,az:map.getBearing?-map.getBearing():0,tilt:58,dist:Math.min(span*.55,Math.max(800,hav([bb.n,bb.w],[bb.s,bb.e])*.75))});
   if(!dem.size)$('#t3msg').textContent='No hay altura del terreno guardada para esta zona (y no se pudo bajar): se ve plano.';
@@ -10611,7 +10652,7 @@ async function open3D(o){
 function close3D(){
   if(T3.recr&&T3.recr.state==='recording'){T3.vc=null;try{T3.recr.ondataavailable=null;T3.recr.onstop=null;T3.recr.stop();}catch(e){}T3.recr=null;}
   if(T3.rel){T3.rel.go=false;T3.rel=null;}T3.km=0;{const tl=$('#t3tl');if(tl)tl.hidden=true;const h=$('#t3 .t3h');if(h)h.hidden=false;}$('#t3rel').hidden=true;$('#t3mk').hidden=true;
-  T3.on=false;T3.gen++;T3.fly=null;T3.flyPos=null;T3.flyK=0;T3.fpvP=null;cancelAnimationFrame(T3.raf);T3.raf=0;
+  T3.on=false;T3.gen++;T3.fly=null;T3.flyPos=null;T3.flyK=0;T3.fpvP=null;T3.fpvY=null;cancelAnimationFrame(T3.raf);T3.raf=0;
   const gl=T3.gl;if(gl){for(const t of [T3.tex,T3.otex])if(t)gl.deleteTexture(t);T3.tex=T3.otex=null;}
   $('#t3').hidden=true;
 }
@@ -10636,6 +10677,11 @@ function t3Mesh(dem){
   /* huecos: el promedio de lo que hay (o 0) */
   let s=0,k=0;for(const v of H)if(isFinite(v)){s+=v;k++;}const avg=k?s/k:0;for(let i=0;i<H.length;i++)if(!isFinite(H[i]))H[i]=avg;
   T3.H=H;T3.hasZ=any;
+  t3MeshBuf();
+  t3TexInit();
+}
+function t3MeshBuf(){
+  const gl=T3.gl,N=T3.N,P=N*256,step=T3.step,n=T3.n,H=T3.H;
   const pos=new Float32Array(n*n*3),gr=new Float32Array(n*n*2),uv=new Float32Array(n*n*2),d=step*T3.mpp;
   for(let j=0;j<n;j++)for(let i=0;i<n;i++){
     const q=j*n+i;pos[q*3]=(i*step-T3.half)*T3.mpp;pos[q*3+1]=H[q];pos[q*3+2]=(j*step-T3.half)*T3.mpp;
@@ -10649,7 +10695,10 @@ function t3Mesh(dem){
   att('p',pos,3);att('gr',gr,2);att('uv',uv,2);
   const ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,idx,gl.STATIC_DRAW);
   gl.bindVertexArray(null);
-  if(T3.vao)gl.deleteVertexArray(T3.vao);T3.vao=vao;T3.nIdx=idx.length;
+  if(T3.vao)gl.deleteVertexArray(T3.vao);T3.vao=vao;T3.nIdx=idx.length;T3.dirty=true;
+}
+function t3TexInit(){
+  const gl=T3.gl,P=T3.N*256;
   /* textura del satélite: primero un color neutro, después cada tesela en su lugar */
   const dz=Math.max(0,Math.min(Math.log2(T3.maxTex/P)|0,4)),sl=LAYERS.sat||LAYERS[S.layer];
   T3.zs=Math.min(T3.zd+dz,Math.min(18,sl.maxNative||18));T3.texSize=P*2**(T3.zs-T3.zd);
@@ -10715,7 +10764,9 @@ function t3CamFpv(){
   const px=Math.max(-span,Math.min(span,P.x)),pz=Math.max(-span,Math.min(span,P.z));
   const h=T3.fpvH,az=(P.az+(fo?T3.fpvYaw:0))*rad,dir=[Math.sin(az),0,-Math.cos(az)],gH=(x,z)=>t3H(x,z)*T3.exag;
   const back=h*2,ahead=h*4+30,ex=px-dir[0]*back,ez=pz-dir[2]*back;
-  const ey=Math.max(gH(ex,ez)+h,gH(px,pz)+h*.6),tx=px+dir[0]*ahead,tz=pz+dir[2]*ahead;
+  let ey=Math.max(gH(ex,ez)+h,gH(px,pz)+h*.6);
+  if(fo){T3.fpvY=T3.fpvY==null||Math.abs(T3.fpvY-ey)>150?ey:T3.fpvY+(ey-T3.fpvY)*.15;ey=Math.max(ey-h*.25,Math.min(ey+h*.25,T3.fpvY));T3.fpvY=ey;}   // sin sacudones, pero sin quedarse atrás en las subidas
+  const tx=px+dir[0]*ahead,tz=pz+dir[2]*ahead;
   const ty=gH(tx,tz)+Math.tan(T3.fpvPit*rad)*(back+ahead);
   return {T:[tx,ty,tz],eye:[ex,ey,ez],up:[0,1,0]};
 }
@@ -10815,8 +10866,7 @@ function t3TrackTex(pts){
 }
 function t3RelPrep(tr){
   const raw=(tr.pts||[]).filter(p=>p&&isFinite(p[0]));if(raw.length<2)return null;
-  const pts=[],cum=[0],ix=[],src=tr.pts||[];
-  for(let k=0;k<src.length;k++){const p=src[k];if(!p||!isFinite(p[0]))continue;if(pts.length&&hav(pts[pts.length-1],p)<3)continue;pts.push(p);ix.push(k);}
+  const {pts,ix}=t3TrackPts(tr),cum=[0];
   for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+hav(pts[i-1],pts[i]));
   const XZ=pts.map(p=>t3XZ(p[0],p[1]));
   let gain=0,ref=null;for(const p of pts){if(p[4]==null)continue;if(ref==null)ref=p[4];else if(Math.abs(p[4]-ref)>=3){if(p[4]>ref)gain+=p[4]-ref;ref=p[4];}}
@@ -11006,7 +11056,7 @@ function t3FlyStep(now){
   if(k>=1){T3.fly=null;T3.flyK=0;t3FlyBtn();}
 }
 function t3FpvSet(on){
-  T3.fpv=on;T3.fpvYaw=0;T3.fpvPit=0;const b=$('#t3fp');if(b)b.classList.toggle('on',on);
+  T3.fpv=on;T3.fpvYaw=0;T3.fpvPit=0;T3.fpvY=null;const b=$('#t3fp');if(b)b.classList.toggle('on',on);
   const h=$('#t3 .t3h');if(h&&!T3.rel)h.textContent=on?'Un dedo: arriba avanza, a los costados gira · dos dedos: subir o bajar la cámara · 👁️ vuelve a la vista de arriba':'Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar';
   if(on)toast(t3Follow()||T3.rel||T3.line?'👁️ A ras del suelo: la cámara va detrás tuyo mirando el camino. Un dedo mira alrededor; + y − suben o bajan la cámara; 🧭 vuelve a mirar adelante':'👁️ A ras del suelo: arrastrá hacia arriba para avanzar y a los costados para girar. + y − suben o bajan la cámara',5500);
   /* rehacer la línea con el ancho que corresponde a esta vista */
