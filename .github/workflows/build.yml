@@ -26,10 +26,11 @@ jobs:
       - name: Instalar dependencias
         run: npm install --legacy-peer-deps
 
-      - name: Plugins opcionales (voz del sistema, avisos al reloj y rotación del mapa)
+      - name: Plugins opcionales (voz del sistema, avisos al reloj, banda cardíaca y rotación del mapa)
         run: |
           npm install --save --legacy-peer-deps @capacitor-community/text-to-speech@5 || echo "::warning::No se pudo instalar la voz del sistema"
           npm install --save --legacy-peer-deps @capacitor/local-notifications@6 || echo "::warning::No se pudieron instalar las notificaciones (avisos al reloj)"
+          npm install --save --legacy-peer-deps @capacitor-community/bluetooth-le@6 || echo "::warning::No se pudo instalar el Bluetooth (banda cardíaca)"
           npm install --no-save --legacy-peer-deps leaflet-rotate@0.2.8 || echo "::warning::No se pudo instalar la rotación del mapa"
 
       - name: Preparar la web
@@ -76,7 +77,7 @@ jobs:
           python3 - <<'PY'
           p='android/app/src/main/AndroidManifest.xml'
           s=open(p).read()
-          perms=['ACCESS_FINE_LOCATION','ACCESS_COARSE_LOCATION','FOREGROUND_SERVICE','FOREGROUND_SERVICE_LOCATION','POST_NOTIFICATIONS','WAKE_LOCK','VIBRATE']
+          perms=['ACCESS_FINE_LOCATION','ACCESS_COARSE_LOCATION','FOREGROUND_SERVICE','FOREGROUND_SERVICE_LOCATION','POST_NOTIFICATIONS','WAKE_LOCK','VIBRATE','BLUETOOTH_SCAN','BLUETOOTH_CONNECT']
           add=''.join('\n    <uses-permission android:name="android.permission.%s" />'%x for x in perms if x not in s)
           add+='\n    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\n'
           add+='    <queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>\n'
