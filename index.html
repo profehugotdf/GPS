@@ -5035,7 +5035,8 @@ async function showRoutes(){
     else if(a==='rclear'){rtClear();showRoutes();}
     else if(a==='rgpx'){const r=RT.res[RT.sel];shareFile('ruta.gpx',toGPX([{name:'Ruta',pts:r.coords.map(c=>[c[0],c[1],0,0,null,0])}],[],esc),'application/gpx+xml');}
     else if(a==='rsave')showSaveRoute();
-    else if(a==='rbk'){const r=RT.res[RT.sel];await bkSend({name:'Ruta '+(MN[RT.sel]||'')+' '+fmtDate(Date.now()),ll:r.coords.map(c=>[c[0],c[1]]),grade:RT.sel==='car'?.16:.25});}
+    else if(a==='rbk'){const r=RT.res[RT.sel],ll=r.coords.map(c=>[c[0],c[1]]);   // con 🔁 Ida y vuelta, el GPX lleva también la vuelta (en bajada si la ida sube)
+      await bkSend({name:'Ruta '+(MN[RT.sel]||'')+' '+fmtDate(Date.now())+(S.roundTrip?' (ida y vuelta)':''),ll:S.roundTrip?ll.concat(ll.slice(0,-1).reverse()):ll,grade:RT.sel==='car'?.16:.25});}
     else if(a==='nav')startNav();
     else if(a==='kc'){
       S.kCoast=d.v!=='0';if(S.kCoast)S.kCoastM=+d.v;saveS();
