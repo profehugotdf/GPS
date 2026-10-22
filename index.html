@@ -10578,7 +10578,7 @@ function t3SmoothLL(pts,W){
   return out;
 }
 /* los puntos de un track tal como se animan: sin los repetidos (parado) y suavizados */
-const T3_WATER=['kayak','swim'];
+const T3_WATER=['kayak','swim'],T3_WATER_RT={kayak:1,swim:1};
 function t3TrackPts(tr){
   const src=tr.pts||[],raw=[],ix=[];
   for(let k=0;k<src.length;k++){const p=src[k];if(!p||!isFinite(p[0]))continue;if(raw.length&&hav(raw[raw.length-1],p)<3)continue;raw.push(p);ix.push(k);}
@@ -10588,29 +10588,78 @@ function t3TrackPts(tr){
   const pts=[];for(const r of runs)pts.push(...t3SmoothLL(raw.slice(r.a,r.b+1),r.water?25:15));
   return {pts,ix,runs};
 }
-function t3Carve(ll,runs){
-  if(!T3.H||!ll||ll.length<2)return;
-  for(const r of (runs&&runs.length?runs:[{a:0,b:ll.length-1,water:false}]))if(r.b>r.a)t3CarveRun(ll.slice(r.a,r.b+1),r.water);
-  t3MeshBuf();
-}
-function t3CarveRun(ll,water){
-  const n=T3.n,H=T3.H,cell=T3.step*T3.mpp,gs=cell/2,S=[];let prev=null;
-  for(const p of ll){const q=t3XZ(p[0],p[1]);if(prev){const d=Math.hypot(q[0]-prev[0],q[1]-prev[1]),k=Math.ceil(d/gs);for(let j=1;j<=k;j++)S.push([prev[0]+(q[0]-prev[0])*j/k,prev[1]+(q[1]-prev[1])*j/k]);}else S.push(q);prev=q;}
-  if(S.length<2)return;
-  const half=Math.max(1,Math.round(60/gs)),ma=a=>{const o=new Float32Array(a.length);let sm=0,l=0,r=-1;for(let i=0;i<a.length;i++){while(r<Math.min(a.length-1,i+half)){r++;sm+=a[r];}while(l<i-half){sm-=a[l];l++;}o[i]=sm/(r-l+1);}return o;};
-  let hp=ma(ma(S.map(q=>t3H(q[0],q[1]))));
-  /* en el agua: lago, mar o río tranquilo → la superficie es plana; río con desnivel (rápidos) → baja de a poco, muy suavizado */
-  if(water){const hw=Math.max(1,Math.round(250/gs)),mw=a=>{const o=new Float32Array(a.length);let sm=0,l=0,r=-1;for(let i=0;i<a.length;i++){while(r<Math.min(a.length-1,i+hw)){r++;sm+=a[r];}while(l<i-hw){sm-=a[l];l++;}o[i]=sm/(r-l+1);}return o;};
-    const sm=mw(mw(hp));let lo=Infinity,hi=-Infinity;for(const v of sm){lo=Math.min(lo,v);hi=Math.max(hi,v);}
-    if(hi-lo<=8){const med=[...hp].sort((a,b)=>a-b)[hp.length>>1];hp=hp.map(()=>Math.max(0,med));}else hp=sm.map(v=>Math.max(0,v));}
-  const R1=Math.max(12,cell*.9),R2=R1+cell*2,rr=Math.ceil(R2/cell)+1,best=new Float32Array(n*n).fill(1e9),tgt=new Float32Array(n*n);
-  for(let k=0;k<S.length;k++){
+/* pendiente máxima creíble según quién va: una ruta para autos no pasa de ~14 %; en bici ~18 %; a pie casi no hay límite */
+const T3_GRADE={car:.14,bike:.18,run:.45,walk:.45,foot:.45};
+/* promedio móvil de ±half puntos; en las puntas se repite el extremo (si no, el promedio se tuerce y aparece un escalón) */
+const t3Box=(a,half)=>{const n=a.length,o=new Float32Array(n),pre=new Float64Array(n+2*half+1);for(let i=0;i<n+2*half;i++)pre[i+1]=pre[i]+a[Math.max(0,Math.min(n-1,i-half))];for(let i=0;i<n;i++)o[i]=(pre[i+2*half+1]-pre[i])/(2*half+1);return o;};
+/* el camino como lo haría una máquina vial: arma el perfil de alturas del recorrido (T3.road) y acomoda el terreno */
+function t3Carve(ll,runs,grade){
+  T3.road=null;if(!T3.H||!ll||ll.length<2)return;
+  const n=T3.n,H=T3.H,cell=T3.step*T3.mpp,gs=Math.min(10,cell/3),S=[],wat=[];
+  const wOf=i=>!!(runs&&runs.find(r=>i>=r.a&&i<=r.b&&r.water));
+  /* muestras parejas, una cada gs metros a lo largo del camino */
+  const Q=ll.map(p=>t3XZ(p[0],p[1])),qc=[0];for(let i=1;i<Q.length;i++)qc.push(qc[i-1]+Math.hypot(Q[i][0]-Q[i-1][0],Q[i][1]-Q[i-1][1]));
+  const LL=qc[qc.length-1];if(!(LL>0))return;const ns=Math.max(2,Math.ceil(LL/gs)+1);let sj=1;
+  for(let k=0;k<ns;k++){const d=Math.min(LL,k*LL/(ns-1));while(sj<Q.length-1&&qc[sj]<d)sj++;const t=Math.max(0,Math.min(1,(d-qc[sj-1])/((qc[sj]-qc[sj-1])||1)));
+    S.push([Q[sj-1][0]+(Q[sj][0]-Q[sj-1][0])*t,Q[sj-1][1]+(Q[sj][1]-Q[sj-1][1])*t]);wat.push(wOf(t<.5?sj-1:sj));}
+  const N=S.length,cum=new Float32Array(N);for(let i=1;i<N;i++)cum[i]=cum[i-1]+Math.hypot(S[i][0]-S[i-1][0],S[i][1]-S[i-1][1]);
+  const raw=new Float32Array(N);for(let i=0;i<N;i++)raw[i]=t3H(S[i][0],S[i][1]);
+  const hp=new Float32Array(N);
+  /* por tramos de tierra o agua */
+  for(let a=0;a<N;){let b=a;while(b+1<N&&wat[b+1]===wat[a])b++;
+    const seg=raw.slice(a,b+1),ds=(cum[b]-cum[a])/Math.max(1,b-a)||gs;let h;
+    if(wat[a]){ // agua: plana (lago, mar, río tranquilo) o bajando de a poco (río con rápidos)
+      const sm=t3Box(t3Box(seg,Math.round(250/ds)),Math.round(250/ds));let lo=Infinity,hi=-Infinity;for(const v of sm){lo=Math.min(lo,v);hi=Math.max(hi,v);}
+      if(hi-lo<=8){const med=[...seg].sort((x,y)=>x-y)[seg.length>>1];h=seg.map(()=>Math.max(0,med));}else h=sm.map(v=>Math.max(0,v));
+    }else{
+      h=t3Box(t3Box(seg,Math.max(1,Math.round(60/ds))),Math.max(1,Math.round(60/ds)));
+      /* la pendiente no puede pasar el máximo: se reparte el exceso entre los dos lados (las curvas cerradas de montaña
+         cortan el cerro y el modelo del terreno, de 30-70 m por punto, da escalones que un camino no tiene) */
+      /* perfil con pendiente máxima G: promedio de la envolvente de arriba y la de abajo (cada una ya respeta G) */
+      const G=grade||.45,n2=h.length,U=Float32Array.from(h),Lo=Float32Array.from(h);
+      for(let i=1;i<n2;i++){const m=G*(cum[a+i]-cum[a+i-1]);U[i]=Math.min(U[i],U[i-1]+m);Lo[i]=Math.max(Lo[i],Lo[i-1]-m);}
+      for(let i=n2-2;i>=0;i--){const m=G*(cum[a+i+1]-cum[a+i]);U[i]=Math.min(U[i],U[i+1]+m);Lo[i]=Math.max(Lo[i],Lo[i+1]-m);}
+      for(let i=0;i<n2;i++)h[i]=(U[i]+Lo[i])/2;
+      const bw=Math.max(1,Math.round(30/ds));h=t3Box(t3Box(h,bw),bw);
+    }
+    hp.set(h,a);a=b+1;}
+  T3.road={S,cum,h:hp,L:cum[N-1]||1};
+  if(!T3.hasZ){t3RoadMesh();return;}
+  /* terreno: debajo del camino queda a su altura (si dos tramos pasan cerca, como en los zigzags, a la del más bajo)
+     y se mezcla de a poco con el de alrededor */
+  const R1=Math.max(10,cell*1.45),R2=R1+cell*2,rr=Math.ceil(R2/cell)+1,best=new Float32Array(n*n).fill(1e9),tgt=new Float32Array(n*n),low=new Float32Array(n*n).fill(1e9);
+  for(let k=0;k<N;k+=Math.max(1,Math.floor(cell/3/gs))){
     const [x,z]=S[k],fi=Math.round((x/T3.mpp+T3.half)/T3.step),fj=Math.round((z/T3.mpp+T3.half)/T3.step);
     for(let j=Math.max(0,fj-rr);j<=Math.min(n-1,fj+rr);j++)for(let i=Math.max(0,fi-rr);i<=Math.min(n-1,fi+rr);i++){
-      const d=Math.hypot((i*T3.step-T3.half)*T3.mpp-x,(j*T3.step-T3.half)*T3.mpp-z),q=j*n+i;if(d<best[q]){best[q]=d;tgt[q]=hp[k];}
+      const d=Math.hypot((i*T3.step-T3.half)*T3.mpp-x,(j*T3.step-T3.half)*T3.mpp-z),q=j*n+i;if(d<best[q]){best[q]=d;tgt[q]=hp[k];}if(d<=R1&&hp[k]<low[q])low[q]=hp[k];
     }
   }
-  for(let q=0;q<n*n;q++){const d=best[q];if(d<R2){const w=d<=R1?1:.5+.5*Math.cos(Math.PI*(d-R1)/(R2-R1));H[q]=H[q]*(1-w)+tgt[q]*w;}}
+  for(let q=0;q<n*n;q++){const d=best[q];if(d<R2){if(d<=R1){H[q]=Math.min(low[q],tgt[q]);continue;}const w=.5+.5*Math.cos(Math.PI*(d-R1)/(R2-R1));H[q]=H[q]*(1-w)+tgt[q]*w;}}
+  t3MeshBuf();t3RoadMesh();
+}
+/* altura del camino a una fracción del recorrido (0 a 1) */
+function t3RoadY(fr){
+  const R=T3.road;if(!R)return null;const s=Math.max(0,Math.min(1,fr))*R.L,c=R.cum;let lo=1,hi=c.length-1;
+  while(lo<hi){const m=(lo+hi)>>1;if(c[m]<s)lo=m+1;else hi=m;}const t=(s-c[lo-1])/((c[lo]-c[lo-1])||1);return R.h[lo-1]+(R.h[lo]-R.h[lo-1])*t;
+}
+/* la cinta del camino (solo a ras del suelo): 8 m de ancho con bordes blancos, por encima del relieve */
+const T3_RVS=`#version 300 es
+in vec3 p;in float pr;in float sd;uniform mat4 M;uniform float ex;uniform vec3 eye;out float vpr;out float vsd;out float vd;
+void main(){vec3 q=vec3(p.x,p.y*ex+.4,p.z);vec3 tv=eye-q;float dl=length(tv);q+=tv/dl*min(8.,dl*.25);gl_Position=M*vec4(q,1.);vpr=pr;vsd=sd;vd=dl;}`;
+const T3_RFS=`#version 300 es
+precision highp float;in float vpr;in float vsd;in float vd;uniform float kp;uniform float km;uniform float fog;out vec4 c;
+void main(){vec3 col=abs(vsd)>.75?vec3(1.):(km>.5?(vpr<=kp?vec3(.98,.33,.1):vec3(.78,.8,.83)):vec3(.94,.29,.11));float f=smoothstep(fog*.45,fog,vd);c=vec4(mix(col,vec3(.72,.82,.9),f*.85),1.);}`;
+function t3RoadMesh(){
+  const gl=T3.gl,R=T3.road;if(!gl||!R)return;
+  if(!T3.rprog){const sh=(t,src)=>{const o=gl.createShader(t);gl.shaderSource(o,src);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;};
+    const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,T3_RVS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,T3_RFS));gl.linkProgram(pr);T3.rprog=pr;}
+  const {S,cum,h,L}=R,N=S.length,W=4,pos=new Float32Array(N*6),pr=new Float32Array(N*2),sd=new Float32Array(N*2);
+  for(let i=0;i<N;i++){const a=S[Math.max(0,i-1)],b=S[Math.min(N-1,i+1)];let tx=b[0]-a[0],tz=b[1]-a[1];const l=Math.hypot(tx,tz)||1;tx/=l;tz/=l;
+    for(const [k,sg] of [[0,-1],[1,1]]){const v=i*2+k;pos[v*3]=S[i][0]-tz*W*sg;pos[v*3+1]=h[i];pos[v*3+2]=S[i][1]+tx*W*sg;pr[v]=cum[i]/L;sd[v]=sg;}}
+  const vao=gl.createVertexArray();gl.bindVertexArray(vao);
+  const att=(name,data,size)=>{const bf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,bf);gl.bufferData(gl.ARRAY_BUFFER,data,gl.STATIC_DRAW);const lc=gl.getAttribLocation(T3.rprog,name);gl.enableVertexAttribArray(lc);gl.vertexAttribPointer(lc,size,gl.FLOAT,false,0,0);};
+  att('p',pos,3);att('pr',pr,1);att('sd',sd,1);gl.bindVertexArray(null);
+  if(T3.rvao)gl.deleteVertexArray(T3.rvao);T3.rvao=vao;T3.rn=N*2;T3.dirty=true;
 }
 /* la línea a mostrar: la ruta elegida, o la que se pasa (un track) */
 function t3Line(o){
@@ -10650,7 +10699,8 @@ async function open3D(o){
   const dem=use.length?await fetchDemList(use,zd,(d,n)=>{if(T3.gen===my)$('#t3msg').textContent=`Bajando la altura del terreno… ${d} de ${n}`;}):new Map();
   if(T3.gen!==my)return;
   t3Mesh(dem);
-  if(line&&dem.size)t3Carve(line,runs);
+  if(line){const tr=o.track,rk=!tr&&!o.line&&RT.res&&RT.res[RT.sel]&&!RT.res[RT.sel].err?RT.sel:null;
+    t3Carve(line,runs||(rk&&T3_WATER_RT[rk]?[{a:0,b:line.length-1,water:true}]:null),T3_GRADE[tr?(tr.legs?'bike':tr.act):rk]||.45);}
   const cam=T3.cam,[cx,cz]=t3XZ(c[0],c[1]),span=N*256*T3.mpp;
   Object.assign(cam,{tx:cx,tz:cz,az:map.getBearing?-map.getBearing():0,tilt:58,dist:Math.min(span*.55,Math.max(800,hav([bb.n,bb.w],[bb.s,bb.e])*.75))});
   if(!dem.size)$('#t3msg').textContent='No hay altura del terreno guardada para esta zona (y no se pudo bajar): se ve plano.';
@@ -10665,7 +10715,7 @@ async function open3D(o){
 function close3D(){
   if(T3.recr&&T3.recr.state==='recording'){T3.vc=null;try{T3.recr.ondataavailable=null;T3.recr.onstop=null;T3.recr.stop();}catch(e){}T3.recr=null;}
   if(T3.rel){T3.rel.go=false;T3.rel=null;}T3.km=0;{const tl=$('#t3tl');if(tl)tl.hidden=true;const h=$('#t3 .t3h');if(h)h.hidden=false;}$('#t3rel').hidden=true;$('#t3mk').hidden=true;
-  T3.on=false;T3.gen++;T3.fly=null;T3.flyPos=null;T3.flyK=0;T3.fpvP=null;T3.fpvY=null;cancelAnimationFrame(T3.raf);T3.raf=0;
+  T3.on=false;T3.gen++;T3.fly=null;T3.flyPos=null;T3.flyK=0;T3.fpvP=null;T3.fpvY=null;T3.road=null;if(T3.gl&&T3.rvao){T3.gl.deleteVertexArray(T3.rvao);T3.rvao=null;}cancelAnimationFrame(T3.raf);T3.raf=0;
   const gl=T3.gl;if(gl){for(const t of [T3.tex,T3.otex])if(t)gl.deleteTexture(t);T3.tex=T3.otex=null;}
   $('#t3').hidden=true;
 }
@@ -10685,7 +10735,7 @@ function t3Mesh(dem){
   const H=new Float32Array(n*n);let any=false;
   for(let j=0;j<n;j++)for(let i=0;i<n;i++){
     const gx=Math.min(P-1,i*step),gy=Math.min(P-1,j*step),t=dem.get((T3.x0+(gx>>8))+'/'+(T3.y0+(gy>>8)));
-    const v=t?t[(gy&255)*256+(gx&255)]:NaN;H[j*n+i]=isFinite(v)&&v>-12000?Math.max(0,v):NaN;   // el modelo trae el fondo del mar: se muestra la superficie (0 m)if(isFinite(H[j*n+i]))any=true;
+    const v=t?t[(gy&255)*256+(gx&255)]:NaN;H[j*n+i]=isFinite(v)&&v>-12000?Math.max(0,v):NaN;if(isFinite(H[j*n+i]))any=true;   // el modelo trae el fondo del mar: se muestra la superficie (0 m)
   }
   /* huecos: el promedio de lo que hay (o 0) */
   let s=0,k=0;for(const v of H)if(isFinite(v)){s+=v;k++;}const avg=k?s/k:0;for(let i=0;i<H.length;i++)if(!isFinite(H[i]))H[i]=avg;
@@ -10776,11 +10826,13 @@ function t3CamFpv(){
   const c=T3.cam,span=T3.N*256*T3.mpp/2,fo=t3Follow(),P=fo?T3.fpvP:{x:c.tx,z:c.tz,az:c.az};
   const px=Math.max(-span,Math.min(span,P.x)),pz=Math.max(-span,Math.min(span,P.z));
   const h=T3.fpvH,az=(P.az+(fo?T3.fpvYaw:0))*rad,dir=[Math.sin(az),0,-Math.cos(az)],gH=(x,z)=>t3H(x,z)*T3.exag;
-  const back=h*2,ahead=h*4+30,ex=px-dir[0]*back,ez=pz-dir[2]*back;
-  let ey=Math.max(gH(ex,ez)+h,gH(px,pz)+h*.6);
+  const back=h*2,ahead=h*4+30,ex=px-dir[0]*back,ez=pz-dir[2]*back,RD=fo&&T3.road&&P.f!=null?T3.road:null;
+  /* siguiendo un recorrido, las alturas salen del perfil del camino (no del relieve, que es grueso y salta) */
+  const rY=df=>t3RoadY(P.f+df/RD.L)*T3.exag,yPos=RD?rY(0):gH(px,pz);
+  let ey=RD?Math.max(rY(-back)+h,yPos+h*.6,gH(ex,ez)+3):Math.max(gH(ex,ez)+h,yPos+h*.6);
   if(fo){T3.fpvY=T3.fpvY==null||Math.abs(T3.fpvY-ey)>150?ey:T3.fpvY+(ey-T3.fpvY)*.15;ey=Math.max(ey-h*.25,Math.min(ey+h*.25,T3.fpvY));T3.fpvY=ey;}   // sin sacudones, pero sin quedarse atrás en las subidas
   const tx=px+dir[0]*ahead,tz=pz+dir[2]*ahead;
-  const ty=gH(tx,tz)+Math.tan(T3.fpvPit*rad)*(back+ahead);
+  const ty=(RD&&!T3.fpvYaw?rY(ahead):gH(tx,tz))+Math.tan(T3.fpvPit*rad)*(back+ahead);
   return {T:[tx,ty,tz],eye:[ex,ey,ez],up:[0,1,0]};
 }
 function t3Cam(){
@@ -10809,9 +10861,13 @@ function t3Draw(){
   gl.uniform3fv(u('L'),norm3([-.5,.75,-.45]));gl.uniform1f(u('fog'),T3.fpv?span*.5:Math.max(span*.9,T3.cam.dist*4));
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,T3.tex);gl.uniform1i(u('t'),0);
   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,T3.otex);gl.uniform1i(u('o'),1);
-  gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,T3.ktex||T3.otex);gl.uniform1i(u('k'),2);gl.uniform1f(u('km'),T3.km&&T3.ktex?1:0);gl.uniform1f(u('kp'),T3.kp||0);
+  gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,T3.ktex||T3.otex);gl.uniform1i(u('k'),2);gl.uniform1f(u('km'),T3.km&&T3.ktex&&!(T3.fpv&&T3.rvao)?1:0);gl.uniform1f(u('kp'),T3.kp||0);
   T3.M=M;
   gl.bindVertexArray(T3.vao);gl.drawElements(gl.TRIANGLES,T3.nIdx,gl.UNSIGNED_INT,0);gl.bindVertexArray(null);
+  if(T3.fpv&&T3.rvao&&T3.rprog){   // a ras del suelo el camino va como cinta propia: no depende de lo grueso del relieve
+    gl.useProgram(T3.rprog);const v=n=>gl.getUniformLocation(T3.rprog,n);gl.disable(gl.CULL_FACE);
+    gl.uniformMatrix4fv(v('M'),false,M);gl.uniform1f(v('ex'),T3.exag);gl.uniform3fv(v('eye'),eye);gl.uniform1f(v('kp'),T3.kp||0);gl.uniform1f(v('km'),T3.km?1:0);gl.uniform1f(v('fog'),span*.5);
+    gl.bindVertexArray(T3.rvao);gl.drawArrays(gl.TRIANGLE_STRIP,0,T3.rn);gl.bindVertexArray(null);gl.enable(gl.CULL_FACE);}
   const cp=$('#t3cmp');if(cp)cp.style.transform=`rotate(${-(T3.fpv&&t3Follow()?T3.fpvP.az+T3.fpvYaw:T3.cam.az)}deg)`;
 }
 function t3Loop(){
@@ -10821,7 +10877,7 @@ function t3Loop(){
     if(T3.fly)t3FlyStep(t);
     if(T3.rel&&T3.rel.go)t3RelStep(t);
     if(lastFix&&Date.now()-T3.ovT>8000&&(T3.lastFixT!==lastFix.t)){T3.lastFixT=lastFix.t;t3Overlay(!!T3.km);}
-    if(T3.dirty){T3.dirty=false;t3Draw();if(T3.rel&&T3.km)t3RelHud();else if(T3.flyPos)t3MkAt(T3.flyPos[0],T3.flyPos[1]);if(T3.vc)t3VidFrame();}
+    if(T3.dirty){T3.dirty=false;t3Draw();if(T3.rel&&T3.km)t3RelHud();else if(T3.flyPos)t3MkAt(T3.flyPos[0],T3.flyPos[1],T3.flyY);if(T3.vc)t3VidFrame();}
     T3.raf=requestAnimationFrame(tick);
   };
   T3.raf=requestAnimationFrame(tick);
@@ -10945,7 +11001,7 @@ function t3RelStep(now){
   /* la distancia de la cámara cambia suave entre etapas (nadar se ve de cerca, la bici de más lejos) */
   R.fol=R.fol==null?fol0:R.fol+(fol0-R.fol)*.03;const follow=R.fol;
   T3.kp=s/(R.L||1);
-  {const qa=R.XZ[t3RelAt(R,s+Math.min(120,LL*.05)+1).i],a2=Math.atan2(qa[0]-x,-(qa[1]-z))/rad;if(R.faz==null)R.faz=a2;let d2=a2-R.faz;while(d2>180)d2-=360;while(d2<-180)d2+=360;R.faz+=d2*.08;T3.fpvP={x,z,az:R.faz};}
+  {const qa=R.XZ[t3RelAt(R,s+Math.min(120,LL*.05)+1).i],a2=Math.atan2(qa[0]-x,-(qa[1]-z))/rad;if(R.faz==null)R.faz=a2;let d2=a2-R.faz;while(d2>180)d2-=360;while(d2<-180)d2+=360;R.faz+=d2*.08;T3.fpvP={x,z,az:R.faz,f:s/(R.L||1)};}
   if(R.userCam&&k<1){T3.cam.tx=x;T3.cam.tz=z;}
   else if(R.userCam){T3.cam.tx=x;T3.cam.tz=z;if(R.end==null)R.end=now;if(now-R.end>outro){R.go=false;R.t0=null;R.done=true;if(T3.recr&&T3.recr.state==='recording')setTimeout(()=>T3.recr&&T3.recr.state==='recording'&&T3.recr.stop(),300);t3RelBtn();}}
   else if(!R.noIntro&&el<intro){const u=el/intro,e=u*u*(3-2*u);Object.assign(T3.cam,{tx:x,tz:z,az:R.az-40*(1-e),tilt:20+40*e,dist:span*.9*(1-e)+follow*e});}
@@ -10962,7 +11018,7 @@ function t3RelStep(now){
   /* pulso y cadencia del momento; potencia promedio de los últimos 10 s (la instantánea salta mucho) */
   const sv=(arr,win)=>{if(!arr)return null;const a=arr[R.ix[i-1]],b=arr[R.ix[i]];if(!win){if(a==null&&b==null)return null;if(a==null)return b;if(b==null)return a;return Math.round(a+(b-a)*t);}
     let sum=0,n=0;for(let m=R.ix[i];m>=0;m--){const p=R.tr.pts[m];if(!p||tt-p[2]>win)break;const v=arr[m];if(v!=null){sum+=v;n++;}}return n?Math.round(sum/n):null;};
-  R.now={s,el:tt-R.pts[0][2],lel:lg?tt-lg.t0:null,alt,v,x,z,y:t3H(x,z),hr:sv(R.tr.hr),pw:sv(R.tr.pw,10000),cad:sv(R.tr.cad)};
+  R.now={s,el:tt-R.pts[0][2],lel:lg?tt-lg.t0:null,alt,v,x,z,y:T3.road?t3RoadY(s/(R.L||1)):t3H(x,z),hr:sv(R.tr.hr),pw:sv(R.tr.pw,10000),cad:sv(R.tr.cad)};
   T3.dirty=true;
 }
 function t3RelHud(){
@@ -11064,7 +11120,7 @@ function t3FlyStep(now){
   let az=Math.atan2(q[0]-p[0],-(q[1]-p[1]))/rad;
   if(f.az==null)f.az=az;let d=az-f.az;while(d>180)d-=360;while(d<-180)d+=360;f.az+=d*0.04;
   Object.assign(T3.cam,{tx:p[0],tz:p[1],az:f.az,tilt:58,dist:f.dist});
-  {const qa=t3At(f,s+Math.min(120,f.L*.05)+1),a2=Math.atan2(qa[0]-p[0],-(qa[1]-p[1]))/rad;if(f.faz==null)f.faz=a2;let d2=a2-f.faz;while(d2>180)d2-=360;while(d2<-180)d2+=360;f.faz+=d2*.08;T3.fpvP={x:p[0],z:p[1],az:f.faz};}
+  {const qa=t3At(f,s+Math.min(120,f.L*.05)+1),a2=Math.atan2(qa[0]-p[0],-(qa[1]-p[1]))/rad;if(f.faz==null)f.faz=a2;let d2=a2-f.faz;while(d2>180)d2-=360;while(d2<-180)d2+=360;f.faz+=d2*.08;T3.fpvP={x:p[0],z:p[1],az:f.faz,f:k};T3.flyY=T3.road?t3RoadY(k):null;}
   T3.dirty=true;
   if(k>=1){T3.fly=null;T3.flyK=0;t3FlyBtn();}
 }
