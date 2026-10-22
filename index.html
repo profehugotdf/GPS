@@ -11443,6 +11443,64 @@ function bkScenes(P,prof,F,demS){
     if(len<.4){segs.splice(i,1);if(i<segs.length&&key(segs[i])===key(segs[i-1]))segs.splice(i,1);}else i++;}
   return segs.map((x,i)=>({km:i?+x.km.toFixed(2):0,scene:x.scene,water:x.water||null,waterKind:x.waterKind||'mar',wall:null}));
 }
+/* --- 🏔️ el horizonte real para Bici: desde cada punto de la ruta (cada 200 m o más), en 90 direcciones, se recorre
+   el relieve hasta 20 km y se guarda el ángulo más alto en tres franjas: cerca (<1,5 km), medio (1,5-6 km) y lejos
+   (6-20 km); para medio y lejos, también la altura y la distancia de ese punto (para la nieve). Bici lo dibuja como
+   siluetas planas que giran con el camino. Un byte por dato: ángulo en ¼°, altura en 25 m, distancia en 100 m. */
+const BKH={na:90,R:20000,bands:[1500,6000]};
+const bkB64=a=>{let b='';for(let i=0;i<a.length;i+=8192)b+=String.fromCharCode.apply(null,a.subarray(i,i+8192));return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
+function bkTilesBB(bb,z){const a=tileXY(bb.n,bb.w,z),b=tileXY(bb.s,bb.e,z),out=[];for(let x=Math.floor(a.x);x<=Math.floor(b.x);x++)for(let y=Math.floor(a.y);y<=Math.floor(b.y);y++)out.push({x,y});return out;}
+function bkPadBB(P,m){let bb={n:-90,s:90,e:-180,w:180};for(const p of P){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}
+  const dl=m/111320,dn=m/(111320*Math.cos((bb.n+bb.s)/2*rad));return {n:bb.n+dl,s:bb.s-dl,e:bb.e+dn,w:bb.w-dn};}
+function bkHorizon(P,prof,sp,hNear,hFar){
+  const na=BKH.na,idx=[];
+  for(let d=0;d<=P[P.length-1][2]+1;d+=sp){let i=Math.min(P.length-1,Math.round(d/(P[P.length-1][2]||1)*(P.length-1)));idx.push(i);}
+  const out=new Uint8Array(idx.length*na*7),K=1/(2*6371000)*.87,steps=[];for(let d=30;d<=BKH.R;d*=1.05)steps.push(d);
+  const enc=a=>Math.max(0,Math.min(255,Math.round(a/.25)+60));
+  idx.forEach((i,si)=>{
+    const [la,lo]=P[i],h0=prof[i]+1.6,kc=111320*Math.cos(la*rad);
+    for(let a=0;a<na;a++){
+      const az=a*360/na*rad,sa=Math.sin(az),ca=Math.cos(az),best=[[-90,0,0],[-90,0,0],[-90,0,0]];
+      for(const d of steps){
+        const qa=la+ca*d/111320,qo=lo+sa*d/kc,h=d<=4000?hNear(qa,qo):hFar(qa,qo);if(!isFinite(h))continue;
+        const ang=Math.atan((Math.max(0,h)-h0-d*d*K)/d)/rad,b=d<BKH.bands[0]?0:d<BKH.bands[1]?1:2;
+        if(ang>best[b][0])best[b]=[ang,h,d];
+      }
+      const o=(si*na+a)*7,nr=best[0],md=best[1],fr=best[2];
+      out[o]=enc(nr[0]);out[o+1]=enc(md[0]);out[o+2]=Math.min(255,Math.round(Math.max(0,md[1])/25));out[o+3]=Math.min(255,Math.round(md[2]/100));
+      out[o+4]=enc(fr[0]);out[o+5]=Math.min(255,Math.round(Math.max(0,fr[1])/25));out[o+6]=Math.min(255,Math.round(fr[2]/100));
+    }
+  });
+  return {v:1,sp,na,n:idx.length,d:bkB64(out)};
+}
+async function bkPeaks(bb){
+  const q=`[out:json][timeout:40];node["natural"~"^(peak|volcano)$"]["name"](${bb.s},${bb.w},${bb.n},${bb.e});out;`;
+  for(const url of OVERPASS){try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),45000);
+    const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});clearTimeout(to);if(!r.ok)continue;
+    return ((await r.json()).elements||[]).filter(e=>e.tags&&e.tags.name).map(e=>({n:e.tags.name.slice(0,40),e:parseFloat(String(e.tags.ele||'').replace(',','.'))||null,la:+e.lat.toFixed(5),lo:+e.lon.toFixed(5)}));}catch(e){}}
+  return [];
+}
+/* --- 🎨 el color real del suelo: en la foto satelital, a 20-60 m de cada lado del camino, cada 100 m */
+async function bkGround(P,z){
+  const L=P[P.length-1][2],n=Math.max(2,Math.floor(L/100)+1),need=new Map(),pts=[];
+  for(let k=0;k<n;k++){const i=Math.min(P.length-1,Math.round(k*100/(L||1)*(P.length-1))),[la,lo]=P[i],a=P[Math.max(0,i-3)],b=P[Math.min(P.length-1,i+3)];
+    const dx=(b[1]-a[1])*Math.cos(la*rad),dy=b[0]-a[0],l=Math.hypot(dx,dy)||1,nx=-dy/l,ny=dx/l,sm=[];
+    for(const side of [1,-1])for(const off of [20,35,50,65]){const qa=la+ny*off*side/111320,qo=lo+nx*off*side/(111320*Math.cos(la*rad)),t=tileXY(qa,qo,z);sm.push({side,tx:Math.floor(t.x),ty:Math.floor(t.y),px:Math.floor((t.x%1)*256),py:Math.floor((t.y%1)*256)});need.set(Math.floor(t.x)+'/'+Math.floor(t.y),1);}
+    pts.push(sm);}
+  if(need.size>260)return null;
+  const l=LAYERS.sat,img=new Map(),keys=[...need.keys()];let i=0;
+  const worker=async()=>{while(i<keys.length){const k=keys[i++],[x,y]=k.split('/').map(Number),key=`sat/${z}/${x}/${y}`;
+    try{let blob=await DB.get('tiles',key);if(!blob&&!netBlocked()){blob=await getTileBlob(tileUrl(l,z,x,y));if(blob&&blob.size>80)try{await DB.put('tiles',key,blob);}catch(e){}}
+      if(!blob)continue;const bm=await createImageBitmap(blob),c=document.createElement('canvas');c.width=c.height=256;const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(bm,0,0);img.set(k,cx.getImageData(0,0,256,256).data);}catch(e){}}};
+  await Promise.all(Array.from({length:4},worker));
+  if(!img.size)return null;
+  const out=new Uint8Array(n*6);let ok=0;
+  pts.forEach((sm,k)=>{for(const side of [1,-1]){let r=0,g=0,b=0,c=0;for(const q of sm)if(q.side===side){const d=img.get(q.tx+'/'+q.ty);if(!d)continue;
+      for(let yy=-2;yy<=2;yy+=2)for(let xx=-2;xx<=2;xx+=2){const o=(Math.max(0,Math.min(255,q.py+yy))*256+Math.max(0,Math.min(255,q.px+xx)))*4;r+=d[o];g+=d[o+1];b+=d[o+2];c++;}}
+    const o=k*6+(side>0?0:3);if(c){out[o]=r/c;out[o+1]=g/c;out[o+2]=b/c;ok++;}else if(k){out[o]=out[o-6];out[o+1]=out[o-5];out[o+2]=out[o-4];}}});
+  /* izquierda = side 1 o -1: se decide con el sentido de marcha (normal hacia la izquierda = (-dy, dx)) → side 1 es la izquierda */
+  return ok?{sp:100,n,d:bkB64(out)}:null;
+}
 async function bkPack(o){
   const str=JSON.stringify(o),u8=a=>{let b='';for(let i=0;i<a.length;i+=8192)b+=String.fromCharCode.apply(null,a.subarray(i,i+8192));return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
   if(window.CompressionStream){try{const cs=new Blob([str]).stream().pipeThrough(new CompressionStream('deflate-raw'));return 'z'+u8(new Uint8Array(await new Response(cs).arrayBuffer()));}catch(e){}}
@@ -11477,12 +11535,28 @@ async function bkSend(o){
       scenes=bkScenes(R.pts,prof,bkFeatures(await bkOsm(bb)),demS);}catch(e){scErr=e.message||String(e);}
   }
   if(!scenes){try{scenes=bkScenes(R.pts,prof,[],demS);}catch(e){}}
+  /* horizonte real y color del suelo (si algo falla, Bici usa sus montañas y colores de siempre) */
+  let hz=null,peaks=[],ground=null;
+  try{
+    const bbF=bkPadBB(R.pts,BKH.R),bbN=bkPadBB(R.pts,4500),zF=11,zN=12,lF=bkTilesBB(bbF,zF),lN=bkTilesBB(bbN,zN);
+    const falt=(await demMissing(lF,zF))+(await demMissing(lN,zN));
+    if(!falt||(!netBlocked()&&S.dataMode!=='never'&&confirm(`Para dibujar las montañas reales que se ven desde la ruta hay que bajar ${falt} tesela${falt>1?'s':''} más de relieve (unos ${Math.max(1,Math.round(falt*.1))} MB). Quedan guardadas. ¿Seguir? (si no, Bici usa sus montañas de siempre)`))){
+      toast('🏔️ Calculando las montañas que se ven desde la ruta…',60000);
+      const dF=await fetchDemList(lF,zF),dN=await fetchDemList(lN,zN);
+      const sp=Math.max(200,Math.ceil(R.L/120/50)*50);
+      await new Promise(r=>setTimeout(r,30));
+      hz=bkHorizon(R.pts,prof,sp,(a,b)=>{const v=sampleDem(dN,zN,a,b);return isFinite(v)?v:sampleDem(dF,zF,a,b);},(a,b)=>sampleDem(dF,zF,a,b));
+      hz.snow=R.pts[0][0]<-50?750:R.pts[0][0]<-40?1500:R.pts[0][0]<-30?4200:4800;
+      if(!netBlocked()&&S.dataMode!=='never')peaks=(await bkPeaks(bkPadBB(R.pts,BKH.R*.9))).slice(0,200);
+    }
+  }catch(e){hz=null;}
+  try{toast('🎨 Mirando el color del suelo en la foto satelital…',30000);ground=await bkGround(R.pts,R.L>40000?14:15);}catch(e){ground=null;}
   const nm=(o.name||'Ruta de Rumbo').replace(/[<>&"]/g,'').slice(0,60);
   const gpx=`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Rumbo"><trk><name>${nm}</name><trkseg>`+R.pts.map((p,i)=>`<trkpt lat="${p[0].toFixed(6)}" lon="${p[1].toFixed(6)}"><ele>${prof[i].toFixed(1)}</ele></trkpt>`).join('')+'</trkseg></trk></gpx>';
-  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20});
-  const resum=`${dec(R.L/1000,1)} km · ↑ ${Math.round(up)} m · pendiente máx ${Math.round(gm*100)} %`+(scenes?` · escenario de ${scenes.length} tramo${scenes.length>1?'s':''}`:'');
+  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground});
+  const resum=`${dec(R.L/1000,1)} km · ↑ ${Math.round(up)} m · pendiente máx ${Math.round(gm*100)} %`+(scenes?` · escenario de ${scenes.length} tramo${scenes.length>1?'s':''}`:'')+(hz?' · montañas reales':'')+(ground?' · colores del suelo':'');
   toast(`🚴 Listo: ${resum}${scErr?' (sin datos de OpenStreetMap: escenario solo por altura)':''}. Se abre Bici Indoor…`,6000);
-  BK.last={name:nm,L:R.L,up,gm,scenes,len:data.length};
+  BK.last={name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground};
   setTimeout(()=>{const a=document.createElement('a');a.href=BK_URL+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 const BK={last:null};
