@@ -639,7 +639,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="grp" hidden></div>
 <div id="t3" hidden><canvas id="t3c"></canvas>
   <div class="t3bar"><button data-t3="x" aria-label="Cerrar 3D">✕</button><b>🏔️ 3D</b><span id="t3msg"></span></div>
-  <div class="t3r"><button data-t3="n" aria-label="Norte arriba y vista de arriba"><span id="t3cmp">🧭</span></button><button data-t3="in" aria-label="Acercar">+</button><button data-t3="out" aria-label="Alejar">−</button></div>
+  <div class="t3r"><button data-t3="n" aria-label="Norte arriba y vista de arriba"><span id="t3cmp">🧭</span></button><button data-t3="in" aria-label="Acercar">+</button><button data-t3="out" aria-label="Alejar">−</button><button id="t3fp" data-t3="fpv" aria-label="Vista a ras del suelo">👁️</button></div>
   <div class="t3b"><div id="t3tl" hidden><button id="t3pp" data-t3="pp" aria-label="Pausa o seguir">⏸</button><button id="t3cm" data-t3="cm" aria-label="Cámara automática o mi vista">🎥</button><div class="tlw"><input type="range" id="t3sb" min="0" max="1000" step="1" value="0" aria-label="Línea de tiempo"><div id="t3tk"></div></div><span id="t3tt">0:00</span></div><span>Relieve</span><button data-t3="ex" data-ex="1">×1</button><button data-t3="ex" data-ex="1.5">×1,5</button><button data-t3="ex" data-ex="2">×2</button><button id="t3fly" data-t3="fly">▶ Sobrevolar</button><button id="t3rv" data-t3="rv" hidden>🎬 Revivir</button><button id="t3vid" data-t3="vid" hidden>⏺ Video</button></div>
   <div id="t3rel" hidden></div><div id="t3mk" hidden></div>
   <div class="t3h">Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar</div>
@@ -10535,7 +10535,7 @@ addEventListener('hashchange',grpFromHash);
    Malla de la altura del terreno (teselas Terrarium) + satélite como textura + una capa de dibujo (ruta, track, tu posición).
    Usa lo guardado en el teléfono y, si se puede, baja lo que falta. */
 const T3={on:false,gl:null,cv:null,prog:null,vao:null,nIdx:0,tex:null,otex:null,N:4,zd:13,zs:15,x0:0,y0:0,mpp:1,lat0:0,
-  n:0,step:2,H:null,cam:{tx:0,tz:0,dist:4000,az:0,tilt:55},exag:1.5,raf:0,dirty:true,ptr:new Map(),g0:null,fly:null,gen:0,line:null,ov:null,ovT:0,half:0,loaded:0,total:0,maxTex:4096};
+  n:0,step:2,H:null,cam:{tx:0,tz:0,dist:4000,az:0,tilt:55},exag:1.5,raf:0,dirty:true,ptr:new Map(),g0:null,fly:null,gen:0,fpv:false,fpvH:15,fpvYaw:0,fpvPit:0,fpvP:null,line:null,ov:null,ovT:0,half:0,loaded:0,total:0,maxTex:4096};
 const T3_VS=`#version 300 es
 in vec3 p;in vec2 gr;in vec2 uv;uniform mat4 M;uniform float ex;uniform vec3 eye;
 out vec2 vuv;out vec3 vn;out float vd;
@@ -10611,7 +10611,7 @@ async function open3D(o){
 function close3D(){
   if(T3.recr&&T3.recr.state==='recording'){T3.vc=null;try{T3.recr.ondataavailable=null;T3.recr.onstop=null;T3.recr.stop();}catch(e){}T3.recr=null;}
   if(T3.rel){T3.rel.go=false;T3.rel=null;}T3.km=0;{const tl=$('#t3tl');if(tl)tl.hidden=true;const h=$('#t3 .t3h');if(h)h.hidden=false;}$('#t3rel').hidden=true;$('#t3mk').hidden=true;
-  T3.on=false;T3.gen++;T3.fly=null;T3.flyPos=null;T3.flyK=0;cancelAnimationFrame(T3.raf);T3.raf=0;
+  T3.on=false;T3.gen++;T3.fly=null;T3.flyPos=null;T3.flyK=0;T3.fpvP=null;cancelAnimationFrame(T3.raf);T3.raf=0;
   const gl=T3.gl;if(gl){for(const t of [T3.tex,T3.otex])if(t)gl.deleteTexture(t);T3.tex=T3.otex=null;}
   $('#t3').hidden=true;
 }
@@ -10695,8 +10695,8 @@ function t3Overlay(noLine){
   const S2=Math.min(4096,T3.maxTex),c=T3.ov||(T3.ov=document.createElement('canvas'));if(c.width!==S2){c.width=c.height=S2;}
   const x=c.getContext('2d'),k=S2/(T3.N*256),P=(lat,lon)=>{const p=tileXY(lat,lon,T3.zd);return [((p.x-T3.x0)*256)*k,((p.y-T3.y0)*256)*k];};
   x.clearRect(0,0,S2,S2);x.lineJoin=x.lineCap='round';
-  const w=Math.max(6,Math.min(10,6*S2/4096*(14-Math.min(13,T3.zd)+1)));
-  const stroke=(pts,col,wd)=>{if(!pts||pts.length<2)return;x.beginPath();pts.forEach((p,i)=>{const q=P(p[0],p[1]);i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1]);});x.strokeStyle='rgba(255,255,255,.95)';x.lineWidth=wd+4;x.stroke();x.strokeStyle=col;x.lineWidth=wd;x.stroke();};
+  const w=Math.max(6,Math.min(10,6*S2/4096*(14-Math.min(13,T3.zd)+1)))*(T3.fpv?.4:1);   // a ras del suelo, la línea más fina (si no parece una autopista)
+  const stroke=(pts,col,wd)=>{if(!pts||pts.length<2)return;x.beginPath();pts.forEach((p,i)=>{const q=P(p[0],p[1]);i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1]);});x.strokeStyle='rgba(255,255,255,.95)';x.lineWidth=wd+(T3.fpv?1.5:4);x.stroke();x.strokeStyle=col;x.lineWidth=wd;x.stroke();};
   const dot=(p,col,r)=>{const q=P(p[0],p[1]);x.beginPath();x.arc(q[0],q[1],r+3,0,7);x.fillStyle='#fff';x.fill();x.beginPath();x.arc(q[0],q[1],r,0,7);x.fillStyle=col;x.fill();};
   if(T3.line&&!noLine){stroke(T3.line,'#F04A1C',w);dot(T3.line[0],'#2E7D5B',w*1.3);dot(T3.line[T3.line.length-1],'#F04A1C',w*1.3);}
   if(REC.state!=='idle'&&REC.pts.length>1)stroke(REC.pts,'#E91E63',w*.8);
@@ -10707,7 +10707,20 @@ function t3Overlay(noLine){
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   T3.ovT=Date.now();T3.dirty=true;
 }
+/* 👁️ a ras del suelo: la cámara va unos metros detrás y arriba de quien se mueve, mirando el camino que viene (como un juego de carreras).
+   Siguiendo un recorrido (Revivir o Sobrevolar) mira hacia donde va; si no, se camina por el mapa con un dedo. */
+const t3Follow=()=>!!(T3.fpvP&&(T3.fly||(T3.rel&&T3.rel.started&&T3.rel.now)));
+function t3CamFpv(){
+  const c=T3.cam,span=T3.N*256*T3.mpp/2,fo=t3Follow(),P=fo?T3.fpvP:{x:c.tx,z:c.tz,az:c.az};
+  const px=Math.max(-span,Math.min(span,P.x)),pz=Math.max(-span,Math.min(span,P.z));
+  const h=T3.fpvH,az=(P.az+(fo?T3.fpvYaw:0))*rad,dir=[Math.sin(az),0,-Math.cos(az)],gH=(x,z)=>t3H(x,z)*T3.exag;
+  const back=h*2,ahead=h*4+30,ex=px-dir[0]*back,ez=pz-dir[2]*back;
+  const ey=Math.max(gH(ex,ez)+h,gH(px,pz)+h*.6),tx=px+dir[0]*ahead,tz=pz+dir[2]*ahead;
+  const ty=gH(tx,tz)+Math.tan(T3.fpvPit*rad)*(back+ahead);
+  return {T:[tx,ty,tz],eye:[ex,ey,ez],up:[0,1,0]};
+}
 function t3Cam(){
+  if(T3.fpv)return t3CamFpv();
   const c=T3.cam,span=T3.N*256*T3.mpp/2;
   c.tx=Math.max(-span,Math.min(span,c.tx));c.tz=Math.max(-span,Math.min(span,c.tz));
   c.tilt=Math.max(0,Math.min(82,c.tilt));c.dist=Math.max(150,Math.min(span*3,c.dist));
@@ -10725,17 +10738,17 @@ function t3Draw(){
   if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}
   gl.viewport(0,0,w,h);gl.clearColor(.72,.82,.9,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);gl.frontFace(gl.CCW);
   const {T,eye,up}=t3Cam(),span=T3.N*256*T3.mpp,far=span*4;
-  const M=m4.mul(m4.persp(45*rad,w/h,Math.max(5,T3.cam.dist*.01),far),m4.look(eye,T,up));
+  const M=m4.mul(T3.fpv?m4.persp(60*rad,w/h,1.5,far):m4.persp(45*rad,w/h,Math.max(5,T3.cam.dist*.01),far),m4.look(eye,T,up));
   gl.useProgram(T3.prog);
   const u=n=>gl.getUniformLocation(T3.prog,n);
   gl.uniformMatrix4fv(u('M'),false,M);gl.uniform1f(u('ex'),T3.exag);gl.uniform3fv(u('eye'),eye);
-  gl.uniform3fv(u('L'),norm3([-.5,.75,-.45]));gl.uniform1f(u('fog'),Math.max(span*.9,T3.cam.dist*4));
+  gl.uniform3fv(u('L'),norm3([-.5,.75,-.45]));gl.uniform1f(u('fog'),T3.fpv?span*.5:Math.max(span*.9,T3.cam.dist*4));
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,T3.tex);gl.uniform1i(u('t'),0);
   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,T3.otex);gl.uniform1i(u('o'),1);
   gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,T3.ktex||T3.otex);gl.uniform1i(u('k'),2);gl.uniform1f(u('km'),T3.km&&T3.ktex?1:0);gl.uniform1f(u('kp'),T3.kp||0);
   T3.M=M;
   gl.bindVertexArray(T3.vao);gl.drawElements(gl.TRIANGLES,T3.nIdx,gl.UNSIGNED_INT,0);gl.bindVertexArray(null);
-  const cp=$('#t3cmp');if(cp)cp.style.transform=`rotate(${-T3.cam.az}deg)`;
+  const cp=$('#t3cmp');if(cp)cp.style.transform=`rotate(${-(T3.fpv&&t3Follow()?T3.fpvP.az+T3.fpvYaw:T3.cam.az)}deg)`;
 }
 function t3Loop(){
   cancelAnimationFrame(T3.raf);
@@ -10757,7 +10770,14 @@ function t3Gestures(cv){
     const p=pts.get(e.pointerId);if(!p)return;
     const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;
     const c=T3.cam;
-    if(pts.size===1){
+    if(T3.fpv&&pts.size===1&&t3Follow()){T3.fpvYaw-=dx*.25;T3.fpvPit=Math.max(-40,Math.min(25,T3.fpvPit+dy*.15));}   // siguiendo: un dedo mira alrededor
+    else if(T3.fpv&&pts.size===2&&T3.g0){const g=pair(),g0=T3.g0;if(g.d>10&&g0.d>10)T3.fpvH=Math.max(2,Math.min(400,T3.fpvH*g0.d/g.d));
+      let da=g.ang-g0.ang;if(da>Math.PI)da-=2*Math.PI;if(da<-Math.PI)da+=2*Math.PI;if(t3Follow())T3.fpvYaw-=da/rad;else c.az-=da/rad;
+      T3.fpvPit=Math.max(-40,Math.min(25,T3.fpvPit+(g0.my-g.my)*.15));T3.g0=g;}
+    else if(pts.size===1&&T3.fpv){                                      // caminando por el mapa: arriba avanza, a los costados gira
+      const az=c.az*rad,f=[Math.sin(az),-Math.cos(az)],st=Math.max(1,T3.fpvH*.15);c.tx+=f[0]*dy*st;c.tz+=f[1]*dy*st;c.az+=dx*.25;
+    }
+    else if(pts.size===1){
       const sc=c.dist*Math.tan(22.5*rad)*2/Math.max(200,cv.clientHeight),az=c.az*rad,r=[Math.cos(az),Math.sin(az)],f=[Math.sin(az),-Math.cos(az)],k=1/Math.max(.35,Math.cos(c.tilt*rad));
       c.tx-=r[0]*dx*sc;c.tz-=r[1]*dx*sc;c.tx+=f[0]*dy*sc*k;c.tz+=f[1]*dy*sc*k;
     }else if(pts.size===2&&T3.g0){
@@ -10771,19 +10791,19 @@ function t3Gestures(cv){
   });
   const up=e=>{pts.delete(e.pointerId);T3.g0=pts.size===2?pair():null;};
   cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
-  cv.addEventListener('wheel',e=>{e.preventDefault();T3.cam.dist*=Math.exp(e.deltaY*.0015);T3.dirty=true;t3MyView();},{passive:false});
+  cv.addEventListener('wheel',e=>{e.preventDefault();if(T3.fpv){T3.fpvH=Math.max(2,Math.min(400,T3.fpvH*Math.exp(e.deltaY*.0015)));T3.dirty=true;return;}T3.cam.dist*=Math.exp(e.deltaY*.0015);T3.dirty=true;t3MyView();},{passive:false});
 }
 /* ---------- 🎬 Revivir un track (estilo Relive): el recorrido se va dibujando, la cámara lo sigue y se ven los datos ---------- */
 /* la línea del track va en una textura aparte: cada píxel guarda en qué parte del recorrido está (0 a 1), así el shader pinta lo recorrido */
 function t3TrackTex(pts){
   const gl=T3.gl,S2=Math.min(4096,T3.maxTex),c=document.createElement('canvas');c.width=c.height=S2;
   const x=c.getContext('2d'),k=S2/(T3.N*256),P=(lat,lon)=>{const p=tileXY(lat,lon,T3.zd);return [((p.x-T3.x0)*256)*k,((p.y-T3.y0)*256)*k];};
-  const w=Math.max(6,Math.min(10,6*S2/4096*(14-Math.min(13,T3.zd)+1)));
+  const w=Math.max(6,Math.min(10,6*S2/4096*(14-Math.min(13,T3.zd)+1)))*(T3.fpv?.4:1);   // a ras del suelo, la línea más fina (si no parece una autopista)
   x.lineJoin=x.lineCap='round';
   const cum=[0];for(let i=1;i<pts.length;i++)cum.push(cum[i-1]+hav(pts[i-1],pts[i]));const L=cum[cum.length-1]||1;
   const Q=pts.map(p=>P(p[0],p[1]));
   /* borde blanco (azul = 255 marca "borde") */
-  x.beginPath();Q.forEach((q,i)=>i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1]));x.strokeStyle='rgb(0,0,255)';x.lineWidth=w+4;x.stroke();
+  x.beginPath();Q.forEach((q,i)=>i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1]));x.strokeStyle='rgb(0,0,255)';x.lineWidth=w+(T3.fpv?1.5:4);x.stroke();
   /* centro: rojo y verde guardan la fracción recorrida */
   x.lineWidth=w;
   for(let i=1;i<Q.length;i++){const f=Math.round(cum[i]/L*65535);x.strokeStyle=`rgb(${f>>8},${f&255},0)`;x.beginPath();x.moveTo(Q[i-1][0],Q[i-1][1]);x.lineTo(Q[i][0],Q[i][1]);x.stroke();}
@@ -10823,7 +10843,7 @@ function t3RelStart(){
 }
 /* ---- barra de tiempo del Revivir: arrastrar para ir a cualquier momento; ⏸/▶ para pausar y seguir ---- */
 /* si cambiás el ángulo, la altura o la orientación durante el Revivir, se conserva al mover la barra o al seguir */
-function t3MyView(){const R=T3.rel;if(!R||!R.started||R.userCam)return;R.userCam=true;t3CamBtn();toast('📌 Se conserva tu vista al mover la barra o seguir. 🎥 vuelve a la cámara automática',4000);}
+function t3MyView(){const R=T3.rel;if(T3.fpv||!R||!R.started||R.userCam)return;R.userCam=true;t3CamBtn();toast('📌 Se conserva tu vista al mover la barra o seguir. 🎥 vuelve a la cámara automática',4000);}
 function t3CamBtn(){const b=$('#t3cm'),R=T3.rel;if(b)b.textContent=R&&R.userCam?'📌':'🎥';}
 function t3TlShow(){
   const R=T3.rel,tl=$('#t3tl');if(!tl)return;tl.hidden=!R;const h=$('#t3 .t3h');if(h)h.hidden=!!R;if(!R)return;
@@ -10833,7 +10853,7 @@ function t3TlShow(){
 function t3RelSeek(k){
   const R=T3.rel;if(!R)return;
   if(!R.started){t3RelStart();}
-  R.go=false;R.kStart=Math.max(0,Math.min(.999,k));R.noIntro=true;R.end=null;R.done=false;R.az=null;R.fol=null;R.t0=null;
+  R.go=false;R.kStart=Math.max(0,Math.min(.999,k));R.noIntro=true;R.end=null;R.done=false;R.az=null;R.faz=null;R.fol=null;R.t0=null;
   t3RelStep(performance.now());R.t0=null;t3RelBtn();t3TlShow();T3.dirty=true;
 }
 function t3RelPlay(){
@@ -10862,6 +10882,7 @@ function t3RelStep(now){
   /* la distancia de la cámara cambia suave entre etapas (nadar se ve de cerca, la bici de más lejos) */
   R.fol=R.fol==null?fol0:R.fol+(fol0-R.fol)*.03;const follow=R.fol;
   T3.kp=s/(R.L||1);
+  {const qa=R.XZ[t3RelAt(R,s+Math.min(120,LL*.05)+1).i],a2=Math.atan2(qa[0]-x,-(qa[1]-z))/rad;if(R.faz==null)R.faz=a2;let d2=a2-R.faz;while(d2>180)d2-=360;while(d2<-180)d2+=360;R.faz+=d2*.08;T3.fpvP={x,z,az:R.faz};}
   if(R.userCam&&k<1){T3.cam.tx=x;T3.cam.tz=z;}
   else if(R.userCam){T3.cam.tx=x;T3.cam.tz=z;if(R.end==null)R.end=now;if(now-R.end>outro){R.go=false;R.t0=null;R.done=true;if(T3.recr&&T3.recr.state==='recording')setTimeout(()=>T3.recr&&T3.recr.state==='recording'&&T3.recr.stop(),300);t3RelBtn();}}
   else if(!R.noIntro&&el<intro){const u=el/intro,e=u*u*(3-2*u);Object.assign(T3.cam,{tx:x,tz:z,az:R.az-40*(1-e),tilt:20+40*e,dist:span*.9*(1-e)+follow*e});}
@@ -10980,19 +11001,32 @@ function t3FlyStep(now){
   let az=Math.atan2(q[0]-p[0],-(q[1]-p[1]))/rad;
   if(f.az==null)f.az=az;let d=az-f.az;while(d>180)d-=360;while(d<-180)d+=360;f.az+=d*0.04;
   Object.assign(T3.cam,{tx:p[0],tz:p[1],az:f.az,tilt:58,dist:f.dist});
+  {const qa=t3At(f,s+Math.min(120,f.L*.05)+1),a2=Math.atan2(qa[0]-p[0],-(qa[1]-p[1]))/rad;if(f.faz==null)f.faz=a2;let d2=a2-f.faz;while(d2>180)d2-=360;while(d2<-180)d2+=360;f.faz+=d2*.08;T3.fpvP={x:p[0],z:p[1],az:f.faz};}
   T3.dirty=true;
   if(k>=1){T3.fly=null;T3.flyK=0;t3FlyBtn();}
+}
+function t3FpvSet(on){
+  T3.fpv=on;T3.fpvYaw=0;T3.fpvPit=0;const b=$('#t3fp');if(b)b.classList.toggle('on',on);
+  const h=$('#t3 .t3h');if(h&&!T3.rel)h.textContent=on?'Un dedo: arriba avanza, a los costados gira · dos dedos: subir o bajar la cámara · 👁️ vuelve a la vista de arriba':'Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar';
+  if(on)toast(t3Follow()||T3.rel||T3.line?'👁️ A ras del suelo: la cámara va detrás tuyo mirando el camino. Un dedo mira alrededor; + y − suben o bajan la cámara; 🧭 vuelve a mirar adelante':'👁️ A ras del suelo: arrastrá hacia arriba para avanzar y a los costados para girar. + y − suben o bajan la cámara',5500);
+  /* rehacer la línea con el ancho que corresponde a esta vista */
+  if(T3.km){t3Overlay(true);t3TrackTex(T3.rel&&T3.rel.started?T3.rel.pts:T3.line);}else t3Overlay();
+  T3.dirty=true;
 }
 function t3FlyBtn(){const b=$('#t3fly');if(b)b.textContent=T3.fly?'⏸ Parar':'▶ Sobrevolar';}
 function t3Ui(){
   document.querySelectorAll('#t3 [data-ex]').forEach(b=>b.classList.toggle('on',+b.dataset.ex===T3.exag));
-  t3FlyBtn();
+  t3FlyBtn();{const b=$('#t3fp');if(b)b.classList.toggle('on',!!T3.fpv);}
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('#t3 [data-t3]');if(!b)return;
   const a=b.dataset.t3,c=T3.cam;
   if(a==='x')close3D();
   else if(a==='ex'){T3.exag=+b.dataset.ex;S.exag3d=T3.exag;saveS();t3Ui();T3.dirty=true;}
+  else if(a==='in'&&T3.fpv){T3.fpvH=Math.max(2,T3.fpvH/1.6);T3.dirty=true;}
+  else if(a==='out'&&T3.fpv){T3.fpvH=Math.min(400,T3.fpvH*1.6);T3.dirty=true;}
+  else if(a==='n'&&T3.fpv){T3.fpvYaw=0;T3.fpvPit=0;if(!t3Follow())c.az=0;T3.dirty=true;}
+  else if(a==='fpv')t3FpvSet(!T3.fpv);
   else if(a==='in'){c.dist/=1.6;T3.dirty=true;t3MyView();}
   else if(a==='out'){c.dist*=1.6;T3.dirty=true;t3MyView();}
   else if(a==='n'){c.az=0;c.tilt=c.tilt>5?0:58;T3.dirty=true;t3MyView();}
