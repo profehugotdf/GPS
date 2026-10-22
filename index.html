@@ -4206,6 +4206,7 @@ async function showTrackDetail(id){
       <button class="btn" data-act="multi">🧩 Revivir multideporte (triatlón…)</button>
       <button class="btn" data-act="gpx">Compartir GPX</button>
       ${MP_DISC[tr.act]?`<button class="btn" data-act="mp">📤 ${tr.mp?'Volver a mandar':'Mandar'} a Mi plan</button>`:''}
+      ${!['kayak','swim'].includes(tr.act)?`<button class="btn" data-act="bk">🚴 Entrenar en Bici Indoor</button>`:''}
       <button class="btn" data-act="anal">Medir con un circuito</button>
       <button class="btn primary" data-act="follow">🧭 Guiarme por este recorrido</button>
       <button class="btn" data-act="followrev">↩︎ Hacerlo al revés</button>
@@ -4218,6 +4219,7 @@ async function showTrackDetail(id){
       else if(a==='rel'){closeSheet();open3D({line:tr.pts.map(p=>[p[0],p[1]]),track:tr,relive:true});}
       else if(a==='multi')showMultiPick(id);
       else if(a==='mp'){await mpPublish([tr],true);showTrackDetail(id);}
+      else if(a==='bk')await bkSend({name:tr.name||('Rumbo '+fmtDate(tr.t0)),ll:t3TrackPts(tr).pts.map(p=>[p[0],p[1]]),grade:tr.act==='car'?.16:.25});
       else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);showTrackDetail(id);}
       else if(a==='gpx')shareFile((tr.name.replace(/[^\w\-]+/g,'_')||'track')+'.gpx',toGPX([tr],[],esc),'application/gpx+xml');
       else if(a==='anal')showAnalPick(id);
@@ -4879,7 +4881,7 @@ function resultsHtml(){
   const r=RT.res[RT.sel];
   if(r&&!r.err)h+=`<button class="btn primary" data-act="nav" style="width:100%;margin-top:8px">▶ Guiarme por esta ruta</button>
     ${r.hzs&&r.hzs.length?`<p>⚠️ En el camino: ${hzSummary(r.hzs)}</p>`:''}
-    <div class="row"><button class="btn sm" data-act="rprof">⛰️ Perfil de desniveles</button><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button><button class="btn sm" data-act="rclear">🧹 Quitar ruta, A y B</button></div><div id="rprof">${r.profHtml||''}</div>
+    <div class="row"><button class="btn sm" data-act="rprof">⛰️ Perfil de desniveles</button><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button>${isWater(RT.sel)?'':'<button class="btn sm" data-act="rbk">🚴 Entrenar en Bici Indoor</button>'}<button class="btn sm" data-act="rclear">🧹 Quitar ruta, A y B</button></div><div id="rprof">${r.profHtml||''}</div>
     <h3>Indicaciones</h3>${r.steps.map(s=>`<div class="item"><div>${s.ico?s.ico+' ':''}${esc(s.text)}</div><small class="mut">${s.dist?fmtD(s.dist):''}</small></div>`).join('')}`;
   return h;
 }
@@ -5033,6 +5035,7 @@ async function showRoutes(){
     else if(a==='rclear'){rtClear();showRoutes();}
     else if(a==='rgpx'){const r=RT.res[RT.sel];shareFile('ruta.gpx',toGPX([{name:'Ruta',pts:r.coords.map(c=>[c[0],c[1],0,0,null,0])}],[],esc),'application/gpx+xml');}
     else if(a==='rsave')showSaveRoute();
+    else if(a==='rbk'){const r=RT.res[RT.sel];await bkSend({name:'Ruta '+(MN[RT.sel]||'')+' '+fmtDate(Date.now()),ll:r.coords.map(c=>[c[0],c[1]]),grade:RT.sel==='car'?.16:.25});}
     else if(a==='nav')startNav();
     else if(a==='kc'){
       S.kCoast=d.v!=='0';if(S.kCoast)S.kCoastM=+d.v;saveS();
@@ -11351,6 +11354,137 @@ async function mpPending(){
   for(const k of await DB.keys('kv','track:')){const tr=await DB.get('kv',k);if(tr&&!tr.mp&&tr.src==='rec'&&MP_DISC[tr.act]&&tr.pts&&tr.pts.length>1&&tr.pts[0][2]>lim)out.push(tr);}
   return out.sort((a,b)=>a.pts[0][2]-b.pts[0][2]);
 }
+
+/* ---------- 🚴 Entrenar en Bici Indoor: la ruta con la altura real del terreno y el escenario armado ----------
+   1) altura: el relieve detallado (un punto cada ~10-20 m) a lo largo del camino, suavizado y sin rampas imposibles
+      (el GPS mide mal la altura, y el rodillo endurecería y aflojaría de golpe donde la ruta es pareja);
+   2) escenario: con OpenStreetMap se ve dónde hay ciudad, bosque, costa, lago o río (y de qué lado), y con la altura,
+      montaña y caminos de cornisa. Se arma con los mismos tipos del editor de Bici; después se retoca ahí;
+   3) se abre Bici Indoor con todo en el link (comprimido): queda guardada como ruta y lista para pedalear. */
+const BK_URL='https://profehugotdf.github.io/Bici-Indoor-/';
+function bkResample(ll,st){
+  const cum=[0];for(let i=1;i<ll.length;i++)cum.push(cum[i-1]+hav(ll[i-1],ll[i]));
+  const L=cum[cum.length-1],n=Math.max(2,Math.round(L/st)+1),out=[];let j=1;
+  for(let k=0;k<n;k++){const d=k*L/(n-1);while(j<ll.length-1&&cum[j]<d)j++;const t=Math.max(0,Math.min(1,(d-cum[j-1])/((cum[j]-cum[j-1])||1)));
+    out.push([ll[j-1][0]+(ll[j][0]-ll[j-1][0])*t,ll[j-1][1]+(ll[j][1]-ll[j-1][1])*t,d]);}
+  return {pts:out,L};
+}
+/* perfil para el rodillo: suave (±40 m), sin pasar la pendiente máxima G, y una pasada final corta */
+function bkProfile(raw,ds,G){
+  let h=t3Box(t3Box(Float32Array.from(raw),Math.max(1,Math.round(40/ds))),Math.max(1,Math.round(40/ds)));
+  const n=h.length,U=Float32Array.from(h),Lo=Float32Array.from(h),m=G*ds;
+  for(let i=1;i<n;i++){U[i]=Math.min(U[i],U[i-1]+m);Lo[i]=Math.max(Lo[i],Lo[i-1]-m);}
+  for(let i=n-2;i>=0;i--){U[i]=Math.min(U[i],U[i+1]+m);Lo[i]=Math.max(Lo[i],Lo[i+1]-m);}
+  for(let i=0;i<n;i++)h[i]=(U[i]+Lo[i])/2;
+  return t3Box(h,1);
+}
+async function bkOsm(bb){
+  const bx=`(${bb.s},${bb.w},${bb.n},${bb.e})`;
+  const q=`[out:json][timeout:90];(way["natural"="coastline"]${bx};way["natural"="water"]${bx};rel["natural"="water"]${bx};way["waterway"~"^(river|canal)$"]${bx};way["landuse"~"^(residential|commercial|retail)$"]${bx};rel["landuse"~"^(residential|commercial|retail)$"]${bx};way["natural"="wood"]${bx};way["landuse"="forest"]${bx};rel["natural"="wood"]${bx};rel["landuse"="forest"]${bx};);out geom qt;`;
+  let last;
+  for(const url of OVERPASS){
+    try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),100000);
+      const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});clearTimeout(to);
+      if(!r.ok)throw new Error('HTTP '+r.status);return (await r.json()).elements||[];}catch(e){last=e;}
+  }
+  throw last||new Error('sin respuesta');
+}
+/* cada elemento de OSM → {k:clase, seg:[[la,lo,la,lo],…], bb} (los multipolígonos se miden por par/impar, sin armar anillos) */
+function bkFeatures(els){
+  const F=[];
+  for(const el of els){
+    const t=el.tags||{};let k=null;
+    if(t.natural==='coastline')k='coast';else if(t.natural==='water')k='lake';else if(t.waterway)k='river';
+    else if(/^(residential|commercial|retail)$/.test(t.landuse||''))k='urban';else if(t.natural==='wood'||t.landuse==='forest')k='forest';
+    if(!k)continue;
+    const lines=el.type==='way'?[el.geometry]:(el.members||[]).filter(m=>m.type==='way'&&m.geometry&&m.role!=='inner'||m.role==='inner'&&m.geometry).map(m=>m.geometry);
+    const seg=[],bb={s:90,n:-90,w:180,e:-180};
+    for(const g of lines){if(!g)continue;for(let i=0;i+1<g.length;i++){const a=g[i],b=g[i+1];if(!a||!b)continue;seg.push([a.lat,a.lon,b.lat,b.lon]);
+      bb.s=Math.min(bb.s,a.lat,b.lat);bb.n=Math.max(bb.n,a.lat,b.lat);bb.w=Math.min(bb.w,a.lon,b.lon);bb.e=Math.max(bb.e,a.lon,b.lon);}}
+    if(seg.length)F.push({k,seg,bb,area:el.type==='relation'||(el.geometry&&el.geometry.length>3&&el.geometry[0].lat===el.geometry[el.geometry.length-1].lat&&el.geometry[0].lon===el.geometry[el.geometry.length-1].lon)});
+  }
+  return F;
+}
+function bkInside(f,la,lo){
+  if(!f.area||la<f.bb.s||la>f.bb.n||lo<f.bb.w||lo>f.bb.e)return false;
+  let c=false;for(const [a1,o1,a2,o2] of f.seg)if((a1>la)!==(a2>la)&&lo<o1+(la-a1)*(o2-o1)/(a2-a1))c=!c;return c;
+}
+/* distancia (m) y punto más cercano de los bordes del elemento */
+function bkNear(f,la,lo,maxM){
+  const k=111320,kc=k*Math.cos(la*rad),pad=maxM/k*1.5;
+  if(la<f.bb.s-pad||la>f.bb.n+pad||lo<f.bb.w-pad*2||lo>f.bb.e+pad*2)return null;
+  let best=null;
+  for(const [a1,o1,a2,o2] of f.seg){
+    const x1=(o1-lo)*kc,y1=(a1-la)*k,x2=(o2-lo)*kc,y2=(a2-la)*k,dx=x2-x1,dy=y2-y1,L2=dx*dx+dy*dy;
+    const t=L2?Math.max(0,Math.min(1,-(x1*dx+y1*dy)/L2)):0,px=x1+dx*t,py=y1+dy*t,d=Math.hypot(px,py);
+    if(d<maxM&&(!best||d<best.d))best={d,x:px,y:py};
+  }
+  return best;
+}
+const BK_SCN={urbana:'Urbana',ciudad:'Casas de colores',bosque:'Bosque de lengas',canal:'Costa del canal',mar:'Costa / Mar',montana:'Montaña nevada',cornisa:'Camino de cornisa',rural:'Rural',estepa:'Estepa y alambrado'};
+function bkScenes(P,prof,F,demS){
+  const south=P[0][0]<-45,hiAlt=P[0][0]<-50?550:P[0][0]<-35?1500:2600,every=5,sm=[];   // un dato cada 50 m
+  for(let i=0;i<P.length;i+=every){
+    const [la,lo]=P[i],a=P[Math.max(0,i-2)],b=P[Math.min(P.length-1,i+2)],dx=(b[1]-a[1])*Math.cos(la*rad),dy=b[0]-a[0];
+    const urban=F.some(f=>f.k==='urban'&&bkInside(f,la,lo)),forest=F.some(f=>f.k==='forest'&&bkInside(f,la,lo));
+    let w=null;
+    for(const f of F){if(!/coast|lake|river/.test(f.k))continue;const lim=f.k==='river'?80:150,nn=bkNear(f,la,lo,lim);
+      if(nn&&(!w||nn.d<w.d))w={d:nn.d,kind:f.k==='coast'?'mar':f.k==='lake'?'laguna':'rio',side:(dx*nn.y-dy*nn.x)>0?'left':'right'};}
+    /* cornisa: el terreno sube fuerte de un lado del camino (más de 25 m en 70 m) */
+    let corn=false;if(demS){const nx=-dy,ny=dx,l=Math.hypot(nx,ny)||1,o=35/111320,hl=demS(la+ny/l*o,lo+nx/l*o/Math.cos(la*rad)),hr=demS(la-ny/l*o,lo-nx/l*o/Math.cos(la*rad));corn=isFinite(hl)&&isFinite(hr)&&Math.abs(hl-hr)>25;}
+    const sc=urban?(south?'ciudad':'urbana'):prof[i]>=hiAlt?'montana':forest?'bosque':corn?'cornisa':w&&w.kind==='mar'?(south?'canal':'mar'):'rural';
+    sm.push({km:P[i][2]/1000,scene:sc,water:w?w.side:null,waterKind:w?w.kind:'mar'});
+  }
+  /* tramos: se juntan los iguales y los de menos de 400 m se suman al anterior */
+  const key=x=>x.scene+'|'+(x.water||'')+'|'+(x.water?x.waterKind:'');const segs=[];
+  for(const x of sm){if(segs.length&&key(segs[segs.length-1])===key(x))continue;segs.push({...x});}
+  for(let i=1;i<segs.length;){const len=(i+1<segs.length?segs[i+1].km:P[P.length-1][2]/1000)-segs[i].km;
+    if(len<.4){segs.splice(i,1);if(i<segs.length&&key(segs[i])===key(segs[i-1]))segs.splice(i,1);}else i++;}
+  return segs.map((x,i)=>({km:i?+x.km.toFixed(2):0,scene:x.scene,water:x.water||null,waterKind:x.waterKind||'mar',wall:null}));
+}
+async function bkPack(o){
+  const str=JSON.stringify(o),u8=a=>{let b='';for(let i=0;i<a.length;i+=8192)b+=String.fromCharCode.apply(null,a.subarray(i,i+8192));return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
+  if(window.CompressionStream){try{const cs=new Blob([str]).stream().pipeThrough(new CompressionStream('deflate-raw'));return 'z'+u8(new Uint8Array(await new Response(cs).arrayBuffer()));}catch(e){}}
+  return 'j'+u8(new TextEncoder().encode(str));
+}
+/* o: {name, ll:[[lat,lon],…], grade} */
+async function bkSend(o){
+  if(!o.ll||o.ll.length<2){toast('No hay recorrido para mandar',3000);return;}
+  let L=0;for(let i=1;i<o.ll.length;i++)L+=hav(o.ll[i-1],o.ll[i]);
+  if(L<300){toast('El recorrido es muy corto para el rodillo',3000);return;}
+  const st=L>40000?20:10,R=bkResample(o.ll,st),z=L<=40000?14:L<=150000?13:12,list=demTilesAlong(o.ll,z,st*2);
+  const falta=await demMissing(list,z);
+  if(falta){
+    if(S.dataMode==='never'||netBlocked()){toast('Falta la altura del terreno de esta zona y no se puede usar internet (Ajustes → Datos móviles)',6000);return;}
+    const cel=S.dataMode==='wifi'&&connType()==='cellular';
+    if(!confirm(`Para la altura del camino hay que bajar ${falta} tesela${falta>1?'s':''} de relieve (unos ${Math.max(1,Math.round(falta*.12))} MB)${cel?', con datos móviles':''}. Quedan guardadas. ¿Seguir?`))return;
+  }
+  toast('🚴 Armando la ruta para Bici Indoor: altura del camino…',20000);
+  const dem=await fetchDemList(list,z),demS=(la,lo)=>sampleDem(dem,z,la,lo);
+  let raw=R.pts.map(p=>demS(p[0],p[1])),bad=raw.filter(v=>!isFinite(v)).length;
+  if(bad>raw.length*.2){toast('No se pudo leer la altura del terreno de esta zona (¿sin conexión?)',6000);return;}
+  for(let i=0;i<raw.length;i++)if(!isFinite(raw[i])){let j=i;while(j<raw.length&&!isFinite(raw[j]))j++;const a=i?raw[i-1]:raw[j],b=j<raw.length?raw[j]:a;for(let q=i;q<j;q++)raw[q]=a+(b-a)*(q-i+1)/(j-i+1);i=j;}
+  raw=raw.map(v=>Math.max(0,v));
+  const prof=bkProfile(raw,R.L/(R.pts.length-1),o.grade||.25);
+  let up=0,gm=0;for(let i=1;i<prof.length;i++){const d=prof[i]-prof[i-1];if(d>0)up+=d;gm=Math.max(gm,d/(R.L/(R.pts.length-1)));}
+  /* escenario */
+  let scenes=null,scErr='';
+  if(!netBlocked()&&S.dataMode!=='never'){
+    toast('🚴 Armando el escenario (ciudad, bosque, costa…)…',60000);
+    try{let bb={n:-90,s:90,e:-180,w:180};for(const p of R.pts){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}
+      bb={n:bb.n+.004,s:bb.s-.004,e:bb.e+.006,w:bb.w-.006};
+      scenes=bkScenes(R.pts,prof,bkFeatures(await bkOsm(bb)),demS);}catch(e){scErr=e.message||String(e);}
+  }
+  if(!scenes){try{scenes=bkScenes(R.pts,prof,[],demS);}catch(e){}}
+  const nm=(o.name||'Ruta de Rumbo').replace(/[<>&"]/g,'').slice(0,60);
+  const gpx=`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Rumbo"><trk><name>${nm}</name><trkseg>`+R.pts.map((p,i)=>`<trkpt lat="${p[0].toFixed(6)}" lon="${p[1].toFixed(6)}"><ele>${prof[i].toFixed(1)}</ele></trkpt>`).join('')+'</trkseg></trk></gpx>';
+  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20});
+  const resum=`${dec(R.L/1000,1)} km · ↑ ${Math.round(up)} m · pendiente máx ${Math.round(gm*100)} %`+(scenes?` · escenario de ${scenes.length} tramo${scenes.length>1?'s':''}`:'');
+  toast(`🚴 Listo: ${resum}${scErr?' (sin datos de OpenStreetMap: escenario solo por altura)':''}. Se abre Bici Indoor…`,6000);
+  BK.last={name:nm,L:R.L,up,gm,scenes,len:data.length};
+  setTimeout(()=>{const a=document.createElement('a');a.href=BK_URL+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
+}
+const BK={last:null};
 
 /* ---------- 🛟 Guardián del grupo: si alguien corta su ritmo de golpe (caída, pinchazo, vuelco), se le pregunta y todos ven la respuesta ----------
    Corre en el teléfono de cada uno mientras comparte en un grupo. Mira la velocidad del GPS (y, con la pantalla prendida, los golpes del acelerómetro):
