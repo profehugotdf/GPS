@@ -3271,7 +3271,7 @@ function cue(text,d,kind){
 }
 
 /* ---------- Actividades y récords ---------- */
-const ACT={walk:['🚶','Caminata'],run:['🏃','Correr'],bike:['🚴','Bici'],car:['🚗','Auto'],kayak:['🛶','Kayak'],swim:['🏊','Natación']};
+const ACT={walk:['🚶','Caminata'],run:['🏃','Correr'],bike:['🚴','Bici'],car:['🚗','Auto'],kayak:['🛶','Kayak'],swim:['🏊','Natación'],plane:['✈️','Avión']};
 let RUNS=[];
 const loadRuns=async()=>{RUNS=await DB.all('kv','run:');};
 const raceCid=(cid,n)=>`${cid}#race${n}`;
@@ -4257,7 +4257,7 @@ async function showTrackDetail(id){
       <button class="btn" data-act="multi">🧩 Revivir multideporte (triatlón…)</button>
       <button class="btn" data-act="gpx">Compartir GPX</button>
       ${MP_DISC[tr.act]?`<button class="btn" data-act="mp">📤 ${tr.mp?'Volver a mandar':'Mandar'} a Mi plan</button>`:''}
-      ${!['kayak','swim'].includes(tr.act)?`<button class="btn" data-act="bk">🚴 Entrenar en Bici Indoor</button>`:''}
+      ${!['kayak','swim','plane'].includes(tr.act)?`<button class="btn" data-act="bk">🚴 Entrenar en Bici Indoor</button>`:''}
       <button class="btn" data-act="anal">Medir con un circuito</button>
       <button class="btn primary" data-act="follow">🧭 Guiarme por este recorrido</button>
       <button class="btn" data-act="followrev">↩︎ Hacerlo al revés</button>
@@ -10739,6 +10739,36 @@ function t3Carve(ll,runs,grade){
   for(let q=0;q<n*n;q++){const d=best[q];if(d<R2){if(d<=R1){H[q]=Math.min(low[q],tgt[q]);continue;}const w=.5+.5*Math.cos(Math.PI*(d-R1)/(R2-R1));H[q]=H[q]*(1-w)+tgt[q]*w;}}
   t3MeshBuf();t3RoadMesh();
 }
+/* ---------- ✈️ vuelos en el 3D ----------
+   La altura de cada punto: la grabada, salvo que sea la de la cabina (el teléfono mezcla el GPS con el barómetro y en un
+   avión presurizado marca ~2.000 m a 700 km/h). En ese caso se arma un perfil estimado: despega cuando pasa los
+   250 km/h, sube a 600 m/min hasta crucero (10.700 m), y baja a 500 m/min para llegar al aterrizaje. */
+function airAlts(tr,gfn){
+  const P=tr.pts,n=P.length;if(n<2)return {a:P.map(()=>0),est:false};
+  const v=new Array(n).fill(0);for(let i=0;i<n;i++){const a=P[Math.max(0,i-3)],b=P[Math.min(n-1,i+3)],dt=(b[2]-a[2])/1000;v[i]=dt>0?hav(a,b)/dt:0;}
+  const alts=P.map(p=>p[4]).filter(x=>x!=null),maxA=alts.length?Math.max(...alts):0,maxV=Math.max(...v);
+  const g0=(()=>{const a=P.slice(0,8).map(p=>p[4]).filter(x=>x!=null);return a.length?a.sort((x,y)=>x-y)[a.length>>1]:0;})();
+  const g1=(()=>{const a=P.slice(-8).map(p=>p[4]).filter(x=>x!=null);return a.length?a.sort((x,y)=>x-y)[a.length>>1]:g0;})();
+  if(alts.length>n*.5&&!(maxV>140&&maxA<4500)){   // altura creíble: la grabada, suavizada, con los huecos interpolados
+    const a=P.map(p=>p[4]);let last=null;for(let i=0;i<n;i++){if(a[i]==null){let j=i;while(j<n&&a[j]==null)j++;const x=last==null?(j<n?a[j]:0):last,y=j<n?a[j]:x;for(let k=i;k<j;k++)a[k]=x+(y-x)*(k-i+1)/(j-i+1);i=j-1;}else last=a[i];}
+    const o=a.map((x,i)=>{let s=0,c=0;for(let k=Math.max(0,i-3);k<=Math.min(n-1,i+3);k++){s+=a[k];c++;}return s/c;});return {a:o,est:false};
+  }
+  /* con altura de cabina, el suelo del despegue y del aterrizaje sale del relieve (si se conoce) */
+  let G0=g0,G1=g1;if(gfn){const a=gfn(P[0][0],P[0][1]),b=gfn(P[n-1][0],P[n-1][1]);if(isFinite(a))G0=a;if(isFinite(b))G1=b;}
+  let i0=v.findIndex(x=>x>70),i1=n-1;while(i1>0&&v[i1]<=70)i1--;if(i0<0){i0=0;i1=n-1;}
+  const t0=P[i0][2],t1=P[i1][2],H=S.flCruise||10700,up=10,dn=8.3;
+  return {a:P.map((p,i)=>{if(i<=i0)return G0;if(i>=i1)return G1;const sU=(p[2]-t0)/1000,sD=(t1-p[2])/1000;return Math.max(Math.min(G0,G1),Math.min(H,G0+up*sU,G1+dn*sD));}),est:true};
+}
+function t3AirRoad(ll,tr){
+  T3.road=null;const A=airAlts(tr,T3.hasZ?(la,lo)=>{const q=t3XZ(la,lo),sp=T3.N*128*T3.mpp;return Math.abs(q[0])<sp&&Math.abs(q[1])<sp?t3H(q[0],q[1]):NaN;}:null);T3.airEst=A.est;
+  const pc=[0];for(let i=1;i<tr.pts.length;i++)pc.push(pc[i-1]+hav(tr.pts[i-1],tr.pts[i]));const PL=pc[pc.length-1]||1;
+  const Q=ll.map(p=>t3XZ(p[0],p[1])),qc=[0];for(let i=1;i<Q.length;i++)qc.push(qc[i-1]+Math.hypot(Q[i][0]-Q[i-1][0],Q[i][1]-Q[i-1][1]));
+  const LL=qc[qc.length-1];if(!(LL>0))return;const gs=Math.max(10,LL/5000),ns=Math.ceil(LL/gs)+1,S2=[],cum=new Float32Array(ns),h=new Float32Array(ns);let sj=1,pj=1;
+  for(let k=0;k<ns;k++){const d=Math.min(LL,k*LL/(ns-1));while(sj<Q.length-1&&qc[sj]<d)sj++;const t=Math.max(0,Math.min(1,(d-qc[sj-1])/((qc[sj]-qc[sj-1])||1)));
+    S2.push([Q[sj-1][0]+(Q[sj][0]-Q[sj-1][0])*t,Q[sj-1][1]+(Q[sj][1]-Q[sj-1][1])*t]);cum[k]=d;
+    const pd=d/LL*PL;while(pj<pc.length-1&&pc[pj]<pd)pj++;const u=Math.max(0,Math.min(1,(pd-pc[pj-1])/((pc[pj]-pc[pj-1])||1)));h[k]=A.a[pj-1]+(A.a[pj]-A.a[pj-1])*u;}
+  T3.road={S:S2,cum,h,L:LL};t3RoadMesh();
+}
 /* altura del camino a una fracción del recorrido (0 a 1) */
 function t3RoadY(fr){
   const R=T3.road;if(!R)return null;const s=Math.max(0,Math.min(1,fr))*R.L,c=R.cum;let lo=1,hi=c.length-1;
@@ -10746,8 +10776,8 @@ function t3RoadY(fr){
 }
 /* la cinta del camino (solo a ras del suelo): 8 m de ancho con bordes blancos, por encima del relieve */
 const T3_RVS=`#version 300 es
-in vec3 p;in float pr;in float sd;uniform mat4 M;uniform float ex;uniform vec3 eye;out float vpr;out float vsd;out float vd;
-void main(){vec3 q=vec3(p.x,p.y*ex+.4,p.z);vec3 tv=eye-q;float dl=length(tv);q+=tv/dl*min(8.,dl*.25);gl_Position=M*vec4(q,1.);vpr=pr;vsd=sd;vd=dl;}`;
+in vec3 p;in float pr;in float sd;in vec2 nm;uniform mat4 M;uniform float ex;uniform vec3 eye;uniform float w;out float vpr;out float vsd;out float vd;
+void main(){vec3 q=vec3(p.x+nm.x*sd*w,p.y*ex+.4,p.z+nm.y*sd*w);vec3 tv=eye-q;float dl=length(tv);q+=tv/dl*min(8.,dl*.25);gl_Position=M*vec4(q,1.);vpr=pr;vsd=sd;vd=dl;}`;
 const T3_RFS=`#version 300 es
 precision highp float;in float vpr;in float vsd;in float vd;uniform float kp;uniform float km;uniform float fog;out vec4 c;
 void main(){vec3 col=abs(vsd)>.75?vec3(1.):(km>.5?(vpr<=kp?vec3(.98,.33,.1):vec3(.78,.8,.83)):vec3(.94,.29,.11));float f=smoothstep(fog*.45,fog,vd);c=vec4(mix(col,vec3(.72,.82,.9),f*.85),1.);}`;
@@ -10755,12 +10785,12 @@ function t3RoadMesh(){
   const gl=T3.gl,R=T3.road;if(!gl||!R)return;
   if(!T3.rprog){const sh=(t,src)=>{const o=gl.createShader(t);gl.shaderSource(o,src);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;};
     const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,T3_RVS));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,T3_RFS));gl.linkProgram(pr);T3.rprog=pr;}
-  const {S,cum,h,L}=R,N=S.length,W=4,pos=new Float32Array(N*6),pr=new Float32Array(N*2),sd=new Float32Array(N*2);
+  const {S,cum,h,L}=R,N=S.length,pos=new Float32Array(N*6),pr=new Float32Array(N*2),sd=new Float32Array(N*2),nm=new Float32Array(N*4);
   for(let i=0;i<N;i++){const a=S[Math.max(0,i-1)],b=S[Math.min(N-1,i+1)];let tx=b[0]-a[0],tz=b[1]-a[1];const l=Math.hypot(tx,tz)||1;tx/=l;tz/=l;
-    for(const [k,sg] of [[0,-1],[1,1]]){const v=i*2+k;pos[v*3]=S[i][0]-tz*W*sg;pos[v*3+1]=h[i];pos[v*3+2]=S[i][1]+tx*W*sg;pr[v]=cum[i]/L;sd[v]=sg;}}
+    for(const [k,sg] of [[0,-1],[1,1]]){const v=i*2+k;pos[v*3]=S[i][0];pos[v*3+1]=h[i];pos[v*3+2]=S[i][1];nm[v*2]=-tz;nm[v*2+1]=tx;pr[v]=cum[i]/L;sd[v]=sg;}}
   const vao=gl.createVertexArray();gl.bindVertexArray(vao);
   const att=(name,data,size)=>{const bf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,bf);gl.bufferData(gl.ARRAY_BUFFER,data,gl.STATIC_DRAW);const lc=gl.getAttribLocation(T3.rprog,name);gl.enableVertexAttribArray(lc);gl.vertexAttribPointer(lc,size,gl.FLOAT,false,0,0);};
-  att('p',pos,3);att('pr',pr,1);att('sd',sd,1);gl.bindVertexArray(null);
+  att('p',pos,3);att('pr',pr,1);att('sd',sd,1);att('nm',nm,2);gl.bindVertexArray(null);
   if(T3.rvao)gl.deleteVertexArray(T3.rvao);T3.rvao=vao;T3.rn=N*2;T3.dirty=true;
 }
 /* la línea a mostrar: la ruta elegida, o la que se pasa (un track) */
@@ -10801,7 +10831,9 @@ async function open3D(o){
   const dem=use.length?await fetchDemList(use,zd,(d,n)=>{if(T3.gen===my)$('#t3msg').textContent=`Bajando la altura del terreno… ${d} de ${n}`;}):new Map();
   if(T3.gen!==my)return;
   t3Mesh(dem);
-  if(line){const tr=o.track,rk=!tr&&!o.line&&RT.res&&RT.res[RT.sel]&&!RT.res[RT.sel].err?RT.sel:null;
+  T3.air=!!(o.track&&o.track.act==='plane');T3.airY=null;
+  if(line&&T3.air){t3AirRoad(line,o.track);}
+  else if(line){const tr=o.track,rk=!tr&&!o.line&&RT.res&&RT.res[RT.sel]&&!RT.res[RT.sel].err?RT.sel:null;
     t3Carve(line,runs||(rk&&T3_WATER_RT[rk]?[{a:0,b:line.length-1,water:true}]:null),T3_GRADE[tr?(tr.legs?'bike':tr.act):rk]||.45);}
   const cam=T3.cam,[cx,cz]=t3XZ(c[0],c[1]),span=N*256*T3.mpp;
   Object.assign(cam,{tx:cx,tz:cz,az:map.getBearing?-map.getBearing():0,tilt:58,dist:Math.min(span*.55,Math.max(800,hav([bb.n,bb.w],[bb.s,bb.e])*.75))});
@@ -10942,7 +10974,7 @@ function t3Cam(){
   const c=T3.cam,span=T3.N*256*T3.mpp/2;
   c.tx=Math.max(-span,Math.min(span,c.tx));c.tz=Math.max(-span,Math.min(span,c.tz));
   c.tilt=Math.max(0,Math.min(82,c.tilt));c.dist=Math.max(150,Math.min(span*3,c.dist));
-  const th=t3H(c.tx,c.tz)*T3.exag,az=c.az*rad,tl=c.tilt*rad,dir=[Math.sin(az),0,-Math.cos(az)];
+  const th=(T3.air&&T3.airY!=null?T3.airY:t3H(c.tx,c.tz))*T3.exag,az=c.az*rad,tl=c.tilt*rad,dir=[Math.sin(az),0,-Math.cos(az)];
   const T=[c.tx,th,c.tz];
   let eye=[T[0]-dir[0]*c.dist*Math.sin(tl),T[1]+c.dist*Math.cos(tl),T[2]-dir[2]*c.dist*Math.sin(tl)];
   const ground=t3H(eye[0],eye[2])*T3.exag+60;if(eye[1]<ground)eye[1]=ground;
@@ -10966,8 +10998,9 @@ function t3Draw(){
   gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,T3.ktex||T3.otex);gl.uniform1i(u('k'),2);gl.uniform1f(u('km'),T3.km&&T3.ktex&&!(T3.fpv&&T3.rvao)?1:0);gl.uniform1f(u('kp'),T3.kp||0);
   T3.M=M;
   gl.bindVertexArray(T3.vao);gl.drawElements(gl.TRIANGLES,T3.nIdx,gl.UNSIGNED_INT,0);gl.bindVertexArray(null);
-  if(T3.fpv&&T3.rvao&&T3.rprog){   // a ras del suelo el camino va como cinta propia: no depende de lo grueso del relieve
+  if((T3.fpv||T3.air)&&T3.rvao&&T3.rprog){   // a ras del suelo el camino va como cinta propia (no depende de lo grueso del relieve); en un vuelo, la ruta en el aire
     gl.useProgram(T3.rprog);const v=n=>gl.getUniformLocation(T3.rprog,n);gl.disable(gl.CULL_FACE);
+    gl.uniform1f(v('w'),T3.air?(T3.fpv?5:Math.max(25,T3.cam.dist/140)):4);
     gl.uniformMatrix4fv(v('M'),false,M);gl.uniform1f(v('ex'),T3.exag);gl.uniform3fv(v('eye'),eye);gl.uniform1f(v('kp'),T3.kp||0);gl.uniform1f(v('km'),T3.km?1:0);gl.uniform1f(v('fog'),span*.5);
     gl.bindVertexArray(T3.rvao);gl.drawArrays(gl.TRIANGLE_STRIP,0,T3.rn);gl.bindVertexArray(null);gl.enable(gl.CULL_FACE);}
   const cp=$('#t3cmp');if(cp)cp.style.transform=`rotate(${-(T3.fpv&&t3Follow()?T3.fpvP.az+T3.fpvYaw:T3.cam.az)}deg)`;
@@ -11115,7 +11148,8 @@ function t3RelStep(now){
     if(now-R.end>outro){R.go=false;R.t0=null;R.done=true;if(T3.recr&&T3.recr.state==='recording')setTimeout(()=>T3.recr&&T3.recr.state==='recording'&&T3.recr.stop(),300);t3RelBtn();}
   }
   /* datos de ese momento */
-  const p0=R.pts[i-1],p1=R.pts[i],tt=p0[2]+(p1[2]-p0[2])*t,alt=p0[4]!=null&&p1[4]!=null?p0[4]+(p1[4]-p0[4])*t:null;
+  const p0=R.pts[i-1],p1=R.pts[i],tt=p0[2]+(p1[2]-p0[2])*t,alt=T3.air&&T3.road?t3RoadY(s/(R.L||1)):p0[4]!=null&&p1[4]!=null?p0[4]+(p1[4]-p0[4])*t:null;
+  if(T3.air)T3.airY=T3.road?t3RoadY(s/(R.L||1)):alt;
   let j=i;while(j>1&&tt-R.pts[j-1][2]<60000)j--;const dd=s-R.cum[j-1],dt=(tt-R.pts[j-1][2])/1000,v=dt>5?dd/dt:null;
   /* pulso y cadencia del momento; potencia promedio de los últimos 10 s (la instantánea salta mucho) */
   const sv=(arr,win)=>{if(!arr)return null;const a=arr[R.ix[i-1]],b=arr[R.ix[i]];if(!win){if(a==null&&b==null)return null;if(a==null)return b;if(b==null)return a;return Math.round(a+(b-a)*t);}
@@ -11130,7 +11164,8 @@ function t3RelHud(){
   const done=R.done||R.end!=null;
   const lg=R.leg,li=R.legs?R.legs.indexOf(lg):-1;
   $('#t3rel').innerHTML=`<div class="rt">${t3Icon(R)} <b>${esc(lg&&!done?(lg.lab||ACT[lg.act][1]):(R.tr.name||'Recorrido'))}</b>${lg&&!done?`<small>etapa ${li+1} de ${R.legs.length} · ${fmtT(Math.max(0,n.lel||0))}</small>`:`<small>${fmtDate(R.tr.t0||R.pts[0][2])}</small>`}</div>
-    <div class="rs"><div><b>${(n.s/1000).toFixed(2).replace('.',DSEP())}</b><small>km</small></div><div><b>${fmtT(n.el)}</b><small>tiempo</small></div><div><b>${n.alt!=null?Math.round(n.alt):'—'}</b><small>m altura</small></div><div><b>${sp}</b><small>${done?'':'ahora'}</small></div>
+    <div class="rs"><div><b>${(n.s/1000).toFixed(2).replace('.',DSEP())}</b><small>km</small></div><div><b>${fmtT(n.el)}</b><small>tiempo</small></div>${T3.air?`<div><b>${n.alt!=null?miles(Math.round(n.alt)):'—'}</b><small>m${n.alt!=null?' · '+miles(Math.round(n.alt*3.2808/100)*100)+' ft':''}${T3.airEst?' (estimada)':''}</small></div><div><b>${n.v?Math.round(n.v*3.6):'—'}</b><small>km/h${n.v?' · '+Math.round(n.v*1.94384)+' kt':''}</small></div>`
+      :`<div><b>${n.alt!=null?Math.round(n.alt):'—'}</b><small>m altura</small></div><div><b>${sp}</b><small>${done?'':'ahora'}</small></div>`}
     ${R.hrS?`<div class="hr"><b>❤️ ${n.hr!=null?n.hr:'—'}</b><small>pulso</small></div>`:''}${R.pwS?`<div class="pw"><b>⚡ ${n.pw!=null?n.pw:'—'}</b><small>W (10 s)</small></div>`:''}${R.cadS?`<div><b>${n.cad!=null?n.cad:'—'}</b><small>cadencia</small></div>`:''}</div>
     ${done&&R.legs?`<div class="re">${R.legs.map(l=>`${l.lab?'⏱️ '+l.lab:ACT[l.act][0]} ${fmtT(l.dur)}`).join(' · ')}</div>`:''}
     ${done?`<div class="re">🏁 ${(R.L/1000).toFixed(2).replace('.',DSEP())} km · ${fmtT(R.pts[R.pts.length-1][2]-R.pts[0][2])}${R.gain>20?` · ↑${Math.round(R.gain)} m`:''}${R.hrS?` · ❤️ ${R.hrS.avg} prom (máx ${R.hrS.max})`:''}${R.pwS?` · ⚡ ${R.pwS.avg} W prom`:''}</div>`:''}`;
@@ -11358,9 +11393,15 @@ function flDraw(){
   const f=lastFix,c=flCalc(),old=!f||Date.now()-lastFixWall>15000,D=flDest();
   const alt=f&&f.alt!=null?f.alt:null,v=c.v,dd=f?hav([f.lat,f.lon],[D.lat,D.lon]):null;
   const eta=v>15&&dd!=null?Date.now()+dd/v*1000:null;
+  /* el teléfono suele mezclar el GPS con su barómetro: adentro del avión mide la presión de la CABINA (presurizada a
+     ~2.000-2.400 m), así que la altura sube despacio (~100-150 m/min) y se queda en unos 2.000 m. Se avisa. */
+  if(v>83&&alt!=null&&alt<3500){FL.cab=(FL.cab||Date.now());}else FL.cab=0;
+  const cabin=FL.cab&&Date.now()-FL.cab>120000;
+  if(v>70&&!FL.toff&&f){FL.toff=f.t;FL.g0=alt!=null?alt:0;}
+  const estA=cabin&&FL.toff&&f?Math.max(alt||0,Math.min(S.flCruise||10700,(FL.g0||0)+10*Math.max(0,f.t-FL.toff)/1000)):null;   // subiendo a ~600 m/min, como un avión de línea
   const vsTxt=c.vs==null?'—':Math.abs(c.vs)<60?'nivelado':(c.vs>0?'↑ ':'↓ ')+miles(Math.round(Math.abs(c.vs)/10)*10);
   el.querySelector('.fg').innerHTML=`
-    <div class="${old?'old':''}"><small>Altura GPS</small><b>${alt!=null?miles(Math.round(alt))+'<i>m</i>':'—'}</b><small>${alt!=null?miles(Math.round(alt*3.2808/10)*10)+' ft':'esperando la altura'}</small></div>
+    <div class="${old?'old':''}"><small>Altura GPS</small><b>${alt!=null?miles(Math.round(alt))+'<i>m</i>':'—'}</b><small>${alt!=null?(cabin?`⚠️ es la de la cabina · real ≈ ${miles(Math.round(estA/100)*100)} m`:miles(Math.round(alt*3.2808/10)*10)+' ft'):'esperando la altura'}</small></div>
     <div class="${old?'old':''}"><small>Velocidad (sobre el suelo)</small><b>${v!=null?Math.round(v*3.6)+'<i>km/h</i>':'—'}</b><small>${v!=null?Math.round(v*1.94384)+' nudos':''}</small></div>
     <div class="${old?'old':''}"><small>Rumbo</small><b>${c.brg!=null&&!isNaN(c.brg)?Math.round((c.brg+360)%360)+'°<i>'+card8(c.brg)+'</i>':'—'}</b><small>hacia donde va el avión</small></div>
     <div class="${old?'old':''}"><small>Vertical (m/min)</small><b style="font-size:24px">${vsTxt}</b><small>${c.vs!=null&&Math.abs(c.vs)>=60?(c.vs>0?'subiendo':'bajando'):''}</small></div>`;
@@ -11371,7 +11412,7 @@ function flDraw(){
 }
 async function flStart(){
   if(FL.on)return;
-  Object.assign(FL,{on:true,t0:Date.now(),hist:[],dist:0,maxAlt:null,maxV:0,last:null});
+  Object.assign(FL,{on:true,t0:Date.now(),hist:[],dist:0,maxAlt:null,maxV:0,last:null,toff:0,g0:0,cab:0});
   const el=$('#flt');el.hidden=false;
   el.innerHTML=`<div class="fh">✈️ <span>Modo vuelo</span><button data-fl="dest">📍 Destino</button><button data-fl="x">✕</button></div><div class="fg"></div><div class="fw"></div>
     <div class="fb"><button data-fl="rec">⏺ Grabar el vuelo</button><button data-fl="zoom">🗺️ Ver más mapa</button></div>`;
@@ -11390,7 +11431,7 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('#flt [data-fl]');if(!b)return;const a=b.dataset.fl;
   if(a==='x')flStop();
   else if(a==='zoom'){const z=map.getZoom();map.setZoom(z>8?7:z>5?4:10);}
-  else if(a==='rec'){if(REC.state==='idle'){S.act='car';saveS();updActBtn();startRec().then(()=>{toast('⏺ Grabando el vuelo (como 🚗 Auto, para no mezclarlo con tus récords). Después lo ves en 🎬 Revivir 3D',6000);flDraw();});}else toast('Ya está grabando',2500);}
+  else if(a==='rec'){if(REC.state==='idle'){FL.prevAct=S.act;S.act='plane';saveS();updActBtn();startRec().then(()=>{toast('⏺ Grabando el vuelo como ✈️ Avión. Después lo ves volando en 🎬 Revivir 3D',6000);flDraw();});}else toast('Ya está grabando',2500);}
   else if(a==='dest'){
     const opts=(RT.to?[['B','Destino B de la ruta']]:[]).concat(FL_APT.map(x=>[x[0],x[1]+' ('+x[0]+')']));
     openSheet('✈️ Destino',`<div class="list">${opts.map(([k,n])=>`<div class="item" data-act="fd" data-k="${k}"><b>${esc(n)}</b>${(S.flDest||'SAWH')===k?' ✓':''}</div>`).join('')}</div>`,
@@ -11458,7 +11499,7 @@ async function prAll(prog){
 /* tabla: por disciplina, los 3 mejores de cada cosa */
 function prTable(list,skipId){
   const T={},put=(act,key,item,lower)=>{const a=(T[act]=T[act]||{}),arr=(a[key]=a[key]||[]);arr.push(item);arr.sort((x,y)=>lower?x.v-y.v:y.v-x.v);if(arr.length>3)arr.length=3;};
-  for(const x of list){if(x.id===skipId)continue;const it=v=>({v,id:x.id,t0:x.t0,name:x.name});
+  for(const x of list){if(x.id===skipId||x.act==='plane')continue;const it=v=>({v,id:x.id,t0:x.t0,name:x.name});
     for(const D in x.e)put(x.act,'d'+D,Object.assign(it(x.e[D].ms),{s0:x.e[D].t0}),true);
     if(x.dist>0)put(x.act,'dist',it(x.dist),false);if(x.mov>0)put(x.act,'mov',it(x.mov),false);if(x.gain>0)put(x.act,'gain',it(x.gain),false);
     if(x.pw)for(const w in x.pw)put(x.act,'pw'+w,it(x.pw[w]),false);}
@@ -12529,7 +12570,7 @@ $('#fLoc').onclick=()=>{
   setFollow(true);map.setView([lastFix.lat,lastFix.lon],Math.max(map.getZoom(),16));
 };
 $('#fAct').onclick=()=>{
-  const k=Object.keys(ACT);S.act=k[(k.indexOf(S.act)+1)%k.length];saveS();updActBtn();
+  const k=Object.keys(ACT).filter(x=>x!=='plane');S.act=k[(k.indexOf(S.act)+1)%k.length];saveS();updActBtn();
   /* también durante la grabación: se corrige la disciplina de toda la salida */
   if(REC.state!=='idle'){REC.act=S.act;SH.metaOk=false;for(const t of REC.timers)t.base=null;toast(`${ACT[S.act][0]} Esta grabación ahora es de ${ACT[S.act][1]}`,3000);}
   else toast(ACT[S.act][0]+' '+ACT[S.act][1]);
