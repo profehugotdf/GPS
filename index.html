@@ -1120,6 +1120,12 @@ class Graph{
     if(this.seen.has(id))return -1;
     this.seen.add(id);
     const prof=wayProfile(tags,this.cfg);
+    /* corrección tuya: por la banquina de esta ruta se puede ir a pie y en bici (aunque OpenStreetMap diga que no) */
+    const A=this.cfg.acc;
+    if(A&&(tags.ref&&A.refs.has(tags.ref)||tags.name&&A.names.has(tags.name))){
+      if(!prof.foot.ok)prof.foot={ok:true,ow:0,v:(this.cfg.vFoot||5)/3.6*.85};
+      if(!prof.bike.ok)prof.bike={ok:true,ow:prof.car.ok?prof.car.ow:0,v:(this.cfg.vBike||18)/3.6*.9};
+    }
     if(!MODES.some(m=>prof[m].ok))return -1;
     const nodes=osm.map((o,i)=>this.node(o,pts[i][0],pts[i][1]));
     if(zs)nodes.forEach((n,i)=>{if(zs[i]!=null&&!isNaN(zs[i])){this.z[n]=zs[i];this.hasZ=true;}});
@@ -1269,7 +1275,11 @@ class Graph{
   }
   /* velocidad (m/s) si el tramo se puede recorrer en ese sentido (d=+1 de a hacia b), si no 0 */
   pass(e,mode,d){
-    const p=this.W[e.w].prof[mode];if(!p.ok)return 0;
+    const p=this.W[e.w].prof[mode];
+    if(!p.ok){ /* tramo que corregiste: a pie y en bici por la banquina */
+      if(mode!=='car'&&this.cfg.acc&&e.blk&&this.cfg.acc.segs.has(e.blk)&&!(e.ban&&e.ban[mode]))return mode==='foot'?(this.cfg.vFoot||5)/3.6*.85:(this.cfg.vBike||18)/3.6*.9;
+      return 0;
+    }
     if(e.ban&&e.ban[mode])return 0;                 /* dentro de una zona donde no se puede entrar */
     let ow=p.ow;const o=e.ov;
     if(o){
@@ -4602,7 +4612,9 @@ function ensureGraph(opt){
     const ov=new Map();
     edits.filter(e=>e.type==='ov').forEach(e=>ov.set(`${e.way}:${e.n1}:${e.n2}`,{dir:e.dir,all:!!e.all}));
     await new Promise(r=>setTimeout(r,0));
-    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait,avg:S.timeMode==='avg'?{foot:S.avgFoot/3.6,bike:S.avgBike/3.6,car:S.avgCar/3.6}:null,avgStops:S.avgStops},{turns:edits.filter(e=>e.type==='turn'),barriers:edits.filter(e=>e.type==='barrier'),areas:edits.filter(e=>e.type==='area')});
+    const acc={refs:new Set(),names:new Set(),segs:new Set()};
+    for(const e of edits)if(e.type==='acc'){if(e.scope==='road'){if(e.ref)acc.refs.add(e.ref);else if(e.name)acc.names.add(e.name);}else acc.segs.add(`${e.way}:${e.n1}:${e.n2}`);}
+    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{acc,vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait,avg:S.timeMode==='avg'?{foot:S.avgFoot/3.6,bike:S.avgBike/3.6,car:S.avgCar/3.6}:null,avgStops:S.avgStops},{turns:edits.filter(e=>e.type==='turn'),barriers:edits.filter(e=>e.type==='barrier'),areas:edits.filter(e=>e.type==='area')});
     G.limited=pk.limited;G.center=center;G.long=longWanted;
     if(longWanted){G.rtFrom=[rt.from.lat,rt.from.lon];G.rtTo=[rt.to.lat,rt.to.lon];G.longInfo=info;}
     if(pk.limited)toast(longWanted?`Ruta larga: por memoria quedaron afuera ${pk.dropped} zonas lejos del recorrido`:`Hay muchas zonas bajadas: por memoria se usan las ${pk.nets.length} más cercanas a donde estás (${pk.dropped} quedaron afuera)`,6000);
@@ -5093,6 +5105,7 @@ const editTitle=e=>e.type==='path'?`${KIND_UI[e.kind][0]} ${esc(e.name||KIND_UI[
   :e.type==='area'?`${AREA_UI[e.kind]?AREA_UI[e.kind][0]:'⬛'} ${esc(e.name||(AREA_UI[e.kind]?AREA_UI[e.kind][1]:'Área'))} · área`
   :e.type==='turn'?`🚫 Giro ${e.kind==='only'?'obligatorio':'prohibido'}: ${esc(e.name||'')}`
   :e.type==='barrier'?`⛔ ${esc(e.name||'Barrera')}`
+  :e.type==='acc'?`🚶🚴 ${esc(e.scope==='road'?(e.ref||e.name||'Ruta'):(e.name||'Tramo'))} · a pie y en bici por la banquina${e.scope==='road'?' (toda la ruta)':' (un tramo)'}`
   :`↔️ ${esc(e.name||'Calle')} · ${dirLabel({dir:e.dir,all:e.all})}`;
 const blockGeom=(g,key)=>g.blockEdges(key).map(ei=>{const x=g.E[ei];return [g.lat[x.a],g.lon[x.a],g.lat[x.b],g.lon[x.b]];});
 /* colores distintos para los límites guardados (en orden alfabético, así no se repiten hasta tener más de 10) */
@@ -5168,6 +5181,7 @@ async function drawEdits(){
     let g=null;try{g=await ensureGraph();}catch(er){}
     if(g)for(const e of old){e.geom=blockGeom(g,`${e.way}:${e.n1}:${e.n2}`);if(e.geom.length)await DB.put('kv','edit:'+e.id,e);}
   }
+  for(const e of edits)if(e.type==='acc'&&e.geom)for(const q of e.geom)L.polyline([[q[0],q[1]],[q[2],q[3]]],{color:'#2E7D32',weight:6,opacity:.8,dashArray:'8 6',interactive:false}).addTo(editLayer);
   for(const e of edits)if(e.type==='ov'&&e.geom){
     const col=e.dir==='closed'?'#F04A1C':'#E0A100';
     for(const q of e.geom)L.polyline([[q[0],q[1]],[q[2],q[3]]],{color:col,weight:6,opacity:.8,interactive:false}).addTo(editLayer);
@@ -5183,7 +5197,7 @@ async function showFix(){
   h+=`<h3>Dibujo vectorial (costas, límites, ríos…)</h3>
     <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">✍️<br>Calcar o dibujar</button><button class="btn big" data-act="geoimp">📥<br>Importar GeoJSON</button><button class="btn big" data-act="osmcl">🌊<br>Costas y límites de OpenStreetMap</button><button class="btn big" data-act="meas">📏<br>Medir</button><button class="btn big" data-act="perim">⬛<br>Armar un área con tramos</button><button class="btn big" data-act="osmw">🏞️<br>Ríos y lagos de OpenStreetMap</button><button class="btn big" data-act="rdup">🧹<br>Ríos repetidos</button><button class="btn big" data-act="dsel">☑️<br>Elegir trazos y borrar varios</button></div>`;
   if(nets.length)h+=`<h3>Corregir las calles</h3>
-    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="pickway">↔️<br>Sentido o cierre de una calle</button><button class="btn big" data-act="nodes">🚫<br>Giros prohibidos y barreras</button></div>`;
+    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="pickway">↔️<br>Sentido, cierre o paso a pie y en bici</button><button class="btn big" data-act="nodes">🚫<br>Giros prohibidos y barreras</button></div>`;
   const gs=groupsOf(edits),singles=edits.filter(e=>!e.group);
   if(gs.length)h+=`<h3>Importado</h3>`+groupHtml(gs);
   if(singles.length)h+=`<h3>Tus correcciones (${singles.length})</h3>`+singles.map(e=>{
@@ -5252,21 +5266,31 @@ async function pickWayAt(ll){
   L.marker([(a[0]+b[0])/2,(a[1]+b[1])/2],{interactive:false,icon:L.divIcon({html:`<div class="arrow" style="transform:rotate(${brg-90}deg)">➤</div>`,className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(pickLayer);
   PICK=null;banner(null);
   const info={key:e.blk,wid:Number(wid),n1:Number(n1),n2:Number(n2),name:w.name};
+  const roadKey=w.tags.ref||w.name||'',A=g.cfg.acc,accOn=!!(A&&(A.segs.has(e.blk)||w.tags.ref&&A.refs.has(w.tags.ref)||!w.tags.ref&&w.name&&A.names.has(w.name)));
   const save=async(dir,all)=>{
     const id=`ov_${info.wid}_${info.n1}_${info.n2}`;
     await DB.put('kv','edit:'+id,{type:'ov',id,way:info.wid,n1:info.n1,n2:info.n2,dir,all:!!all,name:info.name,geom:blockGeom(g,e.blk),created:Date.now()});
     dropGraph();toast('Corrección guardada');pickLayer.clearLayers();await drawEdits();showFix();
   };
-  openSheet('Sentido o cierre',`<p><b>${esc(w.name||'Calle sin nombre')}</b> · ${Math.round(len)} m entre esquinas</p>
+  openSheet('Corregir la calle',`<p><b>${esc(w.name||'Calle sin nombre')}</b> · ${Math.round(len)} m entre esquinas</p>
     <p>Hoy: <b>${dirLabel(e.ov,w.prof)}</b></p>
     <p class="mut">La flecha amarilla marca el sentido de trazado del mapa. La corrección vale para bici y auto; a pie no cambia, salvo "cerrada para todos".</p>
     <div class="row"><button class="btn" data-act="two">↔️ Doble sentido</button><button class="btn" data-act="fwd">➤ Solo con la flecha</button><button class="btn" data-act="rev">◀ Solo contra la flecha</button></div>
     <div class="row"><button class="btn danger" data-act="cv">⛔ Cerrada a vehículos</button><button class="btn danger" data-act="ca">⛔ Cerrada para todos</button></div>
+    ${!w.prof.foot.ok||!w.prof.bike.ok||accOn?`<h3>🚶🚴 A pie y en bici</h3>
+    <p class="mut">Según OpenStreetMap: a pie <b>${w.prof.foot.ok?'sí':'no'}</b> · en bici <b>${w.prof.bike.ok?'sí':'no'}</b>${accOn?' · <b>ya lo corregiste</b>':''}. Si en la realidad se puede ir por la banquina o por un costado, habilitalo:</p>
+    <div class="row"><button class="btn" data-act="fbseg">Este tramo</button>${roadKey?`<button class="btn primary" data-act="fbroad">Toda la ruta ${esc(roadKey)}</button>`:''}</div>`:''}
     <div class="row"><button class="btn sm" data-act="reset">Volver a lo que dice el mapa</button><button class="btn sm" data-act="back">Cancelar</button></div>`,
     async(act)=>{
       if(act==='two')save('two');else if(act==='fwd')save('fwd');else if(act==='rev')save('rev');
       else if(act==='cv')save('closed',false);else if(act==='ca')save('closed',true);
-      else if(act==='reset'){await DB.del('kv',`edit:ov_${info.wid}_${info.n1}_${info.n2}`);dropGraph();pickLayer.clearLayers();await drawEdits();showFix();}
+      else if(act==='fbseg'||act==='fbroad'){
+        const road=act==='fbroad',id=road?'acc_r_'+String(roadKey).replace(/[^\w]+/g,'_'):`acc_${info.wid}_${info.n1}_${info.n2}`;
+        await DB.put('kv','edit:'+id,road?{type:'acc',id,scope:'road',ref:w.tags.ref||null,name:w.tags.ref?null:(w.name||null),created:Date.now()}
+          :{type:'acc',id,scope:'seg',way:info.wid,n1:info.n1,n2:info.n2,name:info.name,geom:blockGeom(g,e.blk),created:Date.now()});
+        dropGraph();RT.res=null;pickLayer.clearLayers();await drawEdits();
+        toast(road?`🚶🚴 Listo: por toda la ${roadKey} se puede ir a pie y en bici. Volvé a calcular la ruta`:'🚶🚴 Listo: por este tramo se puede ir a pie y en bici. Volvé a calcular la ruta',5000);showFix();}
+      else if(act==='reset'){await DB.del('kv',`edit:ov_${info.wid}_${info.n1}_${info.n2}`);await DB.del('kv',`edit:acc_${info.wid}_${info.n1}_${info.n2}`);if(roadKey)await DB.del('kv','edit:acc_r_'+String(roadKey).replace(/[^\w]+/g,'_'));dropGraph();pickLayer.clearLayers();await drawEdits();showFix();}
       else if(act==='back'){pickLayer.clearLayers();showFix();}
     });
 }
