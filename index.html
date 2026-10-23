@@ -3177,7 +3177,7 @@ function onFix(f){
     accC=L.circle(ll,{radius:f.acc||0,stroke:false,fillColor:'#1E6BFF',fillOpacity:.12,interactive:false}).addTo(map);
     posMk=L.marker(ll,{interactive:false,keyboard:false,zIndexOffset:2000,icon:posIcon()}).addTo(map);
     if(!centered){map.setView(ll,16);centered=true;}
-  }else{smoothMove(ll);accC.setLatLng(ll);accC.setRadius(f.acc||0);}
+  }else{smoothMove(ll);accC.setLatLng(ll);accC.setRadius(f.acc||0);if(APX.last){APX.last=null;try{accC.setStyle({stroke:false,dashArray:null,fillOpacity:.12});}catch(e){}}}
   oriFromFix(f);setPosHeading(f);
   const a=Math.round(f.acc||0),cls=a<=10?'ok':a<=25?'mid':'bad';
   const pill=$('#pill');pill.className=cls;pill.lastElementChild.textContent=`GPS ±${a} m`;
@@ -3203,15 +3203,40 @@ async function startWatch(bg,msg){
         }
         onFix(mk(loc.latitude,loc.longitude,loc.accuracy,loc.altitude,loc.speed,loc.bearing,loc.time,loc.altitudeAccuracy));
       });
-    watch={type:'bg',id,BG};
+    watch={type:'bg',id,BG,msg,t0:Date.now()};
   }else if(navigator.geolocation){
     const id=navigator.geolocation.watchPosition(
       p=>onFix(mk(p.coords.latitude,p.coords.longitude,p.coords.accuracy,p.coords.altitude,p.coords.speed,p.coords.heading,p.timestamp,p.coords.altitudeAccuracy)),
       e=>{$('#pill').lastElementChild.textContent='Sin GPS';toast('GPS: '+e.message);},
       {enableHighAccuracy:true,maximumAge:0,timeout:30000});
-    watch={type:'web',id};
+    watch={type:'web',id,t0:Date.now()};
   }
 }
+/* ---------- 📶 Sin GPS: posición aproximada por antenas y Wi-Fi, y reinicio del GPS ----------
+   Si el GPS no da lecturas por 20 s (adentro de un edificio, en una quebrada, o al aterrizar después de horas en modo
+   avión), se pide al teléfono su posición de red: antenas y Wi-Fi (hace falta señal o Wi-Fi). Se muestra como
+   "≈ ±800 m (antenas)" con un círculo grande, sin grabarla en el track ni usarla para puertas ni grupo. Si el GPS sigue
+   mudo más de un minuto, se reinicia (a veces queda trabado después del modo avión). Cuando vuelve, manda él. */
+const APX={busy:false,t:0,last:null,restart:0};
+function apxTick(){
+  if(!watch||APX.busy||!navigator.geolocation)return;
+  const now=Date.now(),silent=lastFixWall?now-lastFixWall:now-(watch.t0||now);
+  if(silent<20000||now-APX.t<20000)return;
+  APX.busy=true;APX.t=now;
+  navigator.geolocation.getCurrentPosition(p=>{APX.busy=false;apxShow(p.coords.latitude,p.coords.longitude,p.coords.accuracy);},
+    ()=>{APX.busy=false;},{enableHighAccuracy:false,maximumAge:60000,timeout:15000});
+  if(silent>60000&&now-APX.restart>90000){APX.restart=now;const bg=watch.type==='bg',msg=watch.msg;startWatch(bg,msg).catch(()=>{});}
+}
+function apxShow(lat,lon,acc){
+  if(Date.now()-lastFixWall<20000)return;   // volvió el GPS: manda él
+  APX.last={lat,lon,acc,t:Date.now()};const ll=[lat,lon],r=Math.max(50,acc||800);
+  if(!posMk){accC=L.circle(ll,{radius:r,stroke:false,fillColor:'#1E6BFF',fillOpacity:.12,interactive:false}).addTo(map);posMk=L.marker(ll,{interactive:false,keyboard:false,zIndexOffset:2000,icon:posIcon()}).addTo(map);}
+  else{posMk.setLatLng(ll);accC.setLatLng(ll);accC.setRadius(r);}
+  try{accC.setStyle({stroke:true,color:'#1E6BFF',weight:2,dashArray:'6 6',fillOpacity:.08});}catch(e){}
+  const pill=$('#pill');pill.className='bad';pill.lastElementChild.textContent=`≈ ±${r>=1000?dec(r/1000,1)+' km':Math.round(r)+' m'} (antenas)`;
+  if(follow||!centered){map.setView(ll,Math.min(Math.max(map.getZoom(),13),15));centered=true;}
+}
+setInterval(apxTick,5000);
 function stopWatch(){
   if(!watch)return;
   try{if(watch.type==='bg')watch.BG.removeWatcher({id:watch.id});else navigator.geolocation.clearWatch(watch.id);}catch(e){}
@@ -7411,7 +7436,7 @@ function updTarget(){
   const sub=$('#tgtSub'),arrow=$('#tgtArrow');
   if(!lastFix){$('#tgtD').textContent='—';sub.textContent=TGT.label+' · esperando GPS';tgtLine.setLatLngs([]);return;}
   if(typeof GB!=='undefined'&&GB.on)gbKick();
-  const here=[lastFix.lat,lastFix.lon],there=[TGT.lat,TGT.lon];
+  const ax=APX.last&&APX.last.t>lastFixWall?APX.last:null,here=ax?[ax.lat,ax.lon]:[lastFix.lat,lastFix.lon],there=[TGT.lat,TGT.lon];   // sin GPS: desde la posición por antenas
   /* altitud (mediana de las últimas lecturas, para que el ruido del GPS no la haga saltar) y velocidad */
   const an=altNow(),alt=an?an.alt:null;
   let spd=lastFix.speed;
@@ -7424,7 +7449,7 @@ function updTarget(){
   const pace=kmh!=null&&kmh>=1&&kmh<16?` (${Math.floor(60/kmh)}:${String(Math.round((60/kmh%1)*60)%60).padStart(2,'0')} /km)`:'';
   $('#tgtM').textContent=fresh
     ?`⛰️ ${alt!=null?(an.doubt?'≈':'')+Math.round(alt)+' m'+(an.va!=null?' ±'+Math.round(an.va):''):'—'}  ·  ⚡ ${kmh!=null?dec(kmh,1)+' km/h'+pace:'—'}`
-    :'Sin lectura de GPS reciente';
+    :APX.last&&Date.now()-APX.last.t<60000?`Sin GPS · posición por antenas ±${APX.last.acc>=1000?dec(APX.last.acc/1000,1)+' km':Math.round(APX.last.acc)+' m'}`:'Sin lectura de GPS reciente';
   const d=hav(here,there),brg=bearingTo(here,there);
   /* mover la línea repinta TODO el mapa vectorial: solo se hace si te moviste ~10 m (y no mientras el globo tapa el mapa) */
   const lk=here[0].toFixed(4)+','+here[1].toFixed(4)+','+there[0].toFixed(5)+','+there[1].toFixed(5);
