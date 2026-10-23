@@ -298,6 +298,7 @@ body.flOn #hud,body.flOn #pill{display:none}
 #flt .fg div{background:rgba(255,255,255,.06);border-radius:12px;padding:6px 10px}
 #flt .fg b{display:block;font:800 30px system-ui;line-height:1.1}#flt .fg small{font:600 11.5px system-ui;color:#9fb6c6}#flt .fg i{font-style:normal;font:700 14px system-ui;color:#cfe3ef;margin-left:4px}
 #flt .fw{margin-top:8px;font:600 14px system-ui;color:#e8f2f8}#flt .fw small{color:#9fb6c6}
+#flt .fx{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-top:8px;font:600 12.5px system-ui;color:#cfe3ef}#flt .fx b{color:#fff}#flt.min .fx{display:none}
 #flt .fb{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 #flt .old b{opacity:.45}
 #t3 .t3bar{position:absolute;left:8px;right:8px;top:calc(var(--top) + 8px);display:flex;align-items:center;gap:10px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
@@ -11379,10 +11380,10 @@ async function showTrim(id){
 /* ---------- ✈️ Modo vuelo: tablero grande sin necesidad de grabar ----------
    El GPS funciona en modo avión (solo recibe de los satélites). Altura GPS, velocidad sobre el suelo, rumbo, si
    subís o bajás, distancia y hora de llegada al destino, y sobre qué ciudad estás (lista propia: anda sin internet). */
-const FL_APT=[['SAWH','Ushuaia',-54.8433,-68.2958],['AEP','Aeroparque',-34.5592,-58.4156],['EZE','Ezeiza',-34.8222,-58.5358],['TUC','Tucumán',-26.8409,-65.1049],
-  ['COR','Córdoba',-31.3236,-64.208],['FTE','El Calafate',-50.2803,-72.0531],['RGL','Río Gallegos',-51.6089,-69.3126],['REL','Trelew',-43.2105,-65.2703],
-  ['CRD','Comodoro Rivadavia',-45.7853,-67.4655],['BRC','Bariloche',-41.1512,-71.1575],['MDZ','Mendoza',-32.8317,-68.7929],['SLA','Salta',-24.856,-65.4862],
-  ['NQN','Neuquén',-38.949,-68.1557],['MDQ','Mar del Plata',-37.9342,-57.5733],['ROS','Rosario',-32.9036,-60.785],['RGA','Río Grande',-53.7777,-67.7494]];
+const FL_APT=[['SAWH','Ushuaia',-54.8433,-68.2958,22],['AEP','Aeroparque',-34.5592,-58.4156,6],['EZE','Ezeiza',-34.8222,-58.5358,20],['TUC','Tucumán',-26.8409,-65.1049,450],
+  ['COR','Córdoba',-31.3236,-64.208,489],['FTE','El Calafate',-50.2803,-72.0531,204],['RGL','Río Gallegos',-51.6089,-69.3126,19],['REL','Trelew',-43.2105,-65.2703,43],
+  ['CRD','Comodoro Rivadavia',-45.7853,-67.4655,58],['BRC','Bariloche',-41.1512,-71.1575,846],['MDZ','Mendoza',-32.8317,-68.7929,704],['SLA','Salta',-24.856,-65.4862,1246],
+  ['NQN','Neuquén',-38.949,-68.1557,271],['MDQ','Mar del Plata',-37.9342,-57.5733,21],['ROS','Rosario',-32.9036,-60.785,25],['RGA','Río Grande',-53.7777,-67.7494,22]];
 const FL_CITY=[['Ushuaia',-54.80,-68.30],['Tolhuin',-54.51,-67.20],['Río Grande',-53.79,-67.70],['Río Gallegos',-51.62,-69.22],['El Calafate',-50.34,-72.27],['Puerto San Julián',-49.31,-67.73],
   ['Puerto Deseado',-47.75,-65.90],['Caleta Olivia',-46.44,-67.53],['Comodoro Rivadavia',-45.86,-67.48],['Sarmiento',-45.59,-69.07],['Esquel',-42.91,-71.32],['Trelew',-43.25,-65.31],
   ['Rawson',-43.30,-65.10],['Puerto Madryn',-42.77,-65.04],['San Antonio Oeste',-40.73,-64.95],['Viedma',-40.81,-62.99],['Bariloche',-41.13,-71.31],['El Bolsón',-41.96,-71.53],
@@ -11401,7 +11402,7 @@ const card8=b=>['N','NE','E','SE','S','SO','O','NO'][Math.round(((b%360)+360)%36
 function flDest(){
   const k=S.flDest||'SAWH';
   if(k==='B'&&RT.to)return {k,name:RT.to.label||'Destino B',lat:RT.to.lat,lon:RT.to.lon};
-  const a=FL_APT.find(x=>x[0]===k)||FL_APT[0];return {k:a[0],name:a[1],lat:a[2],lon:a[3]};
+  const a=FL_APT.find(x=>x[0]===k)||FL_APT[0];return {k:a[0],name:a[1],lat:a[2],lon:a[3],elev:a[4]};
 }
 function flBelow(f){
   let best=null;for(const c of FL_CITY){const d=hav([f.lat,f.lon],[c[1],c[2]]);if(!best||d<best.d)best={n:c[0],d,lat:c[1],lon:c[2]};}
@@ -11450,6 +11451,21 @@ function flDraw(){
     <small>Recorrido ${fmtD(FL.dist)} · ${fmtT(Date.now()-FL.t0)}${FL.maxAlt!=null?` · máx ${miles(Math.round(FL.maxAlt))} m`:''}${FL.maxV?` · ${Math.round(FL.maxV*3.6)} km/h`:''}${old&&f?' · ⚠️ sin GPS hace '+Math.round((Date.now()-lastFixWall)/1000)+' s':''}</small>`;
   { const fc=el.querySelector('.fc');if(fc)fc.textContent=`${alt!=null?miles(Math.round(estA||alt))+' m'+(estA?' ≈':''):'— m'} · ${v!=null?Math.round(v*3.6)+' km/h':'—'} · ${c.brg!=null&&!isNaN(c.brg)?Math.round((c.brg+360)%360)+'° '+card8(c.brg):'—'}${dd!=null?' · '+(dd>=100000?miles(dd/1000)+' km':fmtD(dd)):''}`;
     const mb=el.querySelector('[data-fl=min]');if(mb)mb.textContent=S.flMin?'▾':'▴'; }
+  /* 🔭 curiosidades: con la altura real (la de GPS, o la estimada si el teléfono mide la cabina) */
+  { const fx=el.querySelector('.fx'),H=estA||alt;
+    if(fx){const it=[];
+      if(H!=null&&H>300){
+        const T=H<11000?15-6.5*H/1000:-56.5,a=Math.sqrt(1.4*287*(T+273.15))*3.6,p=Math.pow(Math.max(0,1-2.25577e-5*H),5.25588);
+        it.push(`🌡️ Afuera ≈ <b>${String(Math.round(T)).replace('-','−')} °C</b>`,`🌬️ Presión: <b>${Math.round(p*100)} %</b> de la del suelo`);
+        it.push(`🔭 Horizonte a <b>${miles(3.57*Math.sqrt(H))} km</b>`,`🔊 Sonido: <b>${miles(a)} km/h</b>${v?` · vas al ${Math.round(v*3.6/a*100)} %`:''}`);
+        /* viento: en crucero un avión de línea va por el aire a ~Mach 0,80; lo que falta o sobra es viento */
+        if(v>139&&H>7000){const tas=.8*a,w=v*3.6-tas;it.push(`💨 Viento ≈ <b>${Math.abs(w)<30?'casi nada':Math.round(Math.abs(w))+' km/h '+(w>0?'a favor':'en contra')}</b> <small>(est.)</small>`);}
+      }
+      /* aproximación: la rampa de 3° (≈ 52 m por km), si la altura es la del GPS */
+      if(dd!=null&&dd<25000&&alt!=null&&!cabin&&D.elev!=null){const ideal=dd*Math.tan(3*rad),real=alt-D.elev,dif=real-ideal;
+        it.push(`🛬 Rampa 3°: <b>${miles(Math.round(ideal/10)*10)} m</b> sobre la pista · ${Math.abs(dif)<60?'<b>justo en la rampa</b>':`<b>${miles(Math.round(Math.abs(dif)/10)*10)} m ${dif>0?'alto':'bajo'}</b>`}`);}
+      fx.innerHTML=it.map(x=>`<div>${x}</div>`).join('');}
+  }
   /* grabar solo una parte del vuelo (FL.auto): 'up' = del despegue hasta crucero; 'down' = la aproximación y el aterrizaje.
      Arranca y termina sola, y guarda el track. Crucero = más de 500 km/h y nivelado 3 minutos (también sirve con la altura
      de la cabina, que se nivela más o menos cuando el avión llega a crucero); si no, a los 40 minutos. */
@@ -11505,6 +11521,7 @@ async function flStart(){
   Object.assign(FL,{on:true,t0:Date.now(),hist:[],dist:0,maxAlt:null,maxV:0,last:null,toff:0,g0:0,cab:0,auto:null,autoOn:0,lvl:0,slow:0});
   const el=$('#flt');el.hidden=false;
   el.innerHTML=`<div class="fh">✈️ <span>Modo vuelo</span><button data-fl="dest">📍 Destino</button><button data-fl="min" aria-label="Achicar o agrandar">▴</button><button data-fl="x">✕</button></div><div class="fc"></div><div class="fg"></div><div class="fw"></div>
+    <div class="fx"></div>
     <div class="fb"><button data-fl="rec">⏺ Grabar el vuelo</button><button data-fl="appr">🎬 Grabar una parte</button><button data-fl="zoom">🗺️ Ver más mapa</button></div>`;
   closeSheet();document.body.classList.add('flOn');el.classList.toggle('min',!!S.flMin);
   try{if(!watch||watch.type!=='bg')await startWatch(true,'Modo vuelo');}catch(e){try{await startWatch(false);}catch(er){}}
