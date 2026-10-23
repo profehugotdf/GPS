@@ -3525,6 +3525,7 @@ async function startRec(){
   Object.assign(REC,{lastEnt:null});
   Object.assign(REC,{state:'rec',id:uid(),t0:Date.now(),pausedMs:0,pauseAt:0,seg:0,pts:[],hr:[],hrS:null,dist:0,speed:0,last:null,lastSave:Date.now(),act:S.act});
   REC.timers=circs.map(makeTimer);
+  prLiveLoad();
   REC.poly=L.polyline([],{color:'#F04A1C',weight:5,opacity:.95}).addTo(map);
   try{await startWatch(true);}
   catch(e){REC.state='idle';REC.timers=[];map.removeLayer(REC.poly);REC.poly=null;toast('No se pudo iniciar el GPS: '+(e.message||e),5000);return;}
@@ -3554,6 +3555,7 @@ function ingest(f){
     for(const t of REC.timers)t.gt.feed(last,p);
   }
   REC.pts.push(p);(REC.hr||(REC.hr=[])).push(hrNow());
+  try{prLive();}catch(e){}
   REC.poly.addLatLng([p[0],p[1]]);
 }
 function autosave(){
@@ -3635,7 +3637,7 @@ async function stopFlow(){
       <button class="btn danger" data-act="discard">Descartar</button>
     </div>${REC.pts.length<2?'<p class="mut">Todavía no hay puntos suficientes para guardar.</p>':''}`,
     async(a,d,el)=>{
-      if(a==='act'){REC.act=d.k;sBody.querySelectorAll('[data-act=act]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
+      if(a==='act'){REC.act=d.k;sBody.querySelectorAll('[data-act=act]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));prLiveLoad();}
       else if(a==='resume'){closeSheet();if(REC.state==='pause')pauseRec();}
       else if(a==='discard'){if(armed(el)){await endRec();closeSheet();toast('Descartado');}}
       else if(a==='save'){
@@ -3655,10 +3657,12 @@ async function saveRec(name){
   await commitRuns(tr);
   await DB.put('kv','track:'+tr.id,tr);
   try{await mpPublish([tr]);}catch(e){}
+  const prs=await prCheck(tr);
   S.act=REC.act;saveS();updActBtn();
   const pb=res.reduce((a,r)=>a+r.laps.filter(l=>l.pb).length,0);
   await endRec();
-  toast(pb?`Guardado · 🏆 ${pb} récord${pb>1?'s':''}`:'Track guardado',4000);
+  const gold=prs.filter(n=>n.pos===0&&!n.first).length;
+  if(!gold)toast(pb?`Guardado · 🏆 ${pb} récord${pb>1?'s':''}`:prs.some(n=>n.pos>0&&!n.first)?`Track guardado · 🥈 ${prs.filter(n=>n.pos>0).map(n=>`${n.pos+1}° mejor ${PR_NAME(n.k)}`)[0]}`:'Track guardado',5000);
   return tr.id;
 }
 async function endRec(){
@@ -4230,13 +4234,13 @@ async function showTrackDetail(id){
       else if(a==='multi')showMultiPick(id);
       else if(a==='mp'){await mpPublish([tr],true);showTrackDetail(id);}
       else if(a==='bk')await bkSend({name:tr.name||('Rumbo '+fmtDate(tr.t0)),ll:t3TrackPts(tr).pts.map(p=>[p[0],p[1]]),grade:tr.act==='car'?.16:.25});
-      else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);showTrackDetail(id);}
+      else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);await DB.del('kv','prx:'+id).catch(()=>{});showTrackDetail(id);}
       else if(a==='gpx')shareFile((tr.name.replace(/[^\w\-]+/g,'_')||'track')+'.gpx',toGPX([tr],[],esc),'application/gpx+xml');
       else if(a==='anal')showAnalPick(id);
       else if(a==='follow')startFollow(tr,false);
       else if(a==='followrev')startFollow(tr,true);
       else if(a==='topath')showTrackToPath(id);
-      else if(a==='del'&&armed(el)){await removeRunsOfTrack(id);await DB.del('kv','track:'+id);toast('Borrado');showTracks();}
+      else if(a==='del'&&armed(el)){await removeRunsOfTrack(id);await DB.del('kv','track:'+id);await DB.del('kv','prx:'+id).catch(()=>{});toast('Borrado');showTracks();}
     },
     async t=>{if(t.id==='tn'){tr.name=t.value.trim()||tr.name;await DB.put('kv','track:'+id,tr);}});
 }
@@ -11260,6 +11264,134 @@ async function hrDisconnect(){
   Object.assign(HR,{on:false,dev:null,src:null});
 }
 
+/* ---------- 🏆 Récords personales ----------
+   Por disciplina: el mejor tiempo en distancias clásicas (dentro de cualquier salida, como Strava: el mejor tramo de
+   5 km de una salida de 12 km cuenta), la salida más larga, la de más tiempo en movimiento y la de más desnivel; en bici
+   con potenciómetro, la mejor potencia de 5 s, 1, 5 y 20 min. Cada track guarda un resumen chico (prx:id), así la tabla
+   se arma sin abrir todos los tracks. Mientras grabás, avisa en el momento (voz, pantalla y reloj) si batís uno. */
+const PR_D={run:[1000,5000,10000,21097,42195],walk:[1000,5000,10000,21097],bike:[5000,10000,20000,40000,100000],kayak:[500,1000,5000,10000],swim:[400,1000,1500,3800]};
+const PR_VMAX={run:8,walk:4,bike:25,kayak:6,swim:3,car:70};
+const PR_PW=[5,60,300,1200],PR_VER=1;
+const prLabel=d=>d===21097?'Media maratón':d===42195?'Maratón':d>=1000?dec(d/1000,d%1000?1:0)+' km':d+' m';
+const pwLabel=s=>s<60?s+' s':s/60+' min';
+function prPace(act,D,ms){
+  const v=D/(ms/1000);
+  return act==='bike'?dec(v*3.6,1)+' km/h':act==='kayak'?fmtSp(v,'min500')+' /500 m':act==='swim'?fmtPace100(100/v):fmtSp(v,'minkm')+' /km';
+}
+/* el mejor tramo de cada distancia en una salida: dos punteros sobre la distancia acumulada, por segmento (una pausa corta) */
+function prEfforts(pts,act){
+  const Ds=PR_D[act]||[],vmax=PR_VMAX[act]||30,best={};
+  let a=0;
+  while(a<pts.length){
+    let b=a;while(b+1<pts.length&&pts[b+1][5]===pts[a][5])b++;
+    const P=[pts[a]],cum=[0];
+    for(let k=a+1;k<=b;k++){const q=P[P.length-1],d=hav(q,pts[k]),dt=(pts[k][2]-q[2])/1000;if(dt<=0||d/dt>vmax)continue;P.push(pts[k]);cum.push(cum[cum.length-1]+d);}
+    for(const D of Ds){
+      let i=0;
+      for(let j=1;j<P.length;j++){
+        if(cum[j]<D)continue;
+        while(i+1<j&&cum[j]-cum[i+1]>=D)i++;
+        const s0=cum[j]-D,f=(s0-cum[i])/((cum[i+1]-cum[i])||1),t0=P[i][2]+(P[i+1][2]-P[i][2])*f,ms=P[j][2]-t0;
+        if(ms>0&&(!best[D]||ms<best[D].ms))best[D]={ms:Math.round(ms),t0:Math.round(t0)};
+      }
+    }
+    a=b+1;
+  }
+  return best;
+}
+function prPower(tr){
+  const P=tr.pts,W=tr.pw;if(!W||!W.some(x=>x>0))return null;const serie=[];
+  for(let k=0;k+1<P.length;k++){if(P[k+1][5]!==P[k][5])continue;const dt=Math.round((P[k+1][2]-P[k][2])/1000);if(!(dt>0)||dt>10)continue;for(let q=0;q<dt;q++)serie.push(W[k]||0);}
+  const out={};for(const w of PR_PW){if(serie.length<w)continue;let s=0,m=0;for(let i=0;i<serie.length;i++){s+=serie[i];if(i>=w)s-=serie[i-w];if(i>=w-1)m=Math.max(m,s/w);}out[w]=Math.round(m);}
+  return out;
+}
+function prSummary(tr){
+  const st=tr.stats||calcStats(tr.pts);
+  return {v:PR_VER,id:tr.id,act:tr.act||'walk',name:tr.name||'',t0:tr.t0||(tr.pts[0]&&tr.pts[0][2])||0,e:prEfforts(tr.pts,tr.act||'walk'),dist:st.dist||0,mov:st.mov||0,gain:st.gain||0,pw:tr.act==='bike'?prPower(tr):null};
+}
+/* todos los resúmenes (calcula los que faltan) */
+async function prAll(prog){
+  const ids=(await DB.keys('kv','track:')).map(k=>k.slice(6)),have=new Map();
+  for(const x of await DB.all('kv','prx:'))if(x&&x.v===PR_VER)have.set(x.id,x);
+  const out=[];let n=0;
+  for(const id of ids){
+    let x=have.get(id);
+    if(!x){const tr=await DB.get('kv','track:'+id);if(!tr||!tr.pts||tr.pts.length<2||!(tr.pts[0][2]>0))continue;x=prSummary(tr);try{await DB.put('kv','prx:'+id,x);}catch(e){}if(prog&&++n%10===0)prog(n);}
+    out.push(x);
+  }
+  return out;
+}
+/* tabla: por disciplina, los 3 mejores de cada cosa */
+function prTable(list,skipId){
+  const T={},put=(act,key,item,lower)=>{const a=(T[act]=T[act]||{}),arr=(a[key]=a[key]||[]);arr.push(item);arr.sort((x,y)=>lower?x.v-y.v:y.v-x.v);if(arr.length>3)arr.length=3;};
+  for(const x of list){if(x.id===skipId)continue;const it=v=>({v,id:x.id,t0:x.t0,name:x.name});
+    for(const D in x.e)put(x.act,'d'+D,Object.assign(it(x.e[D].ms),{s0:x.e[D].t0}),true);
+    if(x.dist>0)put(x.act,'dist',it(x.dist),false);if(x.mov>0)put(x.act,'mov',it(x.mov),false);if(x.gain>0)put(x.act,'gain',it(x.gain),false);
+    if(x.pw)for(const w in x.pw)put(x.act,'pw'+w,it(x.pw[w]),false);}
+  return T;
+}
+const PR_NAME=(k,act)=>k[0]==='d'&&k[1]!=='i'?prLabel(+k.slice(1)):k==='dist'?'Salida más larga':k==='mov'?'Más tiempo en movimiento':k==='gain'?'Más desnivel':k.startsWith('pw')?'Potencia '+pwLabel(+k.slice(2)):k;
+const PR_VAL=(k,v,act)=>k[0]==='d'&&k[1]!=='i'?fmtT(v):k==='dist'?fmtD(v):k==='mov'?fmtT(v):k==='gain'?Math.round(v)+' m':k.startsWith('pw')?Math.round(v)+' W':String(v);
+/* al guardar una salida: ¿batió algo? */
+async function prCheck(tr){
+  try{
+    const x=prSummary(tr);await DB.put('kv','prx:'+tr.id,x);
+    const T=(prTable(await prAll(),tr.id)[x.act])||{},news=[];
+    const cmp=(k,v,lower)=>{if(!(v>0))return;const arr=T[k]||[];const pos=arr.filter(o=>lower?o.v<v:o.v>v).length;if(pos<3)news.push({k,v,pos,prev:arr[0]&&arr[0].v,first:!arr.length});};
+    for(const D in x.e)cmp('d'+D,x.e[D].ms,true);cmp('dist',x.dist,false);cmp('gain',x.gain,false);if(x.pw)for(const w in x.pw)cmp('pw'+w,x.pw[w],false);
+    const gold=news.filter(n=>n.pos===0&&!n.first);
+    if(gold.length){const n=gold[0];
+      toast(`🏆 ¡Récord! ${gold.map(n=>`${PR_NAME(n.k)} ${PR_VAL(n.k,n.v)}`).join(' · ')}`,8000);
+      if(!REC.prSaid||!REC.prSaid[n.k])cue(`¡Nuevo récord! ${PR_NAME(n.k)}: ${n.k[0]==='d'?spoken(n.v):PR_VAL(n.k,n.v)}`,null,'lap');
+      try{waPost('🏆 Récord: '+PR_NAME(n.k),PR_VAL(n.k,n.v)+(n.prev?` (antes ${PR_VAL(n.k,n.prev)})`:''));}catch(e){}}
+    return news;
+  }catch(e){return [];}
+}
+/* en vivo: al cerrar cada distancia, ¿el tramo que acabás de hacer es récord? (se revisa cada 5 s) */
+async function prLiveLoad(){
+  REC.prBest={};REC.prSaid={};const act=REC.act;
+  try{const T=prTable(await prAll())[act]||{};for(const D of PR_D[act]||[]){const a=T['d'+D];if(a&&a[0])REC.prBest[D]=a[0].v;}}catch(e){}
+}
+function prLive(){
+  if(REC.state!=='rec'||!REC.prBest||Date.now()-(REC.prT||0)<5000)return;REC.prT=Date.now();
+  const P=REC.pts,n=P.length;if(n<3)return;const last=P[n-1],vmax=PR_VMAX[REC.act]||30;
+  for(const D of PR_D[REC.act]||[]){
+    const best=REC.prBest[D];if(!best||REC.prSaid['d'+D])continue;
+    let acc=0,k=n-1;while(k>0&&P[k-1][5]===last[5]&&acc<D){const d=hav(P[k-1],P[k]),dt=(P[k][2]-P[k-1][2])/1000;if(dt>0&&d/dt<=vmax)acc+=d;k--;}
+    if(acc<D)continue;
+    const d=hav(P[k],P[k+1]),f=(acc-D)/(d||1),t0=P[k][2]+(P[k+1][2]-P[k][2])*f,ms=last[2]-t0;
+    if(ms>0&&ms<best){REC.prSaid['d'+D]=true;
+      cue(`¡Récord de ${prLabel(D)}! ${spoken(ms)}, ${spoken(best-ms)} menos que el anterior`,null,'lap');
+      toast(`🏆 ¡Récord de ${prLabel(D)}! ${fmtT(ms)} (antes ${fmtT(best)})`,7000);
+      try{waPost('🏆 Récord '+prLabel(D),`${fmtT(ms)} · antes ${fmtT(best)}`);}catch(e){}}
+  }
+}
+async function showRecords(act){
+  openSheet('🏆 Récords','<p class="mut">Calculando…</p>');
+  const list=await prAll(n=>{const b=$('#sheet .mut');if(b)b.textContent=`Revisando tus tracks… ${n}`;}),T=prTable(list);
+  const acts=Object.keys(ACT).filter(k=>T[k]);act=act&&T[act]?act:(T[S.act]?S.act:acts[0]);
+  const circs=await DB.all('kv','circuit:');
+  let h=`<div class="chips">${acts.map(k=>`<button data-act="pa" data-k="${k}" class="${k===act?'on':''}">${ACT[k][0]} ${ACT[k][1]}</button>`).join('')}</div>`;
+  if(!acts.length)h+='<p class="mut">Todavía no hay salidas guardadas.</p>';
+  else{
+    const A=T[act]||{},row=(k,arr)=>{const o=arr[0];return `<div class="item" data-act="pt" data-id="${o.id}"><div><b>${PR_NAME(k)}</b> · ${PR_VAL(k,o.v)}${k[0]==='d'&&k[1]!=='i'?` <small class="mut">(${prPace(act,+k.slice(1),o.v)})</small>`:''}<br><small class="mut">${fmtDate(o.t0)}${o.name?' · '+esc(o.name):''}${arr[1]?` · 2° ${PR_VAL(k,arr[1].v)}`:''}${arr[2]?` · 3° ${PR_VAL(k,arr[2].v)}`:''}</small></div><span>›</span></div>`;};
+    const ds=(PR_D[act]||[]).filter(D=>A['d'+D]);
+    if(ds.length)h+=`<h3>⏱️ Mejores tiempos</h3>`+ds.map(D=>row('d'+D,A['d'+D])).join('');
+    const pw=PR_PW.filter(w=>A['pw'+w]);if(pw.length)h+=`<h3>⚡ Potencia (potenciómetro)</h3>`+pw.map(w=>row('pw'+w,A['pw'+w])).join('');
+    h+=`<h3>📏 Salidas</h3>`+['dist','mov','gain'].filter(k=>A[k]).map(k=>row(k,A[k])).join('');
+    /* circuitos de puertas */
+    const cr=[];for(const c of circs){const b=bestBy(RUNS,c.id,act,null);if(b)cr.push({c,b});}
+    if(cr.length)h+=`<h3>🏁 Circuitos</h3>`+cr.map(({c,b})=>`<div class="item" data-act="pt" data-id="${b.tid}"><div><b>${esc(c.name)}</b> · ${c.type==='p2p'?'tramo':'vuelta'} ${fmtT(b.time,true)}<br><small class="mut">${b.t0?fmtDate(b.t0):''}</small></div><span>›</span></div>`).join('');
+    h+=`<p class="mut">Los tiempos son el mejor tramo de esa distancia dentro de cualquier salida. Mientras grabás, si batís uno te aviso en el momento.</p>`;
+  }
+  h+=`<div class="row"><button class="btn sm" data-act="prre">🔄 Recalcular todo</button></div>`;
+  openSheet('🏆 Récords',h,async(a,d)=>{
+    if(a==='pa')showRecords(d.k);
+    else if(a==='pt'&&d.id)showTrackDetail(d.id);
+    else if(a==='prre'){for(const k of await DB.keys('kv','prx:'))await DB.del('kv',k);showRecords(act);}
+  });
+}
+
 /* ---------- 📤 Mi plan: cada salida se suma a tu periodización (Forma, calendario, cumplimiento) ----------
    La versión web (profehugotdf.github.io/GPS/) comparte el almacenamiento con Mi plan: escribe directo.
    La app instalada tiene su propio almacenamiento: las manda abriendo Mi plan con las sesiones en el link. */
@@ -12081,6 +12213,7 @@ function gdBanner(){
 function showMoreMenu(){
   openSheet('Más',`<div class="grid3">
     <button class="btn big" data-act="tracks">📂<br>Tracks</button>
+    <button class="btn big" data-act="prs">🏆<br>Récords</button>
     <button class="btn big" data-act="fix">🛠️<br>Correcciones</button>
     <button class="btn big" data-act="ovl">🛩️<br>Fotos de dron</button>
     <button class="btn big" data-act="maps">🗂️<br>Mis mapas</button>
@@ -12094,7 +12227,7 @@ function showMoreMenu(){
     <button class="btn big" data-act="group">👥<br>Grupo en vivo${GRP.on?' ✓':''}</button>
     <button class="btn big" data-act="watch">⌚<br>Avisos al reloj${waCfg().on?' ✓':''}</button>
     <button class="btn big" data-act="set">⚙️<br>Ajustes</button></div>`,
-    a=>{if(a==='v3d'){closeSheet();open3D();}else if(a==='group')showGroup();else if(a==='watch')showWatch();else if(a==='share')showShare();else if(a==='follow')showFollowAsk();else if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
+    a=>{if(a==='v3d'){closeSheet();open3D();}else if(a==='group')showGroup();else if(a==='watch')showWatch();else if(a==='share')showShare();else if(a==='follow')showFollowAsk();else if(a==='globe'){closeSheet();openGlobe();}else if(a==='meas')openMeasure();else if(a==='back')showSafeReturn();else if(a==='wx')showWeather(null);else if(a==='tracks')showTracks();else if(a==='prs')showRecords();else if(a==='fix')showFix();else if(a==='ovl')showOvl();else if(a==='maps')showMapMgr();else if(a==='set')showMore();});
 }
 function showMore(){
   const chips=(id,cur,opts)=>`<div class="chips">${opts.map(([k,n])=>`<button data-act="${id}" data-k="${k}" class="${k===cur?'on':''}">${n}</button>`).join('')}</div>`;
