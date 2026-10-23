@@ -288,8 +288,10 @@ body.gbOn #tgt{z-index:1060;top:calc(var(--top) + 64px);max-width:calc(100% - 80
 #t3{position:fixed;inset:0;z-index:1600;background:#B8D1E6}
 #t3[hidden]{display:none}
 #t3c{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
-#flt{position:fixed;left:8px;right:8px;top:calc(var(--top) + 8px);z-index:1500;background:rgba(8,18,28,.86);color:#fff;border-radius:18px;padding:10px 12px 12px;box-shadow:0 4px 18px rgba(0,0,0,.45);font-variant-numeric:tabular-nums;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#flt{position:fixed;left:8px;right:8px;top:calc(var(--top) + 8px);z-index:970;background:rgba(8,18,28,.86);color:#fff;border-radius:18px;padding:10px 12px 12px;box-shadow:0 4px 18px rgba(0,0,0,.45);font-variant-numeric:tabular-nums;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 #flt[hidden]{display:none}
+body.flOn #hud,body.flOn #pill{display:none}
+#flt .fc{display:none;font:800 20px system-ui;margin-top:4px}#flt.min .fc{display:block}#flt.min .fg,#flt.min .fb,#flt.min .fw{display:none}
 #flt .fh{display:flex;align-items:center;gap:8px;font:800 15px system-ui}#flt .fh span{flex:1}
 #flt .fh button,#flt .fb button{border:0;border-radius:14px;background:rgba(255,255,255,.14);color:#fff;font:700 13px system-ui;padding:7px 11px;min-height:36px}
 #flt .fg{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;margin-top:6px}
@@ -4256,6 +4258,7 @@ async function showTrackDetail(id){
       <button class="btn primary" data-act="rel">🎬 Revivir en 3D</button>
       <button class="btn" data-act="multi">🧩 Revivir multideporte (triatlón…)</button>
       <button class="btn" data-act="gpx">Compartir GPX</button>
+      <button class="btn" data-act="trim">✂️ Recortar</button>
       ${MP_DISC[tr.act]?`<button class="btn" data-act="mp">📤 ${tr.mp?'Volver a mandar':'Mandar'} a Mi plan</button>`:''}
       ${!['kayak','swim','plane'].includes(tr.act)?`<button class="btn" data-act="bk">🚴 Entrenar en Bici Indoor</button>`:''}
       <button class="btn" data-act="anal">Medir con un circuito</button>
@@ -4272,6 +4275,7 @@ async function showTrackDetail(id){
       else if(a==='mp'){await mpPublish([tr],true);showTrackDetail(id);}
       else if(a==='bk')await bkSend({name:tr.name||('Rumbo '+fmtDate(tr.t0)),ll:t3TrackPts(tr).pts.map(p=>[p[0],p[1]]),grade:tr.act==='car'?.16:.25});
       else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);await DB.del('kv','prx:'+id).catch(()=>{});showTrackDetail(id);}
+      else if(a==='trim')showTrim(id);
       else if(a==='gpx')shareFile((tr.name.replace(/[^\w\-]+/g,'_')||'track')+'.gpx',toGPX([tr],[],esc),'application/gpx+xml');
       else if(a==='anal')showAnalPick(id);
       else if(a==='follow')startFollow(tr,false);
@@ -11336,6 +11340,42 @@ async function hrDisconnect(){
   Object.assign(HR,{on:false,dev:null,src:null});
 }
 
+/* ---------- ✂️ Recortar un track: quedarse con un pedazo (la aproximación de un vuelo, la subida de una salida…) ---------- */
+async function showTrim(id){
+  const tr=await DB.get('kv','track:'+id);if(!tr||!tr.pts||tr.pts.length<3){toast('Este track es muy corto para recortar',3000);return;}
+  const P=tr.pts,n=P.length,cum=[0];for(let i=1;i<n;i++)cum.push(cum[i-1]+(P[i][5]===P[i-1][5]?hav(P[i-1],P[i]):0));
+  const st={a:0,b:1000};
+  const ix=k=>Math.max(0,Math.min(n-1,Math.round(k/1000*(n-1))));
+  showOnMap(tr);
+  const draw=()=>{
+    const i=ix(st.a),j=ix(st.b);pickLayer.clearLayers();
+    if(j>i){L.polyline(P.slice(i,j+1).map(p=>[p[0],p[1]]),{color:'#FFC400',weight:8,opacity:.95,interactive:false}).addTo(pickLayer);
+      L.circleMarker([P[i][0],P[i][1]],{radius:7,color:'#2E7D5B',weight:3,fillColor:'#fff',fillOpacity:1}).addTo(pickLayer);
+      L.circleMarker([P[j][0],P[j][1]],{radius:7,color:'#F04A1C',weight:3,fillColor:'#fff',fillOpacity:1}).addTo(pickLayer);}
+    const o=$('#trO');if(o)o.innerHTML=`Desde <b>${hhmm(P[i][2])}</b>${P[i][4]!=null?` (${miles(P[i][4])} m)`:''} hasta <b>${hhmm(P[j][2])}</b>${P[j][4]!=null?` (${miles(P[j][4])} m)`:''}<br>Queda: <b>${fmtD(cum[j]-cum[i])}</b> · ${fmtT(P[j][2]-P[i][2])} de ${fmtD(cum[n-1])} · ${fmtT(P[n-1][2]-P[0][2])}`;
+  };
+  openSheet('✂️ Recortar',`<p class="mut">Mové las dos barras: el pedazo amarillo es el que queda. Para un vuelo, poné el comienzo donde empieza la bajada.</p>
+    <label>Comienzo</label><input type="range" id="trA" min="0" max="1000" value="0" style="width:100%">
+    <label>Final</label><input type="range" id="trB" min="0" max="1000" value="1000" style="width:100%">
+    <p id="trO"></p>
+    <div class="row"><button class="btn primary" data-act="new">Guardar como track nuevo</button><button class="btn" data-act="rep">Recortar este</button></div>
+    <div class="row"><button class="btn sm" data-act="back">Cancelar</button></div>`,
+    async(a,d,el)=>{
+      if(a==='back'){pickLayer.clearLayers();showTrackDetail(id);return;}
+      const i=ix(st.a),j=ix(st.b);if(j-i<2){toast('Dejá al menos un pedazo',2500);return;}
+      const pts=P.slice(i,j+1),nt=Object.assign({},tr,{pts,t0:pts[0][2],t1:pts[pts.length-1][2],stats:calcStats(pts),res:[],mp:null});
+      if(tr.hr&&tr.hr.length===n)nt.hr=tr.hr.slice(i,j+1);if(tr.pw&&tr.pw.length===n)nt.pw=tr.pw.slice(i,j+1);if(tr.cad&&tr.cad.length===n)nt.cad=tr.cad.slice(i,j+1);
+      if(a==='new'){nt.id=uid();nt.name=(tr.name||'Track')+' (recorte)';}
+      else if(a==='rep'){if(!armed(el))return;}
+      else return;
+      await commitRuns(nt);await DB.put('kv','track:'+nt.id,nt);await DB.del('kv','prx:'+nt.id).catch(()=>{});
+      pickLayer.clearLayers();toast(a==='new'?'✂️ Guardado como track nuevo':'✂️ Track recortado',3000);showTrackDetail(nt.id);
+    },
+    t=>{if(t.id==='trA'){st.a=Math.min(+t.value,st.b-2);t.value=st.a;draw();}else if(t.id==='trB'){st.b=Math.max(+t.value,st.a+2);t.value=st.b;draw();}});
+  /* que se mueva en vivo mientras se arrastra */
+  setTimeout(()=>{for(const k of ['trA','trB']){const e=$('#'+k);if(e)e.addEventListener('input',()=>{if(k==='trA'){st.a=Math.min(+e.value,st.b-2);}else{st.b=Math.max(+e.value,st.a+2);}draw();});}draw();},50);
+}
+
 /* ---------- ✈️ Modo vuelo: tablero grande sin necesidad de grabar ----------
    El GPS funciona en modo avión (solo recibe de los satélites). Altura GPS, velocidad sobre el suelo, rumbo, si
    subís o bajás, distancia y hora de llegada al destino, y sobre qué ciudad estás (lista propia: anda sin internet). */
@@ -11408,15 +11448,65 @@ function flDraw(){
   el.querySelector('.fw').innerHTML=`${f?flBelow(f):'Buscando GPS… (en la ventanilla anda mejor)'}<br>
     ✈️ <b>${esc(D.name)}</b>: ${dd!=null?(dd>=100000?miles(dd/1000)+' km':fmtD(dd)):'—'}${eta?` · llegás ${hhmm(eta)}`:''}<br>
     <small>Recorrido ${fmtD(FL.dist)} · ${fmtT(Date.now()-FL.t0)}${FL.maxAlt!=null?` · máx ${miles(Math.round(FL.maxAlt))} m`:''}${FL.maxV?` · ${Math.round(FL.maxV*3.6)} km/h`:''}${old&&f?' · ⚠️ sin GPS hace '+Math.round((Date.now()-lastFixWall)/1000)+' s':''}</small>`;
+  { const fc=el.querySelector('.fc');if(fc)fc.textContent=`${alt!=null?miles(Math.round(estA||alt))+' m'+(estA?' ≈':''):'— m'} · ${v!=null?Math.round(v*3.6)+' km/h':'—'} · ${c.brg!=null&&!isNaN(c.brg)?Math.round((c.brg+360)%360)+'° '+card8(c.brg):'—'}${dd!=null?' · '+(dd>=100000?miles(dd/1000)+' km':fmtD(dd)):''}`;
+    const mb=el.querySelector('[data-fl=min]');if(mb)mb.textContent=S.flMin?'▾':'▴'; }
+  /* grabar solo una parte del vuelo (FL.auto): 'up' = del despegue hasta crucero; 'down' = la aproximación y el aterrizaje.
+     Arranca y termina sola, y guarda el track. Crucero = más de 500 km/h y nivelado 3 minutos (también sirve con la altura
+     de la cabina, que se nivela más o menos cuando el avión llega a crucero); si no, a los 40 minutos. */
+  const AK=(S.flApprKm||80)*1000,ab=el.querySelector('[data-fl=appr]'),now=Date.now();
+  const autoStart=(why)=>{FL.autoOn=now;FL.prevAct=S.act;S.act='plane';saveS();updActBtn();
+    startRec().then(()=>{if(REC.state!=='rec')return;
+      /* lo de los últimos 40 s (el comienzo de la carrera de despegue) se agrega al principio */
+      const pre=FL.hist.filter(h=>h.t>=now-40000&&h.t<now-500).map(h=>[h.lat,h.lon,h.t,10,h.alt==null?null:Math.round(h.alt),0]);
+      if(pre.length&&REC.pts.length===0){REC.pts.push(...pre);REC.hr=pre.map(()=>null);for(let k=1;k<pre.length;k++)REC.dist+=hav(pre[k-1],pre[k]);}
+      toast(why,6000);try{waPost(why,'');}catch(e){}flDraw();});};
+  const autoEnd=async(nm,msg)=>{FL.auto=null;FL.autoOn=0;FL.lvl=0;FL.slow=0;FL.mv0=null;FL.mvT=0;FL.flew=false;try{await saveRec(nm+' '+fmtDate(Date.now()));}catch(e){}toast(msg,7000);try{waPost(msg,'');}catch(e){}
+    if(FL.prevAct&&FL.prevAct!=='plane'){S.act=FL.prevAct;saveS();updActBtn();}};
+  /* "se empieza a mover": salir de la manga (empuje hacia atrás) o empezar a carretear. Más de 40 m desde donde estaba
+     y más de 5 km/h durante 10 s, así el GPS que salta adentro del avión parado no lo dispara */
+  const moving=()=>{if(!f)return false;if(!FL.mv0)FL.mv0={lat:f.lat,lon:f.lon};
+    const away=hav([f.lat,f.lon],[FL.mv0.lat,FL.mv0.lon])>40;FL.mvT=away&&v>1.4?(FL.mvT||now):0;return FL.mvT&&now-FL.mvT>10000;};
+  if(FL.auto==='gate'||FL.auto==='full'){
+    if(!FL.autoOn&&REC.state==='idle'){if(moving())autoStart(FL.auto==='full'?'🧳 El avión se empezó a mover: grabando todo el vuelo':'🚶 El avión salió de la manga: grabando hasta crucero');}
+    else if(FL.autoOn&&REC.state!=='idle'){
+      if(v>70)FL.flew=true;
+      if(FL.auto==='gate'){FL.lvl=v>139&&(c.vs!=null?Math.abs(c.vs)<60:v>200)?(FL.lvl||now):0;
+        if((FL.lvl&&now-FL.lvl>180000)||now-FL.autoOn>90*60000)autoEnd('Salida y despegue','🛫 Llegaste a crucero: guardado desde la manga. Lo ves en Tracks → 🎬 Revivir');}
+      else{FL.slow=FL.flew&&v!=null&&v<1?(FL.slow||now):0;
+        if(FL.slow&&now-FL.slow>180000)autoEnd('Vuelo','🧳 Avión detenido: vuelo completo guardado, de manga a manga. Lo ves en Tracks → 🎬 Revivir');}
+    }
+  }
+  else if(FL.auto==='up'){
+    if(!FL.autoOn&&REC.state==='idle'&&v>22)autoStart('🛫 Empezó a grabar el despegue');
+    else if(FL.autoOn&&REC.state!=='idle'){
+      FL.lvl=v>139&&(c.vs!=null?Math.abs(c.vs)<60:v>200)?(FL.lvl||now):0;   // sin altura: crucero = más de 720 km/h
+      if((FL.lvl&&now-FL.lvl>180000)||now-FL.autoOn>40*60000)autoEnd('Despegue','🛫 Llegaste a crucero: despegue guardado. Lo ves en Tracks → 🎬 Revivir');
+    }
+  }else if(FL.auto==='down'){
+    if(!FL.autoOn&&REC.state==='idle'&&dd!=null&&dd<AK)autoStart(`🛬 Empezó a grabar la aproximación: a ${Math.round(dd/1000)} km de ${D.name}`);
+    else if(FL.autoOn&&REC.state!=='idle'){
+      FL.slow=v!=null&&v<8?(FL.slow||now):0;
+      if(FL.slow&&now-FL.slow>60000)autoEnd('Aterrizaje','🛬 En tierra: aproximación y aterrizaje guardados. Lo ves en Tracks → 🎬 Revivir');
+    }
+  }
+  else if(FL.auto==='over'&&S.flOver&&f){
+    /* 📍 al pasar sobre un lugar: graba mientras estás a menos de R km (Tucumán volando a México, por ejemplo) */
+    const O=S.flOver,dO=hav([f.lat,f.lon],[O.lat,O.lon]),R=(O.r||50)*1000;
+    if(!FL.autoOn&&REC.state==='idle'&&dO<R)autoStart(`📍 Pasando sobre ${O.name}: grabando`);
+    else if(FL.autoOn&&REC.state!=='idle'&&dO>R*1.1)autoEnd('Sobre '+O.name,`📍 Ya pasaste ${O.name}: guardado. Lo ves en Tracks → 🎬 Revivir`);
+  }
+  if(ab&&FL.auto==='over'&&S.flOver){ab.textContent=FL.autoOn?`📍 Grabando sobre ${S.flOver.name}`:`📍 Grabará sobre ${S.flOver.name}${f?' ('+miles(hav([f.lat,f.lon],[S.flOver.lat,S.flOver.lon])/1000)+' km)':''}`;}
+  else if(ab&&(FL.auto==='gate'||FL.auto==='full'))ab.textContent=FL.autoOn?(FL.auto==='full'?'🧳 Grabando todo el vuelo':'🚶 Grabando hasta crucero'):'🚶 Espera que el avión se mueva';
+  else if(ab)ab.textContent=FL.auto==='up'?(FL.autoOn?'🛫 Grabando hasta crucero':'🛫 Espera el despegue'):FL.auto==='down'?(FL.autoOn?'🛬 Grabando hasta tocar tierra':`🛬 Grabará a ${S.flApprKm||80} km`):'🎬 Grabar una parte';
   const rb=el.querySelector('[data-fl=rec]');if(rb)rb.textContent=REC.state==='idle'?'⏺ Grabar el vuelo':'⏺ Grabando';
 }
 async function flStart(){
   if(FL.on)return;
-  Object.assign(FL,{on:true,t0:Date.now(),hist:[],dist:0,maxAlt:null,maxV:0,last:null,toff:0,g0:0,cab:0});
+  Object.assign(FL,{on:true,t0:Date.now(),hist:[],dist:0,maxAlt:null,maxV:0,last:null,toff:0,g0:0,cab:0,auto:null,autoOn:0,lvl:0,slow:0});
   const el=$('#flt');el.hidden=false;
-  el.innerHTML=`<div class="fh">✈️ <span>Modo vuelo</span><button data-fl="dest">📍 Destino</button><button data-fl="x">✕</button></div><div class="fg"></div><div class="fw"></div>
-    <div class="fb"><button data-fl="rec">⏺ Grabar el vuelo</button><button data-fl="zoom">🗺️ Ver más mapa</button></div>`;
-  closeSheet();
+  el.innerHTML=`<div class="fh">✈️ <span>Modo vuelo</span><button data-fl="dest">📍 Destino</button><button data-fl="min" aria-label="Achicar o agrandar">▴</button><button data-fl="x">✕</button></div><div class="fc"></div><div class="fg"></div><div class="fw"></div>
+    <div class="fb"><button data-fl="rec">⏺ Grabar el vuelo</button><button data-fl="appr">🎬 Grabar una parte</button><button data-fl="zoom">🗺️ Ver más mapa</button></div>`;
+  closeSheet();document.body.classList.add('flOn');el.classList.toggle('min',!!S.flMin);
   try{if(!watch||watch.type!=='bg')await startWatch(true,'Modo vuelo');}catch(e){try{await startWatch(false);}catch(er){}}
   if(S.keepAwake!==false)keepAwake(true);
   setFollow(true);if(lastFix)map.setView([lastFix.lat,lastFix.lon],Math.min(map.getZoom(),10));
@@ -11424,12 +11514,32 @@ async function flStart(){
   toast('✈️ Poné el teléfono en modo avión: el GPS sigue andando. Para la foto satelital, bajá antes el mapa de la zona.',6000);
 }
 function flStop(){
-  FL.on=false;clearInterval(FL.tm);$('#flt').hidden=true;
+  FL.on=false;clearInterval(FL.tm);$('#flt').hidden=true;document.body.classList.remove('flOn');
   if(REC.state==='idle'&&!NAV.on&&!SH.on){stopWatch();keepAwake(false);}
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('#flt [data-fl]');if(!b)return;const a=b.dataset.fl;
   if(a==='x')flStop();
+  else if(a==='min'){S.flMin=!S.flMin;saveS();$('#flt').classList.toggle('min',S.flMin);b.textContent=S.flMin?'▾':'▴';}
+  else if(a==='appr'){
+    if(FL.autoOn){toast('Ya está grabando esa parte: termina sola',3000);return;}
+    const D=flDest();
+    openSheet('🎬 Grabar una parte del vuelo',`<p class="mut">Rumbo empieza y termina sola, y guarda el track como ✈️ Avión.</p>
+      <div class="item" data-act="gate"><div><b>🚶 Desde la manga hasta crucero</b><br><small class="mut">Empieza cuando el avión se empieza a mover (empuje hacia atrás o carreteo) y termina al llegar a crucero.</small></div>${FL.auto==='gate'?'✓':''}</div>
+      <div class="item" data-act="full"><div><b>🧳 Todo el vuelo, de manga a manga</b><br><small class="mut">Empieza cuando el avión se mueve y termina cuando, después de volar, queda 3 minutos detenido.</small></div>${FL.auto==='full'?'✓':''}</div>
+      <div class="item" data-act="up"><div><b>🛫 Despegue hasta crucero</b><br><small class="mut">Empieza al acelerar en la pista (con los 40 s de antes) y termina cuando el avión va a más de 500 km/h y se nivela 3 minutos (o a los 40 minutos).</small></div>${FL.auto==='up'?'✓':''}</div>
+      <div class="item" data-act="down"><div><b>🛬 Aproximación y aterrizaje</b><br><small class="mut">Empieza a esta distancia de ${esc(D.name)} (cambiala con 📍 Destino) y termina cuando estás 1 minuto casi quieto en tierra.</small></div>${FL.auto==='down'?'✓':''}</div>
+      <div class="item" data-act="over"><div><b>📍 Al pasar sobre un lugar</b><br><small class="mut">${S.flOver?`${esc(S.flOver.name)}, a menos de ${S.flOver.r||50} km`:'Elegí una ciudad o un punto guardado'}: graba mientras pasás cerca y guarda al alejarte.</small></div>${FL.auto==='over'?'✓':''}</div>
+      <div class="chips">${[40,60,80,120,200].map(k=>`<button data-act="ak" data-k="${k}" class="${(S.flApprKm||80)===k?'on':''}">${k} km</button>`).join('')}</div>
+      <p class="mut">Un avión de línea empieza a bajar 150-200 km antes: con 200 km tenés toda la bajada; con 80 km, el final y el aterrizaje.</p>
+      ${FL.auto?'<div class="row"><button class="btn" data-act="off">No grabar ninguna parte</button></div>':''}`,
+      (x,d)=>{
+        if(x==='ak'){S.flApprKm=+d.k;saveS();document.querySelectorAll('#sheet [data-act=ak]').forEach(o=>o.classList.toggle('on',o.dataset.k===d.k));return;}
+        if(x==='over'){flPickOver();return;}
+        if(x==='gate'||x==='full'){FL.auto=x;FL.mv0=lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null;FL.mvT=0;FL.flew=false;closeSheet();flDraw();toast(x==='full'?'🧳 Listo: graba todo el vuelo apenas el avión se mueva':'🚶 Listo: empieza a grabar apenas el avión se mueva',4000);return;}
+        if(x==='up'||x==='down'){FL.auto=x;closeSheet();flDraw();toast(x==='up'?'🛫 Listo: empieza a grabar cuando el avión acelere en la pista':`🛬 Listo: empieza a grabar a ${S.flApprKm||80} km de ${flDest().name}`,4000);}
+        else if(x==='off'){FL.auto=null;closeSheet();flDraw();}});
+  }
   else if(a==='zoom'){const z=map.getZoom();map.setZoom(z>8?7:z>5?4:10);}
   else if(a==='rec'){if(REC.state==='idle'){FL.prevAct=S.act;S.act='plane';saveS();updActBtn();startRec().then(()=>{toast('⏺ Grabando el vuelo como ✈️ Avión. Después lo ves volando en 🎬 Revivir 3D',6000);flDraw();});}else toast('Ya está grabando',2500);}
   else if(a==='dest'){
@@ -11438,6 +11548,22 @@ document.addEventListener('click',e=>{
       (x,d)=>{if(x==='fd'){S.flDest=d.k;saveS();closeSheet();flDraw();}});
   }
 });
+
+/* elegir el lugar para "al pasar sobre": tus puntos guardados y las ciudades de la lista (anda sin internet) */
+async function flPickOver(){
+  const ws=(await DB.all('kv','wpt:')).map(w=>({name:w.name||'Punto',lat:w.lat,lon:w.lon,ico:(WT[w.type]||WT.punto)[0]}));
+  const cs=FL_CITY.map(c=>({name:c[0],lat:c[1],lon:c[2],ico:'🏙️'})).sort((a,b)=>a.name.localeCompare(b.name));
+  const all=ws.concat(cs),r=(S.flOver&&S.flOver.r)||50;
+  openSheet('📍 ¿Sobre qué lugar?',`<label>Radio</label><div class="chips">${[20,50,100].map(k=>`<button data-act="r" data-k="${k}" class="${r===k?'on':''}">${k} km</button>`).join('')}</div>
+    <input class="in" id="flq" placeholder="Buscar (ej: Tucumán)">
+    <div id="fll">${all.map((p,i)=>`<div class="item" data-act="p" data-i="${i}" data-n="${esc(p.name.toLowerCase())}"><b>${p.ico} ${esc(p.name)}</b></div>`).join('')}</div>`,
+    (x,d)=>{
+      if(x==='r'){S.flOverR=+d.k;document.querySelectorAll('#sheet [data-act=r]').forEach(o=>o.classList.toggle('on',o.dataset.k===d.k));return;}
+      if(x==='p'){const p=all[+d.i];S.flOver={name:p.name,lat:p.lat,lon:p.lon,r:S.flOverR||r};saveS();FL.auto='over';closeSheet();flDraw();toast(`📍 Listo: graba al pasar a menos de ${S.flOver.r} km de ${p.name}`,4000);}
+    });
+  const q=$('#flq');if(q)q.addEventListener('input',()=>{const v=q.value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    document.querySelectorAll('#fll .item').forEach(it=>{it.style.display=!v||it.dataset.n.normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(v)?'':'none';});});
+}
 
 /* ---------- 🏆 Récords personales ----------
    Por disciplina: el mejor tiempo en distancias clásicas (dentro de cualquier salida, como Strava: el mejor tramo de
