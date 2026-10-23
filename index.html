@@ -4781,12 +4781,13 @@ function rtPanel(){
     const line=pf.filter((_,i)=>i%k===0||i===pf.length-1).map(([d,e],i)=>(i?'L':'M')+(d/q.flat*W).toFixed(1)+' '+(H-3-(e-q.min)/span*(H-6)).toFixed(1)).join(' ');
     sp=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${line} L${W} ${H} L0 ${H} Z" fill="rgba(255,255,255,.22)"/><path d="${line}" fill="none" stroke="#FFD9C9" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
   }
-  const others=RMODES.filter(k=>k!==m&&RT.res[k]&&!RT.res[k].err);
-  const mm=`<div class="mm">${others.map(k=>`<button data-r="m:${k}">${MI[k]} ${fmtDur(totT(RT.res[k]))}</button>`).join('')}<button data-r="rt" class="${S.roundTrip?'on':''}">🔁 Ida y vuelta${S.roundTrip?' ✓':''}</button></div>`;
+  const V=viaNow(),others=RMODES.filter(k=>k!==m&&RT.res[k]&&!RT.res[k].err);
+  const mm=`<div class="mm">${others.map(k=>`<button data-r="m:${k}">${MI[k]} ${fmtDur(totT(V&&V.res[k]&&!V.res[k].err?V.res[k]:RT.res[k]))}</button>`).join('')}<button data-r="rt" class="${S.roundTrip?'on':''}">🔁 Ida y vuelta${S.roundTrip?' ✓':''}</button></div>`;
   /* ida y vuelta: la vuelta por el mismo camino (con la pendiente al revés) + el rato en el destino; y la luz del día */
   let rtl='';
   if(S.roundTrip){
-    const back=r.timeBack||r.time,stay=(S.stayB||0)*60,tot=totT(r)+stay+back,ret=start+tot*1000;
+    const bq=backNow(m),back=bq?totT(bq):(r.timeBack||r.time),stay=(S.stayB||0)*60,tot=totT(r)+stay+back,ret=start+tot*1000;
+    const otro=bq&&routesDiffer(r,bq);
     const P=RT.to||{lat:r.coords[r.coords.length-1][0],lon:r.coords[r.coords.length-1][1]};
     let sun='';
     try{let t={};const day=new Date(start).toDateString();
@@ -4796,7 +4797,7 @@ function rtPanel(){
           :`🌇 Puesta del sol ${hhmm(t.set)}: te sobra${late>-3600000?'n solo':'n'} ${fmtDur(-late/1000)} de luz.`;}
     }catch(e){}
     rtl=`<div class="s">🔁 Ida y vuelta <b>${fmtDur(tot)}</b> · volvés ${arrLabel(start,ret)}</div>`
-      +(RT.pExp?`<div class="s">Ida ${fmtDur(totT(r))} · ${stay?`${S.stayB} min en el destino · `:''}vuelta ${fmtDur(back)}${r.timeBack?'':' (estimada igual a la ida)'}</div><div class="s">En el destino: ${[0,15,30,60,120].map(v=>`<button class="stb ${(S.stayB||0)===v?'on':''}" data-r="st:${v}">${v?v<60?v+' min':v/60+' h':'nada'}</button>`).join(' ')}</div>`:'')
+      +(RT.pExp?`<div class="s">Ida ${fmtDur(totT(r))} · ${stay?`${S.stayB} min en el destino · `:''}vuelta ${fmtDur(back)}${bq?(otro?` por otro camino (${fmtD(bq.dist)}, en el mapa en puntos)`:''):r.timeBack?'':' (estimada igual a la ida)'}</div><div class="s">En el destino: ${[0,15,30,60,120].map(v=>`<button class="stb ${(S.stayB||0)===v?'on':''}" data-r="st:${v}">${v?v<60?v+' min':v/60+' h':'nada'}</button>`).join(' ')}</div>`:'')
       +(sun?`<div class="s">${sun}</div>`:'');
   }
   if(rodeo(r)>3)bits.push(`⚠️ vuelta ×${Math.round(rodeo(r))}`);
@@ -4826,10 +4827,13 @@ $('#rtp').addEventListener('click',async e=>{
   }
   const a=e.target.closest('[data-r]');if(!a)return;
   if(a.dataset.r==='exp'){RT.pExp=!RT.pExp;rtPanel();return;}
-  if(a.dataset.r==='rt'){S.roundTrip=!S.roundTrip;saveS();rtPanel();return;}
+  if(a.dataset.r==='rt'){S.roundTrip=!S.roundTrip;saveS();if(S.roundTrip&&!backNow(RT.sel))rtBackCalc().then(()=>drawRoute(false));else drawRoute(false);return;}
   if(a.dataset.r.startsWith('st:')){S.stayB=+a.dataset.r.slice(3);saveS();rtPanel();return;}
   const r=RT.res&&RT.res[RT.sel];
-  if(a.dataset.r.startsWith('m:')){RT.sel=a.dataset.r.slice(2);resetCands();drawRoute(true);return;}
+  if(a.dataset.r.startsWith('m:')){RT.sel=a.dataset.r.slice(2);resetCands();
+    const V=viaNow(),q=V&&V.res[RT.sel];
+    if(q&&!q.err)addCand('Por '+V.label,q,true);else if(q&&q.err)toast(`${MN[RT.sel]}: no hay camino pasando por ${V.label} (${errText(q)}). Se muestra el directo`,6000);
+    drawRoute(true);return;}
   if(a.dataset.r==='x'){rtClear();toast('Ruta, A y B quitados del mapa',2500);}
   else if(a.dataset.r==='nav')startNav();
   else if(a.dataset.r==='3d')open3D({route:true});
@@ -4838,8 +4842,29 @@ $('#rtp').addEventListener('click',async e=>{
 });
 setInterval(()=>{if(!$('#rtp').hidden)rtPanel();},30000);
 /* quita la ruta y los puntos A y B (y las paradas) del mapa */
+/* 🔁 la vuelta calculada de verdad, de B a A: respeta las manos (en una autovía o una calle de una mano vuelve por la
+   otra calzada o por la paralela), en vez de suponer el mismo camino al revés */
+async function rtBackCalc(g){
+  RT.back=null;const from=RT.calcFrom||RT.from;if(!S.roundTrip||!RT.res||!RT.to||!from)return;
+  try{g=g||await ensureGraph();}catch(e){return;}if(!g)return;
+  const back={from,to:RT.to};
+  for(const m of ['foot','bike','car']){if(!RT.res[m]||RT.res[m].err)continue;const q=findRoute(g,m,RT.to,from,S.pref);if(!q.err)back[m]=q;}
+  RT.back=back;
+}
+/* ¿la vuelta va por otro lado? (más del 15 % de sus puntos a más de 12 m de la ida: otra calzada, otra calle) */
+function routesDiffer(a,b){
+  const A=a.coords,B=b.coords;if(!A||!B||A.length<2||B.length<2)return false;
+  const k=111320,kc=k*Math.cos(A[0][0]*rad),step=Math.max(1,Math.floor(B.length/300));let far=0,n=0;
+  for(let i=0;i<B.length;i+=step){const [la,lo]=B[i];let best=1e9;
+    for(let j=1;j<A.length&&best>12;j++){const x1=(A[j-1][1]-lo)*kc,y1=(A[j-1][0]-la)*k,x2=(A[j][1]-lo)*kc,y2=(A[j][0]-la)*k,dx=x2-x1,dy=y2-y1,L2=dx*dx+dy*dy,t=L2?Math.max(0,Math.min(1,-(x1*dx+y1*dy)/L2)):0;best=Math.min(best,Math.hypot(x1+dx*t,y1+dy*t));}
+    n++;if(best>12)far++;}
+  return far>n*.15;
+}
+const backNow=m=>RT.back&&RT.back.from===(RT.calcFrom||RT.from)&&RT.back.to===RT.to?RT.back[m]||null:null;
+/* el punto de paso agregado sigue valiendo mientras A y B sean los mismos */
+const viaNow=()=>RT.via&&RT.res&&RT.via.from===RT.calcFrom&&RT.via.to===RT.to?RT.via:null;
 function rtClear(){
-  RT.res=null;RT.from=null;RT.to=null;RT.cands=[];RT.selCand=null;RT.stops=[];RT.calcFrom=null;RT.alt=null;
+  RT.via=null;RT.back=null;RT.res=null;RT.from=null;RT.to=null;RT.cands=[];RT.selCand=null;RT.stops=[];RT.calcFrom=null;RT.alt=null;
   routeLayer.clearLayers();rtPanel();
 }
 function drawRoute(fit){
@@ -4847,6 +4872,8 @@ function drawRoute(fit){
   const r=RT.res&&RT.res[RT.sel];
   const ends=[];
   if(r&&!r.err){
+    const bq=S.roundTrip&&backNow(RT.sel);   // la vuelta, si va por otro lado: en puntos debajo de la ida
+    if(bq&&routesDiffer(r,bq)){L.polyline(bq.coords,{color:'#fff',weight:8,opacity:.8,interactive:false}).addTo(routeLayer);L.polyline(bq.coords,{color:MC[RT.sel],weight:5,opacity:.9,dashArray:'2 9',lineCap:'round',interactive:false}).addTo(routeLayer);}
     L.polyline(r.coords,{color:'#fff',weight:10,opacity:.9,interactive:false}).addTo(routeLayer);
     const cc=(RT.cands||[]).find(c=>c.route===r);
     L.polyline(r.coords,{color:(RT.cands&&RT.cands.length>1&&cc)?cc.col:MC[RT.sel],weight:6,interactive:false}).addTo(routeLayer);
@@ -4970,6 +4997,7 @@ async function calcRoutes(g,keep){
   }
   if(g&&!isWater(RT.sel))computeAlt(g);
   resetCands();
+  if(S.roundTrip)await rtBackCalc(g);
   if(keep){drawRoute(true);showRoutes();}
   else{closeSheet();RT.pExp=false;drawRoute(true);}
 }
@@ -4992,7 +5020,11 @@ async function addViaAt(ll){
   const via={lat:ll.lat,lon:ll.lon,label};
   const r=findRouteVia(g,RT.sel,RT.calcFrom,RT.to,S.pref,via);
   if(r.err){toast('No hay camino pasando por ahí: '+errText(r),5000);showRoutes();return;}
-  r.hzs=navInit(r,r.mode,await collectHz(g)).hzs;
+  const hz=await collectHz(g);
+  r.hzs=navInit(r,r.mode,hz).hzs;
+  /* el punto de paso vale para todos los modos (a pie, en bici, en auto): al cambiar de modo se sigue pasando por ahí */
+  RT.via={pt:via,label,from:RT.calcFrom,to:RT.to,res:{[RT.sel]:r}};
+  for(const m of ['foot','bike','car'])if(m!==RT.sel&&RT.res&&RT.res[m]&&!RT.res[m].err){const q=findRouteVia(g,m,RT.calcFrom,RT.to,S.pref,via);if(!q.err)q.hzs=navInit(q,q.mode,hz).hzs;RT.via.res[m]=q;}
   const c=addCand('Por '+label,r,true);
   drawRoute(true);toast('Camino agregado para comparar',2500);showRoutes();
 }
@@ -5048,7 +5080,8 @@ async function showRoutes(){
     else if(a==='rgpx'){const r=RT.res[RT.sel];shareFile('ruta.gpx',toGPX([{name:'Ruta',pts:r.coords.map(c=>[c[0],c[1],0,0,null,0])}],[],esc),'application/gpx+xml');}
     else if(a==='rsave')showSaveRoute();
     else if(a==='rbk'){const r=RT.res[RT.sel],ll=r.coords.map(c=>[c[0],c[1]]);   // con 🔁 Ida y vuelta, el GPX lleva también la vuelta (en bajada si la ida sube)
-      await bkSend({name:'Ruta '+(MN[RT.sel]||'')+' '+fmtDate(Date.now())+(S.roundTrip?' (ida y vuelta)':''),ll:S.roundTrip?ll.concat(ll.slice(0,-1).reverse()):ll,grade:RT.sel==='car'?.16:.25});}
+      const bq=S.roundTrip&&backNow(RT.sel),vuelta=bq?bq.coords.map(c=>[c[0],c[1]]).slice(1):ll.slice(0,-1).reverse();   // la vuelta real, si está calculada
+      await bkSend({name:'Ruta '+(MN[RT.sel]||'')+' '+fmtDate(Date.now())+(S.roundTrip?' (ida y vuelta)':''),ll:S.roundTrip?ll.concat(vuelta):ll,grade:RT.sel==='car'?.16:.25});}
     else if(a==='nav')startNav();
     else if(a==='kc'){
       S.kCoast=d.v!=='0';if(S.kCoast)S.kCoastM=+d.v;saveS();
