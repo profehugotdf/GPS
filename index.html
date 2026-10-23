@@ -3588,7 +3588,7 @@ function ingest(f){
   if(last&&last[5]===REC.seg){
     const d=hav(last,p),dt=(p[2]-last[2])/1000;
     if(dt<=0)return;
-    if(d/dt>45)return;
+    if(d/dt>(REC.act==='plane'?350:REC.act==='car'?90:45))return;   // salto imposible para esa disciplina (en avión, 1.260 km/h)
     if(d<S.minDist&&dt<10){REC.speed=f.speed!=null?f.speed:0;return;}
     REC.dist+=d;
     REC.speed=f.speed!=null?f.speed:d/dt;
@@ -10754,15 +10754,27 @@ function airAlts(tr,gfn){
   const alts=P.map(p=>p[4]).filter(x=>x!=null),maxA=alts.length?Math.max(...alts):0,maxV=Math.max(...v);
   const g0=(()=>{const a=P.slice(0,8).map(p=>p[4]).filter(x=>x!=null);return a.length?a.sort((x,y)=>x-y)[a.length>>1]:0;})();
   const g1=(()=>{const a=P.slice(-8).map(p=>p[4]).filter(x=>x!=null);return a.length?a.sort((x,y)=>x-y)[a.length>>1]:g0;})();
-  if(alts.length>n*.5&&!(maxV>140&&maxA<4500)){   // altura creíble: la grabada, suavizada, con los huecos interpolados
+  if(tr.act!=='plane'&&alts.length>n*.5&&!(maxV>140&&maxA<4500)){   // altura creíble: la grabada, suavizada, con los huecos interpolados
     const a=P.map(p=>p[4]);let last=null;for(let i=0;i<n;i++){if(a[i]==null){let j=i;while(j<n&&a[j]==null)j++;const x=last==null?(j<n?a[j]:0):last,y=j<n?a[j]:x;for(let k=i;k<j;k++)a[k]=x+(y-x)*(k-i+1)/(j-i+1);i=j-1;}else last=a[i];}
-    const o=a.map((x,i)=>{let s=0,c=0;for(let k=Math.max(0,i-3);k<=Math.min(n-1,i+3);k++){s+=a[k];c++;}return s/c;});return {a:o,est:false};
+    const o=a.map((x,i)=>{let s=0,c=0;for(let k=Math.max(0,i-3);k<=Math.min(n-1,i+3);k++){s+=a[k];c++;}return s/c;});
+    /* si en tierra (al salir o al llegar) la altura del teléfono no coincide con la del aeropuerto o el relieve, se corrige
+       ese desfasaje de a poco a lo largo del vuelo (el barómetro o el filtro del GPS suelen arrastrar miles de metros) */
+    const gAt=i=>{const p=P[i];for(const ap of FL_APT)if(ap[4]!=null&&hav(p,[ap[2],ap[3]])<15000)return ap[4];if(gfn){const g=gfn(p[0],p[1]);if(isFinite(g))return g;}return null;};
+    const e0=gAt(0),e1=gAt(n-1),c0=e0!=null?e0-o[0]:0,c1=e1!=null?e1-o[n-1]:0,T0=P[0][2],T1=P[n-1][2];
+    if(Math.abs(c0)>100||Math.abs(c1)>100){const lo=Math.min(e0??o[0],e1??o[n-1]);
+      for(let i=0;i<n;i++){const u=(P[i][2]-T0)/((T1-T0)||1);o[i]=Math.max(lo,o[i]+(Math.abs(c0)>100?c0:0)*(1-u)+(Math.abs(c1)>100?c1:0)*u);}
+      return {a:o,est:true};}
+    return {a:o,est:false};
   }
   /* con altura de cabina, el suelo del despegue y del aterrizaje sale del relieve (si se conoce) */
   let G0=g0,G1=g1;if(gfn){const a=gfn(P[0][0],P[0][1]),b=gfn(P[n-1][0],P[n-1][1]);if(isFinite(a))G0=a;if(isFinite(b))G1=b;}
   let i0=v.findIndex(x=>x>70),i1=n-1;while(i1>0&&v[i1]<=70)i1--;if(i0<0){i0=0;i1=n-1;}
-  const t0=P[i0][2],t1=P[i1][2],H=S.flCruise||10700,up=10,dn=8.3;
-  return {a:P.map((p,i)=>{if(i<=i0)return G0;if(i>=i1)return G1;const sU=(p[2]-t0)/1000,sD=(t1-p[2])/1000;return Math.max(Math.min(G0,G1),Math.min(H,G0+up*sU,G1+dn*sD));}),est:true};
+  const cr=P.filter((p,i)=>v[i]>200&&p[4]!=null&&p[4]>7000&&p[4]<13500).map(p=>p[4]).sort((a,b)=>a-b);
+  const t0=P[i0][2],t1=P[i1][2],H=cr.length>10?cr[cr.length>>1]:(S.flCruise||10700),up=10,dn=8.3;
+  { const apt=p=>{for(const a of FL_APT)if(a[4]!=null&&hav(p,[a[2],a[3]])<15000)return a[4];return null;};const a0=apt(P[0]),a1=apt(P[n-1]);if(a0!=null)G0=a0;if(a1!=null)G1=a1; }
+  /* la bajada: rampa de 3° según lo que falta recorrer hasta el aterrizaje (≈ 52 m por km) */
+  const rem=new Array(n).fill(0);for(let i=i1-1;i>=0;i--)rem[i]=rem[i+1]+hav(P[i],P[i+1]);
+  return {a:P.map((p,i)=>{if(i<=i0)return G0;if(i>=i1)return G1;const sU=(p[2]-t0)/1000;return Math.max(Math.min(G0,G1),Math.min(H,G0+up*sU,G1+rem[i]*Math.tan(3*rad)));}),est:true};
 }
 function t3AirRoad(ll,tr){
   T3.road=null;const A=airAlts(tr,T3.hasZ?(la,lo)=>{const q=t3XZ(la,lo),sp=T3.N*128*T3.mpp;return Math.abs(q[0])<sp&&Math.abs(q[1])<sp?t3H(q[0],q[1]):NaN;}:null);T3.airEst=A.est;
@@ -11432,17 +11444,41 @@ function flCalc(){
 function flDraw(){
   const el=$('#flt');if(!FL.on||!el)return;
   const f=lastFix,c=flCalc(),old=!f||Date.now()-lastFixWall>15000,D=flDest();
-  const alt=f&&f.alt!=null?f.alt:null,v=c.v,dd=f?hav([f.lat,f.lon],[D.lat,D.lon]):null;
+  const raw=f&&f.alt!=null?f.alt:null,v=c.v,dd=f?hav([f.lat,f.lon],[D.lat,D.lon]):null;
+  /* control de cordura de la altura del teléfono: después de un vuelo, el barómetro calibrado en el aire o el filtro del
+     GPS pueden quedar con miles de metros de error (2.700 m en la pista de El Calafate, a 204 m). En tierra cerca de un
+     aeropuerto conocido manda su elevación; en la aproximación, si marca más de lo posible, se usa la rampa de 3°. */
+  let alt=raw,altNote='',altBad=false;
+  /* ✈️ en avión no se confía en la altura del teléfono (barómetro de la cabina presurizada, filtro del GPS que se atrasa):
+     se calcula por el vuelo: sube ~600 m/min desde el despegue, va a crucero y baja por una rampa de 3° hacia el destino.
+     El crucero se toma del teléfono solo si marca algo creíble (7.000-13.500 m); si no, 10.700 m. */
+  if(S.flAltModel!==false&&f){
+    let ge0=null;if(FL.dep)ge0=FL.dep.elev;
+    if(!FL.dep&&v!=null&&v<40){let best=null;for(const a of FL_APT){const d=hav([f.lat,f.lon],[a[2],a[3]]);if(d<15000&&(!best||d<best.d))best={d,a};}if(best)FL.dep={name:best.a[1],elev:best.a[4]};}
+    if(raw!=null&&v>140&&raw>7000&&raw<13500)FL.cru=FL.cru?FL.cru*.98+raw*.02:raw;
+    const H=FL.cru||S.flCruise||10700,g0=FL.dep?FL.dep.elev:(D.elev||0);
+    const climb=FL.toff?g0+10*Math.max(0,(f.t-FL.toff)/1000):null,desc=D.elev!=null&&dd!=null?D.elev+dd*Math.tan(3*rad):null;
+    const okCru=raw!=null&&v>140&&raw>7000&&raw<13500&&(desc==null||raw<=desc+1500);   // en crucero el GPS sí suele andar bien
+    const okApp=raw!=null&&desc!=null&&dd<30000&&Math.abs(raw-desc)<400;   // en la final, si el GPS marca algo cerca de la rampa, se le cree (y se compara)
+    if(!okCru&&!okApp&&v!=null&&v>40&&(climb!=null||desc!=null)){
+      const m=Math.max(Math.min(g0,D.elev||g0),Math.min(H,climb??H,desc??H));
+      altNote=`por el vuelo${raw!=null?` · el teléfono marca ${miles(Math.round(raw))} m`:''}`;alt=m;altBad=true;}
+  }
+  if(f&&raw!=null){
+    let ge=null;for(const a of FL_APT){if(a[4]!=null&&hav([f.lat,f.lon],[a[2],a[3]])<15000){ge=a[4];break;}}
+    if(ge!=null&&v!=null&&v<40&&Math.abs(raw-ge)>150){alt=ge;altBad=true;altNote=`≈ la del aeropuerto · el teléfono marca ${miles(Math.round(raw))} m`;}
+    else if(D.elev!=null&&dd!=null&&dd<30000&&v>40&&raw-D.elev>dd*Math.tan(6*rad)+300){alt=D.elev+dd*Math.tan(3*rad);altBad=true;altNote=`≈ por la rampa de 3° · el teléfono marca ${miles(Math.round(raw))} m`;}
+  }
   const eta=v>15&&dd!=null?Date.now()+dd/v*1000:null;
   /* el teléfono suele mezclar el GPS con su barómetro: adentro del avión mide la presión de la CABINA (presurizada a
      ~2.000-2.400 m), así que la altura sube despacio (~100-150 m/min) y se queda en unos 2.000 m. Se avisa. */
-  if(v>83&&alt!=null&&alt<3500){FL.cab=(FL.cab||Date.now());}else FL.cab=0;
+  if(v>83&&raw!=null&&raw<3500&&!altBad){FL.cab=(FL.cab||Date.now());}else FL.cab=0;
   const cabin=FL.cab&&Date.now()-FL.cab>120000;
-  if(v>70&&!FL.toff&&f){FL.toff=f.t;FL.g0=alt!=null?alt:0;}
+  if(v>70&&!FL.toff&&f){FL.toff=f.t;FL.g0=FL.dep?FL.dep.elev:(alt!=null?alt:0);}
   const estA=cabin&&FL.toff&&f?Math.max(alt||0,Math.min(S.flCruise||10700,(FL.g0||0)+10*Math.max(0,f.t-FL.toff)/1000)):null;   // subiendo a ~600 m/min, como un avión de línea
   const vsTxt=c.vs==null?'—':Math.abs(c.vs)<60?'nivelado':(c.vs>0?'↑ ':'↓ ')+miles(Math.round(Math.abs(c.vs)/10)*10);
   el.querySelector('.fg').innerHTML=`
-    <div class="${old?'old':''}"><small>Altura GPS</small><b>${alt!=null?miles(Math.round(alt))+'<i>m</i>':'—'}</b><small>${alt!=null?(cabin?`⚠️ es la de la cabina · real ≈ ${miles(Math.round(estA/100)*100)} m`:miles(Math.round(alt*3.2808/10)*10)+' ft'):'esperando la altura'}</small></div>
+    <div class="${old?'old':''}"><small>${altBad?'Altura del avión':'Altura GPS'}</small><b>${alt!=null?miles(Math.round(alt))+'<i>m</i>':'—'}</b><small>${alt!=null?(altBad?(altNote.startsWith('por el vuelo')?`✈️ ${altNote}`:`⚠️ ${altNote}`):cabin?`⚠️ es la de la cabina · real ≈ ${miles(Math.round(estA/100)*100)} m`:miles(Math.round(alt*3.2808/10)*10)+' ft'):'esperando la altura'}</small></div>
     <div class="${old?'old':''}"><small>Velocidad (sobre el suelo)</small><b>${v!=null?Math.round(v*3.6)+'<i>km/h</i>':'—'}</b><small>${v!=null?Math.round(v*1.94384)+' nudos':''}</small></div>
     <div class="${old?'old':''}"><small>Rumbo</small><b>${c.brg!=null&&!isNaN(c.brg)?Math.round((c.brg+360)%360)+'°<i>'+card8(c.brg)+'</i>':'—'}</b><small>hacia donde va el avión</small></div>
     <div class="${old?'old':''}"><small>Vertical (m/min)</small><b style="font-size:24px">${vsTxt}</b><small>${c.vs!=null&&Math.abs(c.vs)>=60?(c.vs>0?'subiendo':'bajando'):''}</small></div>`;
@@ -11462,7 +11498,7 @@ function flDraw(){
         if(v>139&&H>7000){const tas=.8*a,w=v*3.6-tas;it.push(`💨 Viento ≈ <b>${Math.abs(w)<30?'casi nada':Math.round(Math.abs(w))+' km/h '+(w>0?'a favor':'en contra')}</b> <small>(est.)</small>`);}
       }
       /* aproximación: la rampa de 3° (≈ 52 m por km), si la altura es la del GPS */
-      if(dd!=null&&dd<25000&&alt!=null&&!cabin&&D.elev!=null){const ideal=dd*Math.tan(3*rad),real=alt-D.elev,dif=real-ideal;
+      if(dd!=null&&dd<25000&&alt!=null&&!cabin&&!altBad&&D.elev!=null&&v>40){const ideal=dd*Math.tan(3*rad),real=alt-D.elev,dif=real-ideal;
         it.push(`🛬 Rampa 3°: <b>${miles(Math.round(ideal/10)*10)} m</b> sobre la pista · ${Math.abs(dif)<60?'<b>justo en la rampa</b>':`<b>${miles(Math.round(Math.abs(dif)/10)*10)} m ${dif>0?'alto':'bajo'}</b>`}`);}
       fx.innerHTML=it.map(x=>`<div>${x}</div>`).join('');}
   }
@@ -11476,18 +11512,20 @@ function flDraw(){
       const pre=FL.hist.filter(h=>h.t>=now-40000&&h.t<now-500).map(h=>[h.lat,h.lon,h.t,10,h.alt==null?null:Math.round(h.alt),0]);
       if(pre.length&&REC.pts.length===0){REC.pts.push(...pre);REC.hr=pre.map(()=>null);for(let k=1;k<pre.length;k++)REC.dist+=hav(pre[k-1],pre[k]);}
       toast(why,6000);try{waPost(why,'');}catch(e){}flDraw();});};
-  const autoEnd=async(nm,msg)=>{FL.auto=null;FL.autoOn=0;FL.lvl=0;FL.slow=0;FL.mv0=null;FL.mvT=0;FL.flew=false;try{await saveRec(nm+' '+fmtDate(Date.now()));}catch(e){}toast(msg,7000);try{waPost(msg,'');}catch(e){}
+  const autoEnd=async(nm,msg)=>{FL.dep=FL.dep;FL.auto=null;FL.autoOn=0;FL.lvl=0;FL.slow=0;FL.mv0=null;FL.mvT=0;FL.flew=false;try{await saveRec(nm+' '+fmtDate(Date.now()));}catch(e){}toast(msg,7000);try{waPost(msg,'');}catch(e){}
     if(FL.prevAct&&FL.prevAct!=='plane'){S.act=FL.prevAct;saveS();updActBtn();}};
   /* "se empieza a mover": salir de la manga (empuje hacia atrás) o empezar a carretear. Más de 40 m desde donde estaba
      y más de 5 km/h durante 10 s, así el GPS que salta adentro del avión parado no lo dispara */
   const moving=()=>{if(!f)return false;if(!FL.mv0)FL.mv0={lat:f.lat,lon:f.lon};
     const away=hav([f.lat,f.lon],[FL.mv0.lat,FL.mv0.lon])>40;FL.mvT=away&&v>1.4?(FL.mvT||now):0;return FL.mvT&&now-FL.mvT>10000;};
-  if(FL.auto==='gate'||FL.auto==='full'){
+  if(FL.auto==='both'&&FL.stage2&&!FL.autoOn){FL.auto='down';}
+  if(FL.auto==='gate'||FL.auto==='full'||FL.auto==='both'){
     if(!FL.autoOn&&REC.state==='idle'){if(moving())autoStart(FL.auto==='full'?'🧳 El avión se empezó a mover: grabando todo el vuelo':'🚶 El avión salió de la manga: grabando hasta crucero');}
     else if(FL.autoOn&&REC.state!=='idle'){
       if(v>70)FL.flew=true;
-      if(FL.auto==='gate'){FL.lvl=v>139&&(c.vs!=null?Math.abs(c.vs)<60:v>200)?(FL.lvl||now):0;
-        if((FL.lvl&&now-FL.lvl>180000)||now-FL.autoOn>90*60000)autoEnd('Salida y despegue','🛫 Llegaste a crucero: guardado desde la manga. Lo ves en Tracks → 🎬 Revivir');}
+      if(FL.auto==='gate'||FL.auto==='both'){FL.lvl=v>139&&(c.vs!=null?Math.abs(c.vs)<60:v>200)?(FL.lvl||now):0;
+        if((FL.lvl&&now-FL.lvl>180000)||now-FL.autoOn>90*60000){const both=FL.auto==='both';
+          autoEnd('Salida y despegue',both?`🛫 Partida guardada. Ahora espera la llegada: graba a ${S.flApprKm||80} km de ${D.name}`:'🛫 Llegaste a crucero: guardado desde la manga. Lo ves en Tracks → 🎬 Revivir').then(()=>{if(both){FL.auto='down';flDraw();}});}}
       else{FL.slow=FL.flew&&v!=null&&v<1?(FL.slow||now):0;
         if(FL.slow&&now-FL.slow>180000)autoEnd('Vuelo','🧳 Avión detenido: vuelo completo guardado, de manga a manga. Lo ves en Tracks → 🎬 Revivir');}
     }
@@ -11512,9 +11550,10 @@ function flDraw(){
     else if(FL.autoOn&&REC.state!=='idle'&&dO>R*1.1)autoEnd('Sobre '+O.name,`📍 Ya pasaste ${O.name}: guardado. Lo ves en Tracks → 🎬 Revivir`);
   }
   if(ab&&FL.auto==='over'&&S.flOver){ab.textContent=FL.autoOn?`📍 Grabando sobre ${S.flOver.name}`:`📍 Grabará sobre ${S.flOver.name}${f?' ('+miles(hav([f.lat,f.lon],[S.flOver.lat,S.flOver.lon])/1000)+' km)':''}`;}
-  else if(ab&&(FL.auto==='gate'||FL.auto==='full'))ab.textContent=FL.autoOn?(FL.auto==='full'?'🧳 Grabando todo el vuelo':'🚶 Grabando hasta crucero'):'🚶 Espera que el avión se mueva';
+  else if(ab&&(FL.auto==='gate'||FL.auto==='full'||FL.auto==='both'))ab.textContent=FL.autoOn?(FL.auto==='full'?'🧳 Grabando todo el vuelo':'🚶 Grabando hasta crucero'):'🚶 Espera que el avión se mueva';
   else if(ab)ab.textContent=FL.auto==='up'?(FL.autoOn?'🛫 Grabando hasta crucero':'🛫 Espera el despegue'):FL.auto==='down'?(FL.autoOn?'🛬 Grabando hasta tocar tierra':`🛬 Grabará a ${S.flApprKm||80} km`):'🎬 Grabar una parte';
-  const rb=el.querySelector('[data-fl=rec]');if(rb)rb.textContent=REC.state==='idle'?'⏺ Grabar el vuelo':'⏺ Grabando';
+  const rb=el.querySelector('[data-fl=rec]');if(rb)rb.textContent=REC.state==='idle'?'⏺ Grabar el vuelo':`⏺ Grabando · ${fmtD(REC.dist)}`;
+  if(REC.state==='rec'&&FL.dist>5000&&REC.dist<FL.dist*.2&&now-(FL.warnRec||0)>300000){FL.warnRec=now;toast('⚠️ La grabación no está sumando puntos: revisá la disciplina (tiene que ser ✈️ Avión)',7000);}
 }
 async function flStart(){
   if(FL.on)return;
@@ -11542,6 +11581,7 @@ document.addEventListener('click',e=>{
     if(FL.autoOn){toast('Ya está grabando esa parte: termina sola',3000);return;}
     const D=flDest();
     openSheet('🎬 Grabar una parte del vuelo',`<p class="mut">Rumbo empieza y termina sola, y guarda el track como ✈️ Avión.</p>
+      <div class="item" data-act="both"><div><b>🛫🛬 Partida y llegada</b><br><small class="mut">Graba desde que el avión se mueve hasta crucero y lo guarda; después, la aproximación a ${esc(D.name)} hasta que quedás quieto en tierra. Dos tracks.</small></div>${FL.auto==='both'?'✓':''}</div>
       <div class="item" data-act="gate"><div><b>🚶 Desde la manga hasta crucero</b><br><small class="mut">Empieza cuando el avión se empieza a mover (empuje hacia atrás o carreteo) y termina al llegar a crucero.</small></div>${FL.auto==='gate'?'✓':''}</div>
       <div class="item" data-act="full"><div><b>🧳 Todo el vuelo, de manga a manga</b><br><small class="mut">Empieza cuando el avión se mueve y termina cuando, después de volar, queda 3 minutos detenido.</small></div>${FL.auto==='full'?'✓':''}</div>
       <div class="item" data-act="up"><div><b>🛫 Despegue hasta crucero</b><br><small class="mut">Empieza al acelerar en la pista (con los 40 s de antes) y termina cuando el avión va a más de 500 km/h y se nivela 3 minutos (o a los 40 minutos).</small></div>${FL.auto==='up'?'✓':''}</div>
@@ -11553,7 +11593,7 @@ document.addEventListener('click',e=>{
       (x,d)=>{
         if(x==='ak'){S.flApprKm=+d.k;saveS();document.querySelectorAll('#sheet [data-act=ak]').forEach(o=>o.classList.toggle('on',o.dataset.k===d.k));return;}
         if(x==='over'){flPickOver();return;}
-        if(x==='gate'||x==='full'){FL.auto=x;FL.mv0=lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null;FL.mvT=0;FL.flew=false;closeSheet();flDraw();toast(x==='full'?'🧳 Listo: graba todo el vuelo apenas el avión se mueva':'🚶 Listo: empieza a grabar apenas el avión se mueva',4000);return;}
+        if(x==='gate'||x==='full'||x==='both'){FL.auto=x;FL.mv0=lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null;FL.mvT=0;FL.flew=false;closeSheet();flDraw();toast(x==='full'?'🧳 Listo: graba todo el vuelo apenas el avión se mueva':x==='both'?`🛫🛬 Listo: la partida apenas el avión se mueva, y la llegada a ${S.flApprKm||80} km de ${flDest().name}`:'🚶 Listo: empieza a grabar apenas el avión se mueva',4000);return;}
         if(x==='up'||x==='down'){FL.auto=x;closeSheet();flDraw();toast(x==='up'?'🛫 Listo: empieza a grabar cuando el avión acelere en la pista':`🛬 Listo: empieza a grabar a ${S.flApprKm||80} km de ${flDest().name}`,4000);}
         else if(x==='off'){FL.auto=null;closeSheet();flDraw();}});
   }
