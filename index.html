@@ -3563,7 +3563,7 @@ async function startRec(){
   if(S.focusCirc==='none')circs=[];
   else if(S.focusCirc){const fc=await DB.get('kv','circuit:'+S.focusCirc);if(fc&&fc.gates.length)circs=[fc];}
   Object.assign(REC,{lastEnt:null});
-  Object.assign(REC,{state:'rec',id:uid(),t0:Date.now(),pausedMs:0,pauseAt:0,seg:0,pts:[],hr:[],hrS:null,dist:0,speed:0,last:null,lastSave:Date.now(),act:S.act});
+  Object.assign(REC,{state:'rec',id:uid(),t0:Date.now(),pausedMs:0,pauseAt:0,seg:0,pts:[],gArr:[],hr:[],hrS:null,dist:0,speed:0,last:null,lastSave:Date.now(),act:S.act});
   REC.timers=circs.map(makeTimer);
   prLiveLoad();
   REC.poly=L.polyline([],{color:'#F04A1C',weight:5,opacity:.95}).addTo(map);
@@ -3595,6 +3595,7 @@ function ingest(f){
     for(const t of REC.timers)t.gt.feed(last,p);
   }
   REC.pts.push(p);(REC.hr||(REC.hr=[])).push(hrNow());
+  if(GM.on){const g=REC.gArr||(REC.gArr=[]);while(g.length<REC.pts.length-1)g.push(null);g.push(GM.g!=null?Math.round(GM.max>0?Math.max(GM.g,GM.pk||0)*100:0)/100:null);GM.pk=0;}
   try{prLive();}catch(e){}
   REC.poly.addLatLng([p[0],p[1]]);
 }
@@ -3694,6 +3695,7 @@ async function saveRec(name){
   const res=REC.timers.filter(t=>t.gt.laps.length||t.gt.races.length).map(t=>({cid:t.circ.id,name:t.circ.name,type:t.circ.type,wind:t.wind||null,races:t.gt.races.map(R=>Object.assign({},R)),laps:t.gt.laps.map(l=>({n:l.n,start:l.start,time:l.time,splits:l.splits}))}));
   const tr={id:REC.id,name:name||'Salida '+fmtDate(REC.t0),t0:pts[0][2],t1:pts[pts.length-1][2],pts,stats:calcStats(pts),act:REC.act,res,src:'rec'};
   if(REC.hr&&REC.hr.length===pts.length&&REC.hr.some(v=>v!=null))tr.hr=REC.hr.slice();
+  if(REC.gArr&&REC.gArr.some(v=>v!=null)){const g=REC.gArr.slice(0,pts.length);while(g.length<pts.length)g.push(null);tr.g=g;tr.gMax=Math.max(...g.filter(x=>x!=null));}
   await commitRuns(tr);
   await DB.put('kv','track:'+tr.id,tr);
   try{await mpPublish([tr]);}catch(e){}
@@ -4250,6 +4252,7 @@ async function showTrackDetail(id){
         return `<div><b>⚡ ${p.est?'~':''}${p.avg} W</b><small>potencia media${p.est?' (estimada)':''}</small></div><div><b>${p.est?'~':''}${p.np} W</b><small>normalizada (NP)</small></div>`+
           (ftp?`<div><b>${dec(k,2)} · ${Math.round(100*(p.segMov/3600)*k*k)}</b><small>IF · TSS (FTP ${ftp} W)</small></div>`:'');})(bikePower(tr))}
       ${(h=>h?`<div><b>${h.avg}</b><small>cadencia prom.</small></div>`:'')(sensStats(tr.cad))}
+      ${tr.gMax?`<div><b>🎢 ${dec(tr.gMax,2)} G</b><small>máximo</small></div>`:''}
     </div>
     ${tr.act==='bike'&&!(tr.pw&&tr.pw.some(x=>x>0))?`<p class="mut">⚡ Potencia estimada con la velocidad, la pendiente y tus datos de ${bkCfg().src||'Ajustes'} (peso, CdA, Crr). En subida es bastante fiel; en llano y bajada el viento, el freno y el ir a rueda la pueden correr bastante.</p>`:''}
     ${res.map(lapBlock).join('')}
@@ -11389,6 +11392,37 @@ async function showTrim(id){
   setTimeout(()=>{for(const k of ['trA','trB']){const e=$('#'+k);if(e)e.addEventListener('input',()=>{if(k==='trA'){st.a=Math.min(+e.value,st.b-2);}else{st.b=Math.max(+e.value,st.a+2);}draw();});}draw();},50);
 }
 
+/* ---------- 🎢 Fuerzas G ----------
+   Acelerómetro (con la pantalla prendida): la G que sentís = aceleración total / 9,81 (1,00 quieto), separada en vertical
+   (en la dirección de "abajo", calibrada cuando el teléfono está quieto) y horizontal. Del GPS (anda siempre): adelante/atrás
+   = cuánto cambia la velocidad, y lateral = velocidad × cuánto dobla. Se guarda la G de cada punto del track. */
+const GM={on:false,g:null,gv:null,gh:null,max:1,maxH:0,min:1,cal:null,calN:0,buf:[],t:0,lon:null,lat:null};
+function gmMotion(e){
+  const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;
+  const now=performance.now(),k=GM.t?Math.min(1,(now-GM.t)/300):1;GM.t=now;   // suavizado ~0,3 s
+  const n=Math.hypot(a.x,a.y,a.z);
+  /* "abajo": promedio lento mientras el total ronda 1 G y el teléfono no se sacude */
+  GM.buf.push(n);if(GM.buf.length>30)GM.buf.shift();
+  const mean=GM.buf.reduce((x,y)=>x+y,0)/GM.buf.length,vari=GM.buf.reduce((x,y)=>x+(y-mean)**2,0)/GM.buf.length;
+  if(Math.abs(n-9.81)<.4&&vari<.05){const c=GM.cal||{x:a.x,y:a.y,z:a.z},w=GM.calN<50?.2:.01;GM.cal={x:c.x+(a.x-c.x)*w,y:c.y+(a.y-c.y)*w,z:c.z+(a.z-c.z)*w};GM.calN++;}
+  const G=n/9.81;GM.g=GM.g==null?G:GM.g+(G-GM.g)*k;
+  if(GM.cal){const cl=Math.hypot(GM.cal.x,GM.cal.y,GM.cal.z)||1,ux=GM.cal.x/cl,uy=GM.cal.y/cl,uz=GM.cal.z/cl,vp=a.x*ux+a.y*uy+a.z*uz,hx=a.x-vp*ux,hy=a.y-vp*uy,hz=a.z-vp*uz;
+    const gv=vp/9.81,gh=Math.hypot(hx,hy,hz)/9.81;GM.gv=GM.gv==null?gv:GM.gv+(gv-GM.gv)*k;GM.gh=GM.gh==null?gh:GM.gh+(gh-GM.gh)*k;GM.maxH=Math.max(GM.maxH,GM.gh);}
+  GM.max=Math.max(GM.max,GM.g);GM.min=Math.min(GM.min,GM.g);GM.pk=Math.max(GM.pk||0,GM.g);
+}
+function gmStart(){if(GM.on)return;GM.on=true;Object.assign(GM,{g:null,gv:null,gh:null,max:1,maxH:0,min:1,buf:[],t:0});try{window.addEventListener('devicemotion',gmMotion);}catch(e){}}
+function gmStop(){GM.on=false;try{window.removeEventListener('devicemotion',gmMotion);}catch(e){}}
+/* del GPS: G adelante/atrás y lateral con las últimas lecturas */
+function gmGps(){
+  const H=FL.hist&&FL.hist.length>=3?FL.hist:null,f=lastFix;if(!f||!fixHist||fixHist.length<3)return null;
+  const P=fixHist.slice(-4),a=P[0],b=P[P.length-1],m=P[Math.floor(P.length/2)],dt=(b.t-a.t)/1000;if(!(dt>1.5))return null;
+  const v1=hav([a.lat,a.lon],[m.lat,m.lon])/((m.t-a.t)/1000||1),v2=hav([m.lat,m.lon],[b.lat,b.lon])/((b.t-m.t)/1000||1);
+  const b1=bearingTo([a.lat,a.lon],[m.lat,m.lon]),b2=bearingTo([m.lat,m.lon],[b.lat,b.lon]);let db=b2-b1;while(db>180)db-=360;while(db<-180)db+=360;
+  const v=(v1+v2)/2,lon=(v2-v1)/(dt/2)/9.81,lat=v>5?v*(db*rad)/(dt/2)/9.81:0;
+  return {lon:Math.max(-2,Math.min(2,lon)),lat:Math.max(-2,Math.min(2,lat))};
+}
+const gmF=x=>x==null?'—':dec(x,2);
+
 /* ---------- ✈️ Modo vuelo: tablero grande sin necesidad de grabar ----------
    El GPS funciona en modo avión (solo recibe de los satélites). Altura GPS, velocidad sobre el suelo, rumbo, si
    subís o bajás, distancia y hora de llegada al destino, y sobre qué ciudad estás (lista propia: anda sin internet). */
@@ -11457,7 +11491,7 @@ function flDraw(){
     if(!FL.dep&&v!=null&&v<40){let best=null;for(const a of FL_APT){const d=hav([f.lat,f.lon],[a[2],a[3]]);if(d<15000&&(!best||d<best.d))best={d,a};}if(best)FL.dep={name:best.a[1],elev:best.a[4]};}
     if(raw!=null&&v>140&&raw>7000&&raw<13500)FL.cru=FL.cru?FL.cru*.98+raw*.02:raw;
     const H=FL.cru||S.flCruise||10700,g0=FL.dep?FL.dep.elev:(D.elev||0);
-    const climb=FL.toff?g0+10*Math.max(0,(f.t-FL.toff)/1000):null,desc=D.elev!=null&&dd!=null?D.elev+dd*Math.tan(3*rad):null;
+    const climb=FL.toff?g0+10*Math.max(0,(f.t-FL.toff)/1000):g0,   /* antes del despegue (carreteo, carrera en la pista): en el suelo */desc=D.elev!=null&&dd!=null?D.elev+dd*Math.tan(3*rad):null;
     const okCru=raw!=null&&v>140&&raw>7000&&raw<13500&&(desc==null||raw<=desc+1500);   // en crucero el GPS sí suele andar bien
     const okApp=raw!=null&&desc!=null&&dd<30000&&Math.abs(raw-desc)<400;   // en la final, si el GPS marca algo cerca de la rampa, se le cree (y se compara)
     if(!okCru&&!okApp&&v!=null&&v>40&&(climb!=null||desc!=null)){
@@ -11500,6 +11534,11 @@ function flDraw(){
       /* aproximación: la rampa de 3° (≈ 52 m por km), si la altura es la del GPS */
       if(dd!=null&&dd<25000&&alt!=null&&!cabin&&!altBad&&D.elev!=null&&v>40){const ideal=dd*Math.tan(3*rad),real=alt-D.elev,dif=real-ideal;
         it.push(`🛬 Rampa 3°: <b>${miles(Math.round(ideal/10)*10)} m</b> sobre la pista · ${Math.abs(dif)<60?'<b>justo en la rampa</b>':`<b>${miles(Math.round(Math.abs(dif)/10)*10)} m ${dif>0?'alto':'bajo'}</b>`}`);}
+      if(GM.on){const gp=gmGps();
+        it.push(`🎢 G: <b>${gmF(GM.g)}</b> <small>(máx ${gmF(GM.max)} · mín ${gmF(GM.min)})</small>`);
+        if(GM.gv!=null)it.push(`↕️ vertical <b>${gmF(GM.gv)}</b> · ↔️ horizontal <b>${gmF(GM.gh)}</b>`);
+        else it.push(`<small>🎢 calibrando: dejá el teléfono quieto unos segundos</small>`);
+        if(gp&&v>3)it.push(`🛫 Adelante/atrás (GPS): <b>${(gp.lon>0?'+':'')+gmF(gp.lon)}</b> · lateral <b>${gmF(Math.abs(gp.lat))}</b>`);}
       fx.innerHTML=it.map(x=>`<div>${x}</div>`).join('');}
   }
   /* grabar solo una parte del vuelo (FL.auto): 'up' = del despegue hasta crucero; 'down' = la aproximación y el aterrizaje.
@@ -11562,7 +11601,7 @@ async function flStart(){
   el.innerHTML=`<div class="fh">✈️ <span>Modo vuelo</span><button data-fl="dest">📍 Destino</button><button data-fl="min" aria-label="Achicar o agrandar">▴</button><button data-fl="x">✕</button></div><div class="fc"></div><div class="fg"></div><div class="fw"></div>
     <div class="fx"></div>
     <div class="fb"><button data-fl="rec">⏺ Grabar el vuelo</button><button data-fl="appr">🎬 Grabar una parte</button><button data-fl="zoom">🗺️ Ver más mapa</button></div>`;
-  closeSheet();document.body.classList.add('flOn');el.classList.toggle('min',!!S.flMin);
+  closeSheet();document.body.classList.add('flOn');gmStart();el.classList.toggle('min',!!S.flMin);
   try{if(!watch||watch.type!=='bg')await startWatch(true,'Modo vuelo');}catch(e){try{await startWatch(false);}catch(er){}}
   if(S.keepAwake!==false)keepAwake(true);
   setFollow(true);if(lastFix)map.setView([lastFix.lat,lastFix.lon],Math.min(map.getZoom(),10));
@@ -11570,7 +11609,7 @@ async function flStart(){
   toast('✈️ Poné el teléfono en modo avión: el GPS sigue andando. Para la foto satelital, bajá antes el mapa de la zona.',6000);
 }
 function flStop(){
-  FL.on=false;clearInterval(FL.tm);$('#flt').hidden=true;document.body.classList.remove('flOn');
+  FL.on=false;clearInterval(FL.tm);$('#flt').hidden=true;document.body.classList.remove('flOn');if(REC.state==='idle')gmStop();
   if(REC.state==='idle'&&!NAV.on&&!SH.on){stopWatch();keepAwake(false);}
 }
 document.addEventListener('click',e=>{
