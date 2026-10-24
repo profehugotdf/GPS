@@ -1228,6 +1228,9 @@ class Graph{
     if(pref==='flat'&&mode!=='car'){
       return t+40*(g>0?g*e.len:0)+(g>0.06?(g-0.06)*e.len*8:0)+(g<-0.10?(-g-0.10)*e.len*4:0);
     }
+    /* 🚲 tranquila: a pie y en bici, las bicisendas, sendas y peatonales "cuestan" menos y las calles con tránsito, más.
+       Así se hace un rodeo corto para ir por la bicisenda, pero no uno enorme. */
+    if(pref==='calm'&&mode!=='car'){const hw=(this.W[e.w].hw||'').replace('_link','');return t*(CALM[hw]||1);}
     return t;
   }
   connect(nd,maxD,wi){
@@ -1386,7 +1389,7 @@ function turnBlocked(G,u,e1,e2,mode){
 /* A* sobre aristas, para cuando hay giros prohibidos */
 function astarTurn(G,mode,src,dst,pref){
   const E=G.E,n=E.length,g=new Float64Array(2*n).fill(Infinity),pr=new Int32Array(2*n).fill(-1),done=new Uint8Array(2*n);
-  const c=G.cfg,vmax=pref==='short'?1:Math.max(G.vFerry||0,mode==='foot'?c.vFoot/3.6*1.2:mode==='bike'?c.vBike/3.6*1.1*1.8:130*c.carF/3.6);
+  const c=G.cfg,vmax=pref==='short'?1:Math.max(G.vFerry||0,mode==='foot'?c.vFoot/3.6*1.2:mode==='bike'?c.vBike/3.6*1.1*1.8:130*c.carF/3.6)*(pref==='calm'&&mode!=='car'?1.5:1);   // 🚲 tranquila: una bicisenda cuesta menos
   const tl=G.lat[dst],tn=G.lon[dst],k=Math.cos(tl*rad);
   const h=i=>Math.hypot((G.lat[i]-tl)*110540,(G.lon[i]-tn)*111320*k)/vmax;
   const node=s=>{const e=E[s>>1];return (s&1)?e.b:e.a;};
@@ -1424,7 +1427,7 @@ function astar(G,mode,src,dst,pref){
   if(src===dst)return {edges:[],cost:0};
   if(G.hasTurn&&G.hasTurn[mode])return astarTurn(G,mode,src,dst,pref);
   const n=G.lat.length,g=new Float64Array(n).fill(Infinity),pe=new Int32Array(n).fill(-1),done=new Uint8Array(n);
-  const c=G.cfg,vmax=pref==='short'?1:Math.max(G.vFerry||0,mode==='foot'?c.vFoot/3.6*1.2:mode==='bike'?c.vBike/3.6*1.1*1.8:130*c.carF/3.6);
+  const c=G.cfg,vmax=pref==='short'?1:Math.max(G.vFerry||0,mode==='foot'?c.vFoot/3.6*1.2:mode==='bike'?c.vBike/3.6*1.1*1.8:130*c.carF/3.6)*(pref==='calm'&&mode!=='car'?1.5:1);   // 🚲 tranquila: una bicisenda cuesta menos
   const k=Math.cos(G.lat[dst]*rad),tl=G.lat[dst],tn=G.lon[dst];
   const h=i=>Math.hypot((G.lat[i]-tl)*110540,(G.lon[i]-tn)*111320*k)/vmax;
   const H=new Heap();g[src]=0;H.push(h(src),src);
@@ -4613,7 +4616,8 @@ const RMODES=['foot','bike','car','kayak','swim'];
 const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],calle:['🏘️','Calle'],ciclovia:['🚲','Ciclovía'],peatonal:['🚶','Paso peatonal'],camino:['🛤️','Camino de ripio o tierra'],medida:['📏','Medición'],costa:['🌊','Costa'],limite:['🚩','Límite'],rio:['🏞️','Río o arroyo'],servicio:['🅿️','Calle de servicio'],principal:['🚗','Calle principal'],ruta:['🛣️','Ruta'],ferry:['⛴️','Ferry'],nivel:['〰️','Curva de nivel']};
 const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',camino:'#8E5B2B',medida:'#F04A1C',costa:'#1F5F8B',limite:'#9B3FA0',rio:'#4A90D9',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E'};
 const routeLayer=L.layerGroup().addTo(map),editLayer=L.layerGroup().addTo(map),pickLayer=L.layerGroup().addTo(map);
-const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente']];
+const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente'],['calm','🚲','Por bicisendas']];
+const CALM={cycleway:.7,footway:.75,pedestrian:.75,path:.8,track:.9,bridleway:.9,living_street:.9,steps:1,residential:1,service:1.05,road:1.1,unclassified:1.15,tertiary:1.3,secondary:1.5,primary:1.7,trunk:2,motorway:2.5};   // un rodeo de hasta ~2 veces para evitar una avenida, no más
 const CAND_COL=['#1E6BFF','#F04A1C','#2E7D5B','#9B59B6','#E0A100'];
 const RT={cands:[],selCand:null,from:null,to:null,res:null,sel:null,dep:'',sr:{}};
 let G=null,GP=null,PICK=null;
@@ -4960,7 +4964,7 @@ function resultsHtml(){
     if(!r||r.err){h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${errText(r)}</span></div>`;continue;}
     h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(totT(r))}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',DSEP())} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}${r.xc?xcNote(r):offNote(r)}${rodeo(r)>3?`<br><small style="color:#C0392B">⚠️ Da una vuelta: ${Math.round(rodeo(r))} veces la distancia en línea recta</small>`:''}${stagesHtml(r,start)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+totT(r)*1000)}</b></div>`;
   }
-  const cmp=RT.alt?`<h3>Comparar para ${MI[RT.sel]}</h3><div class="row">`+PREFS.filter(([k])=>!(RT.sel==='car'&&k==='flat')).map(([k,e])=>{
+  const cmp=RT.alt?`<h3>Comparar para ${MI[RT.sel]}</h3><div class="row">`+PREFS.filter(([k])=>!(RT.sel==='car'&&(k==='flat'||k==='calm'))).map(([k,e])=>{
     const a=RT.alt[k];if(!a||a.err)return '';
     return `<button class="btn sm ${k===S.pref?'primary':''}" data-act="pref" data-p="${k}">${e} ${fmtDur(a.time)} · ${fmtD(a.dist)}${a.hasZ&&RT.sel!=='car'?' · ↑'+Math.round(a.up)+' m':''}</button>`;
   }).join('')+'</div>':'';
