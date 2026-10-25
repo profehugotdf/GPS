@@ -150,6 +150,7 @@ input[type=range]{width:100%;height:36px}
 .nvt span{font:700 22px var(--num)}
 .nvr{display:flex;justify-content:space-between;font-size:13px;opacity:.85;margin:6px 0}
 .nvb{display:flex;gap:6px}
+#meas .nvb{flex-wrap:wrap}#meas .nvb button{flex:1 1 30%}
 .nvb button{flex:1;min-height:44px;border-radius:12px;border:0;font:600 13px system-ui;background:#264b5c;color:#fff}
 .nvb #nvEnd{background:var(--buoy)}
 
@@ -561,7 +562,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
   <div class="chips" style="margin-top:2px"><button id="msRel">⛰️ Con relieve</button></div>
   <div id="msRelOut"></div><div id="msProf"></div>
   <small id="msHint"></small>
-  <div class="nvb"><button id="msUndo">↶ Deshacer</button><button id="msMe">＋ Mi posición</button><button id="msClr">🗑️ Borrar</button><button id="msSave">💾 Guardar</button></div>
+  <div class="nvb"><button id="msUndo">↶ Deshacer</button><button id="msMe">＋ Mi posición</button><button id="msClr">🗑️ Borrar</button><button id="msSave">💾 Guardar</button><button id="msBk">🚴 Bici Indoor</button></div>
 </div>
 <div id="vedit" hidden>
   <div class="caph"><b id="evTtl">✏️ Editar puntos</b><span><button id="evMin" aria-label="Achicar">▾</button><button id="evX" aria-label="Cerrar">✕</button></span></div>
@@ -7359,6 +7360,25 @@ $('#msUndo').onclick=()=>{MS.pts.pop();drawMeasure();};
 $('#msClr').onclick=()=>{MS.pts=[];drawMeasure();};
 $('#msMe').onclick=()=>{if(!lastFix){toast('Todavía no hay señal de GPS');return;}MS.pts.push([lastFix.lat,lastFix.lon]);drawMeasure();};
 $('#msSave').onclick=measSave;
+/* 🚴 lo medido como ruta para el rodillo: solo, o metido en la ruta calculada (la ida, este pedazo —por ejemplo el retome
+   por una rotonda— y la vuelta). Lo dibujado no depende de si el mapa deja pasar en bici. */
+$('#msBk').onclick=()=>{
+  const pts=MS.pts.map(p=>[p[0],p[1]]);if(MS.mode==='area'||pts.length<2){toast('Dibujá una línea (Distancia) de al menos 2 puntos',3500);return;}
+  const r=RT.res&&RT.res[RT.sel]&&!RT.res[RT.sel].err&&!isWater(RT.sel)?RT.res[RT.sel]:null;
+  const sendOnly=()=>bkSend({name:'Dibujada '+fmtDate(Date.now()),ll:pts,grade:.25});
+  if(!r){sendOnly();return;}
+  const ida=r.coords.map(c=>[c[0],c[1]]),end=ida[ida.length-1],d0=hav(end,pts[0]),d1=hav(end,pts[pts.length-1]);
+  const tramo=d1<d0?pts.slice().reverse():pts;   // se engancha por la punta más cercana al final de la ida
+  const bq=S.roundTrip&&backNow(RT.sel),vuelta=S.roundTrip?(bq?bq.coords.map(c=>[c[0],c[1]]):ida.slice().reverse()):[];
+  openSheet('🚴 Bici Indoor',`<p>¿Qué querés mandar?</p>
+    <div class="item" data-act="all"><div><b>La ruta con este pedazo</b><br><small class="mut">Ida (${fmtD(r.dist)}) → lo dibujado (${fmtD(polyLen(tramo,false))})${S.roundTrip?` → vuelta (${fmtD(bq?bq.dist:r.dist)})`:''}${Math.min(d0,d1)>150?`<br>⚠️ El dibujo empieza a ${fmtD(Math.min(d0,d1))} del final de la ida: se une en línea recta`:''}</small></div><span>›</span></div>
+    <div class="item" data-act="only"><div><b>Solo lo dibujado</b><br><small class="mut">${fmtD(polyLen(pts,false))}</small></div><span>›</span></div>`,
+    async a=>{
+      if(a==='only'){closeSheet();await sendOnly();}
+      else if(a==='all'){closeSheet();const back=vuelta.length&&hav(tramo[tramo.length-1],vuelta[0])<hav(tramo[tramo.length-1],vuelta[vuelta.length-1])?vuelta:vuelta.slice().reverse();
+        await bkSend({name:'Ruta '+(MN[RT.sel]||'')+' con retome '+fmtDate(Date.now()),ll:ida.concat(tramo,back),grade:RT.sel==='car'?.16:.25});}
+    });
+};
 $('#msX').onclick=closeMeasure;
 map.on('zoomend',()=>{if(MS.on)drawMeasureLines();});
 
