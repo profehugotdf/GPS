@@ -427,6 +427,24 @@ body.night #meas .nvb button{background:#E4EDEF;color:#0E2A36}
 .mpt.first{background:#F04A1C;border-color:#fff}
 .mlab{position:absolute;transform:translate(-50%,-50%);background:rgba(255,255,255,.92);color:#0E2A36;border-radius:9px;padding:1px 6px;font:700 12px system-ui;white-space:nowrap;box-shadow:0 0 3px rgba(0,0,0,.4);pointer-events:none}
 
+#rplan{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:62vh;overflow:auto}
+#rplan[hidden]{display:none}
+#rplan .chips{margin-top:4px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}#rplan .chips button{flex:0 0 auto}
+#rplan .caph span{display:inline-flex;gap:6px}
+#rplan.min #plPref,#rplan.min #plHint,#rplan.min .nvb button:not(.ok):not(#plUndo){display:none}
+#plPref button{font-size:12.5px;padding:4px 9px}
+#plOut{margin:6px 0 2px}#plOut .mbig{font-size:24px;font-weight:800;line-height:1.15}
+#plOut .mwarn{color:#B03A1A;font-weight:600;margin-top:4px;font-size:13px;line-height:1.35}
+#plHint{display:block;color:var(--mut);font-size:13px;margin-top:2px;line-height:1.35}
+#rplan .nvb{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+#rplan .nvb button{flex:1 1 22%;min-height:36px;padding:0 4px;border:0;border-radius:12px;background:var(--ink);color:#fff;font:700 14px system-ui}
+#rplan .nvb button.ok{background:#F04A1C;flex-basis:40%}
+#rplan .nvb button.on{background:var(--kelp)}
+#rplan .nvb button[disabled]{opacity:.4}
+body.night #rplan .nvb button{background:#E4EDEF;color:#0E2A36}body.night #rplan .nvb button.ok{background:#F04A1C;color:#fff}
+.plp{width:28px;height:28px;border-radius:50%;background:#fff;color:#0E2A36;border:3px solid #0E2A36;box-shadow:0 0 4px rgba(0,0,0,.5);box-sizing:border-box;font:800 12px/22px system-ui;text-align:center}
+.plp.a{background:#2E7D5B;color:#fff;border-color:#fff}.plp.b{background:#F04A1C;color:#fff;border-color:#fff}
+.plp.sel{box-shadow:0 0 0 5px #FFC400,0 0 6px rgba(0,0,0,.6)}
 #meas{max-height:62vh;overflow:auto}
 #msRelOut{margin-top:6px;font-size:14px;line-height:1.35}
 #msRelOut .mrel{font-size:16px}
@@ -572,6 +590,14 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
   <div id="msRelOut"></div><div id="msProf"></div>
   <small id="msHint"></small>
   <div class="nvb"><button id="msUndo">↶ Deshacer</button><button id="msMe">＋ Mi posición</button><button id="msClr">🗑️ Borrar</button><button id="msSave">💾 Guardar</button><button id="msBk">🚴 Bici Indoor</button></div>
+</div>
+<div id="rplan" hidden>
+  <div class="caph"><b>✏️ Trazar ruta</b><span><button id="plMin" aria-label="Achicar">▾</button><button id="plX" aria-label="Cerrar">✕</button></span></div>
+  <div class="chips" id="plMode"><button data-m="foot">🚶 A pie</button><button data-m="bike">🚴 Bici</button><button data-m="car">🚗 Auto</button><button data-m="kayak">🛶 Kayak</button></div>
+  <div class="chips" id="plPref"></div>
+  <div id="plOut"></div>
+  <small id="plHint"></small>
+  <div class="nvb"><button id="plUndo">↶ Deshacer</button><button id="plMe">＋ Yo</button><button id="plLoop">🔁 Volver a A</button><button id="plDel" hidden>🗑️ Quitar</button><button id="plClr">🗑️ Borrar</button><button id="plBk">🚴 Indoor</button><button id="plOk" class="ok">✓ Usar la ruta</button></div>
 </div>
 <div id="vedit" hidden>
   <div class="caph"><b id="evTtl">✏️ Editar puntos</b><span><button id="evMin" aria-label="Achicar">▾</button><button id="evX" aria-label="Cerrar">✕</button></span></div>
@@ -4877,7 +4903,7 @@ function rtPanel(){
   p.innerHTML=`<div id="rtpBody" data-r="exp"><div class="t">${MI[m]} ${fmtDur(totT(r))} <small>${esc(name)}</small></div>
     <div class="s">${bits.join(' · ')}</div>
     <div class="s">${RT.dep?'Salís '+hhmm(start)+' · ':''}llegás ${arrLabel(start,arr)}</div>${rtl}${sp}${det}${mm}</div>
-    <div class="rb"><button class="go" data-r="nav" aria-label="Guiarme">▶</button><button data-r="prof" aria-label="Perfil">⛰️</button><button data-r="3d" aria-label="Ver en 3D">🏔️</button><button data-r="open" aria-label="Rutas">☰</button><button data-r="x" aria-label="Quitar la ruta">✕</button></div>`;
+    <div class="rb"><button class="go" data-r="nav" aria-label="Guiarme">▶</button><button data-r="prof" aria-label="Perfil">⛰️</button><button data-r="3d" aria-label="Ver en 3D">🏔️</button><button data-r="plan" aria-label="Editar punto por punto">✏️</button><button data-r="open" aria-label="Rutas">☰</button><button data-r="x" aria-label="Quitar la ruta">✕</button></div>`;
   p.hidden=false;
 }
 $('#rtp').addEventListener('click',async e=>{
@@ -4900,6 +4926,7 @@ $('#rtp').addEventListener('click',async e=>{
   if(a.dataset.r==='x'){rtClear();toast('Ruta, A y B quitados del mapa',2500);}
   else if(a.dataset.r==='nav')startNav();
   else if(a.dataset.r==='3d')open3D({route:true});
+  else if(a.dataset.r==='plan')openPlanner(true);
   else if(a.dataset.r==='prof')showRoutes().then(()=>{if($('#rprof'))showRouteProfileUI();});
   else showRoutes();
 });
@@ -5100,6 +5127,7 @@ async function showRoutes(){
   const gps=lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null;
   const fromL=RT.from?RT.from.label+(gps?` · a ${fmtD(hav([gps.lat,gps.lon],[RT.from.lat,RT.from.lon]))} de tu posición`:''):'Mi posición (donde estás ahora)',toL=RT.to?RT.to.label:'Sin elegir';
   const h=`<p class="mut">${g?`✅ Red de calles descargada${g.hasZ?', con altura del terreno':' (sin altura del terreno)'}`:'🛶 Sin calles guardadas: se calcula solo en kayak, por tus ríos y lagos'} · <a href="#" data-act="mgr" style="color:inherit">ver qué tengo</a></p>
+    <div class="row"><button class="btn primary" data-act="plan">✏️ Trazar punto por punto en el mapa</button>${RT.to?'<button class="btn" data-act="plane">Editar esta ruta así</button>':''}</div>
     <h3>Desde</h3><div class="card"><b>${esc(fromL)}</b></div>
     <div class="row"><button class="btn sm" data-act="fmine">Mi posición</button><button class="btn sm" data-act="fpick">En el mapa</button><button class="btn sm" data-act="cityf">🌍 Ciudad</button></div>
     <input class="in" id="qf" placeholder="Buscar calle o esquina (ej: San Martín y Roca)" enterkeyhint="search"><div id="rf" class="row"></div>
@@ -5115,6 +5143,8 @@ async function showRoutes(){
     <div id="rres">${RT.res?resultsHtml():''}</div>`;
   openSheet('Rutas',h,async(a,d)=>{
     if(a==='mgr')showMapMgr();
+    else if(a==='plan')openPlanner(false);
+    else if(a==='plane')openPlanner(true);
     else if(a==='swap'){
       const f=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon,label:'Mi posición'}:null);
       if(!f||!RT.to){toast('Elegí el origen y el destino para invertirlos');return;}
@@ -5413,7 +5443,7 @@ function undoPick(){
   PICK.pts.pop();const m=PICK.mk.pop();if(m)pickLayer.removeLayer(m);PICK.line.setLatLngs(PICK.pts);
   banner(`Sendero: ${PICK.pts.length} punto${PICK.pts.length===1?'':'s'}. Tocá el siguiente o "Listo".`,{undo:PICK.pts.length>0,ok:PICK.pts.length>=2});
 }
-map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);else if(GE.on)gateTap(e);else if(TR.on)traceTap(e);else if(NP.on)nodeTap(e);else if(MS.on)measTap(e);else if(EV.on)evTap(e);else if(PB.on){}else onMapTap(e);});
+map.on('click',e=>{if(draw)onDrawClick(e);else if(PICK)onPickClick(e);else if(GE.on)gateTap(e);else if(TR.on)traceTap(e);else if(NP.on)nodeTap(e);else if(PL.on)plTap(e);else if(MS.on)measTap(e);else if(EV.on)evTap(e);else if(PB.on){}else onMapTap(e);});
 $('#bCancel').onclick=()=>{if(draw)cancelDraw();else if(PICK)cancelPick();};
 $('#bUndo').onclick=undoPick;
 $('#bOk').onclick=()=>{if(PICK&&PICK.type==='path')finishPath();};
@@ -7281,7 +7311,7 @@ $('#npX').onclick=()=>{closeNodeTool();showFix();};
 const MS={on:false,mode:'dist',pts:[],rel:false,relRes:null,relKey:'',netOK:false};
 const measPts=L.layerGroup().addTo(map),measLines=L.layerGroup().addTo(map);
 function openMeasure(){
-  if(TR.on||GE.on||CAP.on||NP.on||draw||PICK){toast('Cerrá primero la otra herramienta',4000);return;}
+  if(TR.on||GE.on||CAP.on||NP.on||draw||PICK||PL.on){toast('Cerrá primero la otra herramienta',4000);return;}
   closeSheet();hidePin();
   MS.on=true;MS.pts=[];MS.rel=!!S.measRel;MS.relRes=null;MS.netOK=false;
   $('#meas').hidden=false;setFollow(false);
@@ -7390,6 +7420,161 @@ $('#msBk').onclick=()=>{
 };
 $('#msX').onclick=closeMeasure;
 map.on('zoomend',()=>{if(MS.on)drawMeasureLines();});
+
+/* ====================== ✏️ TRAZAR RUTA PUNTO POR PUNTO ======================
+   Como Medir, pero cada tramo va por calles, sendas o agua según el modo. Tocás el mapa y se suma un punto al final;
+   si un tramo da una vuelta que no querés, tocás esa parte de la línea y después por dónde querés pasar: se mete un
+   punto en el medio de ese tramo. Los puntos se arrastran; tocando uno se elige para moverlo o quitarlo.
+   "Usar la ruta" lo pasa a Rutas (A, paradas de "solo pasar" y B) para guiarte, guardarla o mandarla a Bici Indoor. */
+const PL={on:false,pts:[],mode:'bike',loop:false,legs:[],sel:null,ins:null,tok:0,cache:new Map(),hist:[],busy:false};
+const PL_MODES=['foot','bike','car','kayak'];
+const plLayer=L.layerGroup().addTo(map);
+const plLegN=()=>PL.pts.length<2?0:PL.pts.length-1+(PL.loop?1:0);
+const plLL=p=>({lat:p[0],lon:p[1]});
+function plPush(){PL.hist.push({pts:PL.pts.map(p=>p.slice()),loop:PL.loop});if(PL.hist.length>80)PL.hist.shift();}
+function openPlanner(fromRoute){
+  if(TR.on||GE.on||CAP.on||NP.on||draw||PICK||MS.on||EV.on){toast('Cerrá primero la otra herramienta',4000);return;}
+  closeSheet();hidePin();
+  Object.assign(PL,{on:true,sel:null,ins:null,legs:[],hist:[],pts:[],loop:false});
+  PL.mode=PL_MODES.includes(RT.sel)&&RT.res?RT.sel:PL_MODES.includes(S.routeMode)?S.routeMode:'bike';
+  const f=RT.calcFrom||RT.from,t=RT.to;
+  if(fromRoute&&f&&t){
+    PL.pts=[[f.lat,f.lon]].concat(stopsList().map(s=>[s.lat,s.lon]));
+    if(hav([f.lat,f.lon],[t.lat,t.lon])<15&&PL.pts.length>1)PL.loop=true;else PL.pts.push([t.lat,t.lon]);
+  }
+  routeLayer.clearLayers();$('#rtp').hidden=true;
+  $('#rplan').hidden=false;$('#rplan').classList.toggle('min',!!S.plMin);$('#plMin').textContent=S.plMin?'▴':'▾';setFollow(false);
+  if(PL.pts.length>1)try{map.fitBounds(L.latLngBounds(PL.pts),{paddingTopLeft:[30,90],paddingBottomRight:[30,300]});}catch(e){}
+  plRoute();
+}
+function closePlanner(keep){
+  PL.on=false;PL.tok++;plLayer.clearLayers();$('#rplan').hidden=true;
+  if(!keep)drawRoute(false);
+}
+function plTap(e){
+  const ll=[e.latlng.lat,e.latlng.lng];plPush();
+  if(PL.ins!=null){PL.pts.splice(PL.ins+1,0,ll);PL.ins=null;}      // el tramo que cierra el circuito (último → A) agrega al final
+  else if(PL.sel!=null){PL.pts[PL.sel]=ll;PL.sel=null;}
+  else PL.pts.push(ll);
+  plRoute();
+}
+function plLegTap(i){PL.sel=null;PL.ins=PL.ins===i?null:i;plDraw();}
+function plPtTap(i){PL.ins=null;PL.sel=PL.sel===i?null:i;plDraw();}
+const plLab=i=>i===0?'A':(!PL.loop&&i===PL.pts.length-1)?'B':String(i);
+/* ¿el tramo da una vuelta grande? (más del doble de la distancia en línea recta y 300 m de más) */
+function plDetour(r,a,b){const d=hav(a,b);return r&&!r.err&&r.dist>2.2*d&&r.dist-d>300;}
+async function plRoute(){
+  const tok=++PL.tok,pts=PL.pts.map(p=>p.slice()),m=PL.mode,n=plLegN(),pref=S.pref;
+  PL.legs=PL.legs.slice(0,n);plDraw();
+  if(!n)return;
+  let g=null;
+  if(!isWater(m)){
+    PL.busy=true;plUi();
+    try{g=await ensureGraph({center:pts[0],route:{from:plLL(pts[0]),to:plLL(pts[pts.length-1])}});}catch(e){g=null;}
+    if(tok!==PL.tok)return;
+  }
+  const legs=[];
+  for(let i=0;i<n;i++){
+    const a=pts[i],b=pts[(i+1)%pts.length],k=[m,pref,a[0].toFixed(6),a[1].toFixed(6),b[0].toFixed(6),b[1].toFixed(6)].join('|');
+    let r=PL.cache.get(k);
+    if(!r){
+      PL.busy=true;
+      try{r=isWater(m)?await waterRouteFor(m,plLL(a),plLL(b)):!g?{err:'sinred'}:findRoute(g,m,plLL(a),plLL(b),pref);}catch(e){r={err:'falla',msg:String(e&&e.message||e)};}
+      if(tok!==PL.tok)return;
+      if(!(r.err&&['sinred','sinagua','falla'].includes(r.err))){PL.cache.set(k,r);if(PL.cache.size>400)PL.cache.delete(PL.cache.keys().next().value);}
+    }
+    legs.push(r);
+  }
+  PL.busy=false;PL.legs=legs;plDraw();
+}
+function plDraw(){
+  plLayer.clearLayers();
+  const pts=PL.pts,n=plLegN(),col=MC[PL.mode];
+  for(let i=0;i<n;i++){
+    const a=pts[i],b=pts[(i+1)%pts.length],r=PL.legs[i],ok=r&&!r.err,line=ok?r.coords.map(c=>[c[0],c[1]]):[a,b];
+    const on=PL.ins===i,det=plDetour(r,a,b);
+    L.polyline(line,{color:'#fff',weight:on?13:10,opacity:.9,interactive:false}).addTo(plLayer);
+    L.polyline(line,{color:on?'#FFC400':r&&!ok?'#C0392B':det?'#E0A100':col,weight:6,opacity:r?1:.55,dashArray:ok?null:'8 8',interactive:false}).addTo(plLayer);
+    const hit=L.polyline(line,{color:'#000',opacity:0,weight:28,bubblingMouseEvents:false});   // para tocar la línea con el dedo
+    hit.on('click',ev=>{try{L.DomEvent.stop(ev);}catch(e){}plLegTap(i);});
+    hit.addTo(plLayer);
+  }
+  pts.forEach((p,i)=>{
+    const mk=L.marker(p,{draggable:true,zIndexOffset:1600,icon:L.divIcon({html:`<div class="plp${i===0?' a':''}${!PL.loop&&i===pts.length-1&&i?' b':''}${PL.sel===i?' sel':''}">${plLab(i)}</div>`,className:'',iconSize:[28,28],iconAnchor:[14,14]})});
+    mk.on('click',ev=>{try{L.DomEvent.stop(ev);}catch(e){}plPtTap(i);});
+    mk.on('dragstart',()=>plPush());
+    mk.on('dragend',ev=>{const ll=ev.target.getLatLng();PL.pts[i]=[ll.lat,ll.lng];PL.sel=null;PL.ins=null;plRoute();});
+    mk.addTo(plLayer);
+  });
+  plUi();
+}
+function plSum(){
+  let d=0,t=0,up=0,dn=0,z=false;const legs=PL.legs,n=plLegN();
+  if(legs.length<n||legs.some(r=>!r||r.err))return null;
+  for(const r of legs){d+=r.dist;t+=r.time;if(r.up!=null&&r.hasZ){up+=r.up;dn+=r.down;z=true;}}
+  return {d,t,up,dn,z};
+}
+function plUi(){
+  const pts=PL.pts,n=plLegN(),S0=plSum();
+  document.querySelectorAll('#plMode button').forEach(b=>b.classList.toggle('on',b.dataset.m===PL.mode));
+  const prefs=PREFS.filter(p=>!(PL.mode==='car'&&p[0]==='calm'));
+  $('#plPref').hidden=isWater(PL.mode);
+  $('#plPref').innerHTML=prefs.map(([k,e,nm])=>`<button data-p="${k}" class="${k===S.pref?'on':''}">${e} ${nm}</button>`).join('');
+  let h='';
+  if(S0)h=`<div class="mbig">${MI[PL.mode]} ${fmtD(S0.d)} · ${fmtDur(S0.t)}</div><div class="mut">${S0.z&&PL.mode!=='car'?`↑${Math.round(S0.up)} m ↓${Math.round(S0.dn)} m · `:''}${pts.length} puntos${PL.loop?' · circuito':''}</div>`;
+  else if(n&&PL.busy)h='<div class="mut">Calculando…</div>';
+  else if(!n)h='';
+  const warn=[];
+  for(let i=0;i<n;i++){const r=PL.legs[i];if(!r)continue;const a=pts[i],b=pts[(i+1)%pts.length],tr=`${plLab(i)}→${plLab((i+1)%pts.length)}`;
+    if(r.err)warn.push(`⛔ Tramo ${tr}: ${r.err==='sinred'?'no hay calles bajadas de esta zona (Más → Correcciones)':r.err==='sinagua'?'no hay agua cargada en esta zona':esc(errText(r)||'no hay camino')}`);
+    else if(plDetour(r,a,b))warn.push(`↪️ El tramo ${tr} da una vuelta de ${fmtD(r.dist)} (en línea recta son ${fmtD(hav(a,b))}). Tocá esa parte de la línea y después por dónde querés pasar.`);}
+  if(warn.length)h+=`<div class="mwarn">${warn.slice(0,3).join('<br>')}${warn.length>3?`<br>…y ${warn.length-3} más`:''}</div>`;
+  $('#plOut').innerHTML=h;
+  $('#plHint').innerHTML=PL.ins!=null?`<b>Tocá en el mapa por dónde querés pasar</b> entre ${plLab(PL.ins)} y ${plLab((PL.ins+1)%pts.length)} (tocá la línea de nuevo para cancelar).`
+    :PL.sel!=null?`<b>Punto ${plLab(PL.sel)}:</b> tocá el mapa para moverlo ahí, o quitalo.`
+    :!pts.length?'Tocá el mapa donde empezás (A) y después cada punto por donde querés pasar, en orden.'
+    :pts.length<2?'Tocá el siguiente punto.'
+    :'Tocá para sumar otro punto al final · si un tramo no va por donde querés, tocá esa parte de la línea · arrastrá un punto para moverlo.';
+  $('#plUndo').disabled=!PL.hist.length;$('#plClr').disabled=!pts.length;
+  $('#plDel').hidden=PL.sel==null;$('#plLoop').hidden=PL.sel!=null;
+  $('#plLoop').classList.toggle('on',PL.loop);$('#plLoop').textContent=PL.loop?'🔁 Circuito ✓':'🔁 Volver a A';$('#plLoop').disabled=pts.length<2;
+  $('#plOk').disabled=!S0;$('#plBk').disabled=!S0||isWater(PL.mode);
+}
+document.querySelectorAll('#plMode button').forEach(b=>b.onclick=()=>{PL.mode=b.dataset.m;PL.ins=null;plRoute();});
+$('#plPref').onclick=e=>{const b=e.target.closest('[data-p]');if(!b)return;S.pref=b.dataset.p;saveS();plRoute();};
+$('#plUndo').onclick=()=>{const h=PL.hist.pop();if(!h)return;PL.pts=h.pts;PL.loop=h.loop;PL.sel=null;PL.ins=null;plRoute();};
+$('#plClr').onclick=()=>{plPush();PL.pts=[];PL.loop=false;PL.sel=null;PL.ins=null;plRoute();};
+$('#plDel').onclick=()=>{if(PL.sel==null)return;plPush();PL.pts.splice(PL.sel,1);PL.sel=null;if(PL.pts.length<2)PL.loop=false;plRoute();};
+$('#plMe').onclick=()=>{if(!lastFix){toast('Todavía no hay señal de GPS');return;}plPush();const ll=[lastFix.lat,lastFix.lon];if(PL.sel!=null){PL.pts[PL.sel]=ll;PL.sel=null;}else PL.pts.push(ll);plRoute();};
+$('#plLoop').onclick=()=>{if(PL.pts.length<2)return;plPush();
+  /* si el último punto quedó encima de A, se toma como "volver a A" */
+  if(!PL.loop&&PL.pts.length>2&&hav(PL.pts[0],PL.pts[PL.pts.length-1])<25)PL.pts.pop();
+  PL.loop=!PL.loop;
+  PL.ins=null;plRoute();};
+$('#plX').onclick=()=>closePlanner();
+$('#plMin').onclick=()=>{S.plMin=!S.plMin;saveS();$('#rplan').classList.toggle('min',S.plMin);$('#plMin').textContent=S.plMin?'▴':'▾';};
+/* lo trazado pasa a Rutas: A, cada punto como parada de "solo pasar", y B (o A otra vez si es circuito) */
+async function plUse(){
+  if(!plSum())return;
+  const pts=PL.pts,P=(p,l)=>({lat:p[0],lon:p[1],label:l});
+  const mids=PL.loop?pts.slice(1):pts.slice(1,-1);
+  RT.from=P(pts[0],'Punto A');
+  RT.to=PL.loop?P(pts[0],'Punto A (llegada)'):P(pts[pts.length-1],'Punto B');
+  RT.stops=mids.map((p,i)=>({lat:p[0],lon:p[1],label:'Punto '+(i+1),kind:'otro',stay:0}));
+  RT.via=null;RT.cands=[];RT.res=null;RT.back=null;
+  if(PL.loop&&S.roundTrip){S.roundTrip=false;}
+  S.routeMode=PL.mode;saveS();
+  closePlanner(true);
+  let g=null;try{g=await ensureGraph({route:{from:RT.from,to:RT.to}});}catch(e){}
+  await calcRoutes(g);
+  if(RT.res&&RT.res[PL.mode]&&!RT.res[PL.mode].err&&RT.sel!==PL.mode){RT.sel=PL.mode;resetCands();drawRoute(true);}
+}
+$('#plOk').onclick=plUse;
+$('#plBk').onclick=()=>{
+  const S0=plSum();if(!S0)return;
+  const ll=[];for(const r of PL.legs)for(const c of r.coords){const p=[c[0],c[1]];const q=ll[ll.length-1];if(!q||q[0]!==p[0]||q[1]!==p[1])ll.push(p);}
+  bkSend({name:'Trazada '+(MN[PL.mode]||'')+' '+fmtDate(Date.now()),ll,grade:PL.mode==='car'?.16:.25});
+};
 
 
 /* ----- con relieve: largo real sobre el terreno, desnivel, perfil y superficie real ----- */
@@ -8119,7 +8304,7 @@ const stopsList=()=>{RT.stops=RT.stops||[];return RT.stops;};
 const totT=r=>r.time+(r.stayMin||0)*60;
 function stopsHtml(){
   const L=stopsList();
-  return `<h3>Paradas (acampe, reagrupamiento)</h3>`+
+  return `<h3>Paradas y puntos de paso</h3>`+
     (L.length?L.map((s,i)=>{const k=STOP_KINDS[s.kind]||STOP_KINDS.otro;
       return `<div class="item" data-act="stedit" data-i="${i}"><div style="flex:1"><b>${i+1} · ${k[0]} ${esc(s.label)}</b><br><small class="mut">${k[1]} · parada de ${fmtStay(s.stay)}</small></div><span>✏️</span></div>`;}).join('')
       :'<p class="mut">Sin paradas. Sumá los lugares por donde querés pasar, en orden: el cálculo se hace por etapas.</p>')+
