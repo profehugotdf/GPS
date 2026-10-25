@@ -1,0 +1,634 @@
+name: Compilar APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Instalar dependencias
+        run: npm install --legacy-peer-deps
+
+      - name: Plugins opcionales (voz del sistema, avisos al reloj, banda cardíaca y rotación del mapa)
+        run: |
+          npm install --save --legacy-peer-deps @capacitor-community/text-to-speech@5 || echo "::warning::No se pudo instalar la voz del sistema"
+          npm install --save --legacy-peer-deps @capacitor/local-notifications@6 || echo "::warning::No se pudieron instalar las notificaciones (avisos al reloj)"
+          npm install --save --legacy-peer-deps @capacitor-community/bluetooth-le@6 || echo "::warning::No se pudo instalar el Bluetooth (banda cardíaca)"
+          npm install --no-save --legacy-peer-deps leaflet-rotate@0.2.8 || echo "::warning::No se pudo instalar la rotación del mapa"
+
+      - name: Preparar la web
+        run: |
+          mkdir -p www/lib
+          cp index.html www/index.html
+          cp node_modules/leaflet/dist/leaflet.js node_modules/leaflet/dist/leaflet.css www/lib/
+          R=node_modules/leaflet-rotate/dist
+          if [ -f $R/leaflet-rotate.js ]; then cp $R/leaflet-rotate.js www/lib/leaflet-rotate.js;
+          elif [ -f $R/leaflet-rotate-src.js ]; then cp $R/leaflet-rotate-src.js www/lib/leaflet-rotate.js;
+          else echo "::warning::Sin módulo de rotación"; fi
+
+      - name: Achicar el código para la app (la web y el index.html del repo quedan igual)
+        run: |
+          npm install --no-save --legacy-peer-deps esbuild@0.24.0 || echo "::warning::No se pudo instalar esbuild: la app va sin achicar"
+          cat > minify.js <<'JS'
+          /* Achica index.html para el APK: comprime el código de cada <script> y los <style> con esbuild.
+             No renombra nada global (los bloques <script> se comparten las funciones). Si algo falla, deja el original. */
+          const fs=require('fs'),path=process.argv[2],out=process.argv[3]||path;
+          let esb;try{esb=require('esbuild');}catch(e){console.log('::warning::sin esbuild: no se achica');process.exit(0);}
+          const src=fs.readFileSync(path,'utf8');let ok=true,n=0;
+          const html=src.replace(/<script>([\s\S]*?)<\/script>/g,(m,code)=>{
+            try{const r=esb.transformSync(code,{loader:'js',minify:true,target:'es2020',legalComments:'none',charset:'utf8'});n++;return '<script>'+r.code.replace(/<\/script/gi,'<\\/script')+'</script>';}
+            catch(e){ok=false;console.log('::warning::no pude achicar un bloque de script: '+e.message.slice(0,200));return m;}
+          }).replace(/<style>([\s\S]*?)<\/style>/g,(m,css)=>{
+            try{return '<style>'+esb.transformSync(css,{loader:'css',minify:true,charset:'utf8'}).code+'</style>';}catch(e){console.log('::warning::no pude achicar el CSS');return m;}
+          });
+          fs.writeFileSync(out,html);
+          console.log(`index.html: ${(src.length/1024).toFixed(0)} KB → ${(html.length/1024).toFixed(0)} KB (${n} bloques de código${ok?'':', algunos sin achicar'})`);
+          JS
+          node minify.js www/index.html || { echo "::warning::No se pudo achicar: va el original"; cp index.html www/index.html; }
+
+      - name: Configurar Capacitor
+        run: |
+          cat > capacitor.config.json <<'JSON'
+          {"appId":"com.profehugo.rumbo","appName":"Rumbo","webDir":"www","android":{"useLegacyBridge":true}}
+          JSON
+
+      - name: Crear proyecto Android
+        run: npx cap add android
+
+      - name: Permisos de Android
+        run: |
+          python3 - <<'PY'
+          p='android/app/src/main/AndroidManifest.xml'
+          s=open(p).read()
+          perms=['ACCESS_FINE_LOCATION','ACCESS_COARSE_LOCATION','FOREGROUND_SERVICE','FOREGROUND_SERVICE_LOCATION','POST_NOTIFICATIONS','WAKE_LOCK','VIBRATE','BLUETOOTH_SCAN','BLUETOOTH_CONNECT']
+          add=''.join('\n    <uses-permission android:name="android.permission.%s" />'%x for x in perms if x not in s)
+          add+='\n    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\n'
+          add+='    <queries><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>\n'
+          s=s.replace('</manifest>',add+'</manifest>')
+          open(p,'w').write(s)
+          PY
+
+      - name: Abrir archivos GPX/TCX y links de invitación con Rumbo
+        run: |
+          D=android/app/src/main/java/com/profehugo/rumbo
+          ls "$D"
+          cp "$D/MainActivity.java" "$D/MainActivity.java.orig"
+          cat > "$D/RumboOpenPlugin.java" <<'JAVA'
+          package com.profehugo.rumbo;
+
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+
+          /* Entrega a la web el archivo (GPX) con el que se abrió Rumbo desde otra app. */
+          @CapacitorPlugin(name = "RumboOpen")
+          public class RumboOpenPlugin extends Plugin {
+              static String fileName = null;
+              static String fileText = null;
+              static String fileErr = null;
+              static String link = null;
+
+              static synchronized void put(String name, String text, String err) {
+                  fileName = name;
+                  fileText = text;
+                  fileErr = err;
+              }
+
+              /* Link de invitación (grupo o seguimiento) con el que se abrió Rumbo */
+              static synchronized void putLink(String url) {
+                  link = url;
+              }
+
+              @PluginMethod
+              public void take(PluginCall call) {
+                  JSObject r = new JSObject();
+                  synchronized (RumboOpenPlugin.class) {
+                      if (link != null) {
+                          r.put("has", true);
+                          r.put("link", link);
+                          link = null;
+                      } else if (fileText != null || fileErr != null) {
+                          r.put("has", true);
+                          r.put("name", fileName == null ? "archivo" : fileName);
+                          if (fileText != null) r.put("text", fileText);
+                          if (fileErr != null) r.put("err", fileErr);
+                          fileName = null;
+                          fileText = null;
+                          fileErr = null;
+                      } else {
+                          r.put("has", false);
+                      }
+                  }
+                  call.resolve(r);
+              }
+          }
+          JAVA
+          cat > "$D/MainActivity.java" <<'JAVA'
+          package com.profehugo.rumbo;
+
+          import android.content.Intent;
+          import android.database.Cursor;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.provider.OpenableColumns;
+
+          import com.getcapacitor.BridgeActivity;
+
+          import java.io.ByteArrayOutputStream;
+          import java.io.InputStream;
+
+          public class MainActivity extends BridgeActivity {
+
+              private static final int MAX_BYTES = 15 * 1024 * 1024;
+
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(RumboOpenPlugin.class);
+                  super.onCreate(savedInstanceState);
+                  grab(getIntent());
+              }
+
+              @Override
+              protected void onNewIntent(Intent intent) {
+                  super.onNewIntent(intent);
+                  setIntent(intent);
+                  if (grab(intent) && getBridge() != null) {
+                      getBridge().triggerWindowJSEvent("rumboOpen");
+                  }
+              }
+
+              /* Si la app se abrió con un archivo (Abrir con… o Compartir), lo lee y lo deja listo para la web. */
+              private boolean grab(Intent it) {
+                  if (it == null || it.getBooleanExtra("rumbo_handled", false)) return false;
+                  String act = it.getAction();
+                  Uri uri = null;
+                  if (Intent.ACTION_VIEW.equals(act)) {
+                      uri = it.getData();
+                  } else if (Intent.ACTION_SEND.equals(act)) {
+                      uri = (Uri) it.getParcelableExtra(Intent.EXTRA_STREAM);
+                  }
+                  if (uri == null) return false;
+                  it.putExtra("rumbo_handled", true);
+                  String sch = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
+                  if (sch.equals("https") || sch.equals("http") || sch.equals("rumbo")) {
+                      RumboOpenPlugin.putLink(uri.toString());
+                      return true;
+                  }
+                  String name = displayName(uri);
+                  try {
+                      InputStream in = getContentResolver().openInputStream(uri);
+                      if (in == null) throw new Exception("no se pudo abrir");
+                      ByteArrayOutputStream out = new ByteArrayOutputStream();
+                      byte[] buf = new byte[65536];
+                      int n;
+                      long total = 0;
+                      while ((n = in.read(buf)) > 0) {
+                          total += n;
+                          if (total > MAX_BYTES) {
+                              in.close();
+                              throw new Exception("el archivo es demasiado grande");
+                          }
+                          out.write(buf, 0, n);
+                      }
+                      in.close();
+                      RumboOpenPlugin.put(name, out.toString("UTF-8"), null);
+                  } catch (Exception e) {
+                      RumboOpenPlugin.put(name, null, String.valueOf(e.getMessage()));
+                  }
+                  return true;
+              }
+
+              private String displayName(Uri uri) {
+                  String name = null;
+                  try {
+                      Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+                      if (c != null) {
+                          if (c.moveToFirst()) name = c.getString(0);
+                          c.close();
+                      }
+                  } catch (Exception e) {
+                      name = null;
+                  }
+                  if (name == null) name = uri.getLastPathSegment();
+                  return name == null ? "archivo" : name;
+              }
+          }
+          JAVA
+          python3 - <<'PY'
+          p='android/app/src/main/AndroidManifest.xml'
+          s=open(p).read()
+          filters=r'''
+              <!-- RumboGpx: Rumbo aparece en "Abrir por..." para archivos .gpx y .tcx -->
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="content" />
+                  <data android:scheme="file" />
+                  <data android:mimeType="application/gpx+xml" />
+                  <data android:mimeType="application/gpx" />
+                  <data android:mimeType="application/x-gpx+xml" />
+                  <data android:mimeType="application/x-gpx" />
+                  <data android:mimeType="text/gpx" />
+                  <data android:mimeType="application/vnd.garmin.tcx+xml" />
+              </intent-filter>
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="content" />
+                  <data android:scheme="file" />
+                  <data android:mimeType="*/*" />
+                  <data android:host="*" />
+                  <data android:pathPattern=".*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\..*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\.tcx" />
+                  <data android:pathPattern=".*\\..*\\.tcx" />
+                  <data android:pathPattern=".*\\..*\\..*\\.tcx" />
+              </intent-filter>
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="content" />
+                  <data android:scheme="file" />
+                  <data android:host="*" />
+                  <data android:pathPattern=".*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\..*\\..*\\..*\\.gpx" />
+                  <data android:pathPattern=".*\\.tcx" />
+                  <data android:pathPattern=".*\\..*\\.tcx" />
+                  <data android:pathPattern=".*\\..*\\..*\\.tcx" />
+              </intent-filter>
+              <!-- RumboLinks: los links de invitación (grupo / seguimiento) se abren en la app -->
+              <intent-filter android:autoVerify="true">
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="https" />
+                  <data android:host="profehugotdf.github.io" />
+                  <data android:pathPrefix="/GPS" />
+              </intent-filter>
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="rumbo" />
+              </intent-filter>
+              <intent-filter>
+                  <action android:name="android.intent.action.SEND" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <data android:mimeType="application/gpx+xml" />
+                  <data android:mimeType="application/gpx" />
+                  <data android:mimeType="application/vnd.garmin.tcx+xml" />
+              </intent-filter>
+          '''
+          i=s.index('</activity>')
+          s=s[:i]+filters+'    '+s[i:]
+          open(p,'w').write(s)
+          print(s)
+          PY
+
+      - name: Estado del GPS (satélites, señal, frecuencias)
+        run: |
+          D=android/app/src/main/java/com/profehugo/rumbo
+          cat > "$D/RumboGnssPlugin.java" <<'JAVA'
+          package com.profehugo.rumbo;
+
+          import android.Manifest;
+          import android.content.Context;
+          import android.content.pm.PackageManager;
+          import android.location.GnssStatus;
+          import android.location.Location;
+          import android.location.LocationListener;
+          import android.location.LocationManager;
+          import android.location.OnNmeaMessageListener;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+
+          import org.json.JSONArray;
+
+          /* Estado del GPS: cada satélite que ve el teléfono (sistema, señal, posición en el cielo, si se usa, frecuencia),
+             la posición del GPS puro (sin antenas ni wifi) y las frases NMEA GGA/GSA (DOP, satélites en uso). */
+          @CapacitorPlugin(name = "RumboGnss")
+          public class RumboGnssPlugin extends Plugin {
+              private Object statusCb = null;      // GnssStatus.Callback (Object para no romper en Android viejos)
+              private Object nmeaCb = null;        // OnNmeaMessageListener
+              private LocationListener locCb = null;
+
+              private LocationManager lm() {
+                  return (LocationManager) getContext().getSystemService(Context.LOCATION_SERVICE);
+              }
+
+              private boolean hasPerm() {
+                  return getContext().checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+              }
+
+              private static double r1(double v) {
+                  return Math.round(v * 10.0) / 10.0;
+              }
+
+              @PluginMethod
+              public void info(PluginCall call) {
+                  JSObject r = new JSObject();
+                  r.put("sdk", Build.VERSION.SDK_INT);
+                  r.put("device", Build.MANUFACTURER + " " + Build.MODEL);
+                  r.put("perm", hasPerm());
+                  try {
+                      LocationManager m = lm();
+                      r.put("gpsOn", m.isProviderEnabled(LocationManager.GPS_PROVIDER));
+                      if (Build.VERSION.SDK_INT >= 28) {
+                          String model = m.getGnssHardwareModelName();
+                          if (model != null) r.put("model", model);
+                          r.put("year", m.getGnssYearOfHardware());
+                      }
+                  } catch (Exception e) {
+                      r.put("err", String.valueOf(e.getMessage()));
+                  }
+                  call.resolve(r);
+              }
+
+              @PluginMethod
+              public void start(PluginCall call) {
+                  if (Build.VERSION.SDK_INT < 24) {
+                      call.reject("Hace falta Android 7 o más nuevo");
+                      return;
+                  }
+                  if (!hasPerm()) {
+                      call.reject("Falta el permiso de ubicación precisa");
+                      return;
+                  }
+                  stopAll();
+                  final LocationManager m = lm();
+                  final Handler h = new Handler(Looper.getMainLooper());
+                  try {
+                      GnssStatus.Callback sc = new GnssStatus.Callback() {
+                          @Override
+                          public void onSatelliteStatusChanged(GnssStatus s) {
+                              sendStatus(s);
+                          }
+
+                          @Override
+                          public void onFirstFix(int ttffMillis) {
+                              JSObject o = new JSObject();
+                              o.put("ttff", ttffMillis);
+                              notifyListeners("gnssFix", o);
+                          }
+
+                          @Override
+                          public void onStarted() {
+                              JSObject o = new JSObject();
+                              o.put("on", true);
+                              notifyListeners("gnssEngine", o);
+                          }
+
+                          @Override
+                          public void onStopped() {
+                              JSObject o = new JSObject();
+                              o.put("on", false);
+                              notifyListeners("gnssEngine", o);
+                          }
+                      };
+                      m.registerGnssStatusCallback(sc, h);
+                      statusCb = sc;
+
+                      OnNmeaMessageListener nl = new OnNmeaMessageListener() {
+                          @Override
+                          public void onNmeaMessage(String msg, long timestamp) {
+                              if (msg == null || msg.length() < 7) return;
+                              String k = msg.substring(3, 6);
+                              if (!k.equals("GGA") && !k.equals("GSA")) return;
+                              JSObject o = new JSObject();
+                              o.put("n", msg.trim());
+                              notifyListeners("gnssNmea", o);
+                          }
+                      };
+                      try {
+                          m.addNmeaListener(nl, h);
+                          nmeaCb = nl;
+                      } catch (Exception e) {
+                          nmeaCb = null;
+                      }
+
+                      // Pedimos el GPS puro una vez por segundo: así el receptor queda encendido mientras se mira la pantalla
+                      locCb = new LocationListener() {
+                          @Override
+                          public void onLocationChanged(Location l) {
+                              sendLoc(l);
+                          }
+
+                          @Override
+                          public void onStatusChanged(String p, int st, Bundle b) {}
+
+                          @Override
+                          public void onProviderEnabled(String p) {
+                              JSObject o = new JSObject();
+                              o.put("gpsOn", true);
+                              notifyListeners("gnssProvider", o);
+                          }
+
+                          @Override
+                          public void onProviderDisabled(String p) {
+                              JSObject o = new JSObject();
+                              o.put("gpsOn", false);
+                              notifyListeners("gnssProvider", o);
+                          }
+                      };
+                      m.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, locCb, Looper.getMainLooper());
+                  } catch (SecurityException e) {
+                      stopAll();
+                      call.reject("Sin permiso de ubicación");
+                      return;
+                  } catch (Exception e) {
+                      stopAll();
+                      call.reject("No se pudo leer el GPS: " + e.getMessage());
+                      return;
+                  }
+                  call.resolve();
+              }
+
+              @PluginMethod
+              public void stop(PluginCall call) {
+                  stopAll();
+                  call.resolve();
+              }
+
+              private void stopAll() {
+                  try {
+                      LocationManager m = lm();
+                      if (Build.VERSION.SDK_INT >= 24) {
+                          if (statusCb != null) m.unregisterGnssStatusCallback((GnssStatus.Callback) statusCb);
+                          if (nmeaCb != null) m.removeNmeaListener((OnNmeaMessageListener) nmeaCb);
+                      }
+                      if (locCb != null) m.removeUpdates(locCb);
+                  } catch (Exception e) {
+                      // nada
+                  }
+                  statusCb = null;
+                  nmeaCb = null;
+                  locCb = null;
+              }
+
+              /* Satélites: [sistema, número, señal dB-Hz, elevación°, azimut°, marcas, frecuencia MHz (0 si no informa)]
+                 marcas: 1 = se usa en la posición, 2 = tiene almanaque, 4 = tiene efemérides */
+              private void sendStatus(GnssStatus s) {
+                  try {
+                      JSONArray arr = new JSONArray();
+                      int n = s.getSatelliteCount();
+                      for (int i = 0; i < n; i++) {
+                          JSONArray a = new JSONArray();
+                          a.put(s.getConstellationType(i));
+                          a.put(s.getSvid(i));
+                          a.put(r1(s.getCn0DbHz(i)));
+                          a.put(r1(s.getElevationDegrees(i)));
+                          a.put(r1(s.getAzimuthDegrees(i)));
+                          int f = (s.usedInFix(i) ? 1 : 0) | (s.hasAlmanacData(i) ? 2 : 0) | (s.hasEphemerisData(i) ? 4 : 0);
+                          a.put(f);
+                          double mhz = 0;
+                          if (Build.VERSION.SDK_INT >= 26 && s.hasCarrierFrequencyHz(i)) mhz = Math.round(s.getCarrierFrequencyHz(i) / 1e4) / 100.0;
+                          a.put(mhz);
+                          arr.put(a);
+                      }
+                      JSObject o = new JSObject();
+                      o.put("s", arr);
+                      o.put("t", System.currentTimeMillis());
+                      notifyListeners("gnss", o);
+                  } catch (Exception e) {
+                      // una lectura rara no corta las siguientes
+                  }
+              }
+
+              private void sendLoc(Location l) {
+                  try {
+                      JSObject o = new JSObject();
+                      o.put("lat", l.getLatitude());
+                      o.put("lon", l.getLongitude());
+                      if (l.hasAccuracy()) o.put("acc", r1(l.getAccuracy()));
+                      if (l.hasAltitude()) o.put("alt", r1(l.getAltitude()));
+                      if (Build.VERSION.SDK_INT >= 26 && l.hasVerticalAccuracy()) o.put("vacc", r1(l.getVerticalAccuracyMeters()));
+                      if (l.hasSpeed()) o.put("speed", r1(l.getSpeed()));
+                      if (l.hasBearing()) o.put("brg", r1(l.getBearing()));
+                      o.put("t", l.getTime());
+                      Bundle b = l.getExtras();
+                      if (b != null && b.containsKey("satellites")) o.put("sats", b.getInt("satellites"));
+                      notifyListeners("gnssLoc", o);
+                  } catch (Exception e) {
+                      // nada
+                  }
+              }
+
+              @Override
+              protected void handleOnDestroy() {
+                  stopAll();
+              }
+          }
+          JAVA
+          grep -q "registerPlugin(RumboGnssPlugin.class)" "$D/MainActivity.java" || sed -i 's/^\(\s*\)super.onCreate(savedInstanceState);/\1registerPlugin(RumboGnssPlugin.class);\n\1super.onCreate(savedInstanceState);/' "$D/MainActivity.java"
+          grep -n "registerPlugin" "$D/MainActivity.java"
+
+      - name: Firma fija (para poder actualizar sin desinstalar)
+        env:
+          KS: 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
+        run: |
+          mkdir -p ~/.android
+          echo "$KS" | base64 -d > ~/.android/debug.keystore
+          cp ~/.android/debug.keystore "$HOME/rumbo.keystore"
+          # Le decimos a Gradle, de forma explícita, que firme con ESTA clave (antes generaba una distinta en cada compilación)
+          python3 - <<'PY'
+          import os,re
+          p='android/app/build.gradle'
+          s=open(p).read()
+          ks=os.path.expanduser('~/rumbo.keystore')
+          blk='''android {
+              signingConfigs {
+                  debug {
+                      storeFile file("%s")
+                      storePassword "android"
+                      keyAlias "androiddebugkey"
+                      keyPassword "android"
+                  }
+              }
+          ''' % ks
+          assert re.search(r'^android \{\s*$',s,re.M),'no encontré el bloque android'
+          s=re.sub(r'^android \{\s*\n',blk,s,count=1,flags=re.M)
+          open(p,'w').write(s)
+          print(s[:900])
+          PY
+
+      - name: Número de versión (sube en cada compilación)
+        run: |
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"0.2.${{ github.run_number }}\"/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+
+      - name: Sincronizar
+        run: npx cap sync android
+
+      - name: Compilar
+        id: build
+        continue-on-error: true
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Reintentar sin voz del sistema ni apertura de GPX (solo si falló la compilación)
+        if: steps.build.outcome == 'failure'
+        run: |
+          D=android/app/src/main/java/com/profehugo/rumbo
+          cp "$D/MainActivity.java.orig" "$D/MainActivity.java" && rm -f "$D/RumboOpenPlugin.java" || true
+          rm -f "$D/RumboGnssPlugin.java"
+          npm uninstall --legacy-peer-deps @capacitor-community/text-to-speech
+          npx cap sync android
+          cd android && ./gradlew assembleDebug --no-daemon
+
+      - name: Renombrar APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk Rumbo.apk
+
+      - name: Huella de la firma (para comparar entre compilaciones)
+        run: |
+          AS=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
+          { echo "Firma de esta compilación (tiene que ser igual en todas para poder actualizar):"; echo; $AS verify --print-certs Rumbo.apk | grep -i "SHA-256" ; } > cert.txt || echo "sin huella" > cert.txt
+          cat cert.txt
+          # La huella tiene que ser la de la clave fija; si no, cortamos acá para no publicar un APK que no se pueda actualizar
+          grep -qi "e10bfd0108716d50db6fe2b593862385b81ec772c85432f10d754db026c9eb36" cert.txt || { echo "::error::La firma NO es la fija. Este APK no se podría actualizar."; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rumbo-apk
+          path: Rumbo.apk
+
+      - name: Publicar en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Rumbo build ${{ github.run_number }}
+          files: Rumbo.apk
+          body_path: cert.txt
