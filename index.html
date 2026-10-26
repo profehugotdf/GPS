@@ -602,7 +602,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="vedit" hidden>
   <div class="caph"><b id="evTtl">✏️ Editar puntos</b><span><button id="evMin" aria-label="Achicar">▾</button><button id="evX" aria-label="Cerrar">✕</button></span></div>
   <div id="evInfo"></div><small id="evWater" style="display:block;font-size:12.5px;line-height:1.35;margin-top:2px" hidden></small><small id="evHint"></small>
-  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evJoin" hidden>🔗 Unir al agua</button><button id="evMerge">🧩 Unir con el tramo vecino</button><button id="evArea">⬛ Hacer área</button><button id="evCut">✂️ Cortar aquí</button><button id="evSnapW" hidden>🧲 Copiar el borde del agua</button></div>
+  <div class="chips" id="evSelBar"><button id="evLasso">◯ Lazo</button><button id="evAll">Todos</button><button id="evNone">Ninguno</button><button id="evBetween">↔ Los de en medio</button><button id="evJoin" hidden>🔗 Unir al agua</button><button id="evMerge">🧩 Unir con el tramo vecino</button><button id="evArea">⬛ Hacer área</button><button id="evCut">✂️ Cortar aquí</button><button id="evSnapW" hidden>🧲 Copiar el borde del agua</button><button id="evSnapC" hidden>🧲 Pegar a la costa</button></div>
   <div class="nvb"><button id="evUndo">↶ Deshacer</button><button id="evDel">🗑️ Borrar</button><button id="evSimp">🧹 Simplificar todo</button><button id="evRev">⇄ Invertir</button><button id="evOk">✓ Guardar</button></div>
 </div>
 <div id="dsel" hidden>
@@ -8119,6 +8119,87 @@ $('#evSnapW').onclick=async()=>{
 };
 
 
+/* ---------- 🧲 Pegar a la costa: el borde de un área (mar, lago) entre dos puntos elegidos pasa a seguir la costa real ----------
+   Hugo: "¿cómo hago coincidir la costa con el área de mar?" (un área grande, de pocos puntos, que corta la costa en recta).
+   La costa sale de tus trazos de 🏖️ costa o, si no hay cerca, de OpenStreetMap (natural=coastline) de esa zona. */
+/* une tramos cuyas puntas coinciden (las costas de OSM vienen partidas en muchos pedazos) */
+function joinCoastPieces(lines){
+  const L=lines.map(l=>l.slice()),k=p=>p[0].toFixed(6)+','+p[1].toFixed(6);let did=true;
+  while(did){did=false;
+    for(let i=0;i<L.length&&!did;i++)for(let j=0;j<L.length&&!did;j++){if(i===j)continue;
+      if(k(L[i][L[i].length-1])===k(L[j][0])){L[i]=L[i].concat(L[j].slice(1));L.splice(j,1);did=true;}
+      else if(k(L[i][L[i].length-1])===k(L[j][L[j].length-1])){L[i]=L[i].concat(L[j].slice(0,-1).reverse());L.splice(j,1);did=true;}}}
+  return L;
+}
+/* punto más cercano sobre una línea abierta: {d, s (metros desde el principio), i, pt} */
+function projLine(Lp,p){let b=null,s=0;for(let i=0;i+1<Lp.length;i++){const q=projSeg(Lp[i],Lp[i+1],p),l=hav(Lp[i],Lp[i+1]);if(!b||q.d<b.d)b={d:q.d,s:s+q.t*l,i,pt:q.pt};s+=l;}return b;}
+/* el pedazo de la línea entre dos proyecciones (en el orden a → b) */
+function subLine(Lp,a,b){
+  const fw=a.s<=b.s,x=fw?a:b,y=fw?b:a,out=[x.pt];for(let i=x.i+1;i<=y.i;i++)out.push(Lp[i]);out.push(y.pt);
+  return fw?out:out.reverse();
+}
+/* R: anillo del área, ia/ib: los dos puntos elegidos, coasts: líneas de costa. Devuelve el anillo nuevo o un error */
+function snapRingToCoast(R,ia,ib,coasts,tol){
+  const a=R[ia],b=R[ib];let best=null;
+  for(const C of coasts){if(C.length<2)continue;const pa=projLine(C,a),pb=projLine(C,b);if(!pa||!pb)continue;const sc=pa.d+pb.d;if(!best||sc<best.sc)best={C,pa,pb,sc};}
+  if(!best)return {err:'No encontré costa cerca'};
+  if(best.pa.d>20000||best.pb.d>20000)return {err:`La costa más cercana está a ${fmtLen(Math.max(best.pa.d,best.pb.d))} de los puntos elegidos`};
+  let seg=subLine(best.C,best.pa,best.pb);
+  /* detalle de 10 m; si quedan demasiados puntos (costas muy largas), se va bajando el detalle */
+  if(seg.length>2){const raw=seg;let tl=tol||10;seg=simplifyDP(raw,tl);while(seg.length>2500){tl*=2;seg=simplifyDP(raw,tl);}}
+  if(hav(best.pa.pt,best.pb.pt)<1)return {err:'Los dos puntos caen en el mismo lugar de la costa'};
+  /* de los dos caminos por el anillo entre a y b, se reemplaza el que queda más cerca de la costa nueva */
+  const n=R.length,arc=fw=>{const o=[];let i=ia,k=0;while(k++<=n){o.push(i);if(i===ib)break;i=fw?(i+1)%n:(i-1+n)%n;}return o;};
+  const A1=arc(true),A2=arc(false);
+  const sc=A=>{const mid=A.slice(1,-1);if(!mid.length)return 0;let s=0;for(const i of mid)s+=projLine(seg,R[i]).d;return s/mid.length;};
+  const sc1=sc(A1),sc2=sc(A2);let use=A1;
+  if(A1.length===2&&A2.length===2)use=A1;else if(A1.length===2)use=A1;else if(A2.length===2)use=A2;else use=sc1<=sc2?A1:A2;
+  /* el anillo nuevo: desde b, lo que no se reemplaza, hasta a, y después la costa de a a b */
+  const keep=new Set(use.slice(1,-1));const out=[];
+  const fw=use===A1;   // use va de a a b en ese sentido: el resto va de b a a en el mismo sentido
+  let i=ib,k=0;while(k++<=n){if(!keep.has(i))out.push(R[i]);if(i===ia)break;i=fw?(i+1)%n:(i-1+n)%n;}
+  // out: b … a (por el lado que queda). Se completa con la costa a → b sin repetir las puntas
+  const mid=seg.slice(1,-1);
+  const ring=out.concat(mid);
+  return {ring,n:mid.length,off:Math.max(best.pa.d,best.pb.d),len:polyLen(seg,false)};
+}
+async function osmCoastNear(bb){
+  const bx=`${bb.s.toFixed(4)},${bb.w.toFixed(4)},${bb.n.toFixed(4)},${bb.e.toFixed(4)}`;
+  const q=`[out:json][timeout:90];way["natural"="coastline"](${bx});out geom;`;
+  let last;
+  for(const url of OVERPASS){
+    try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),100000);
+      const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});clearTimeout(to);
+      if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();
+      return (j.elements||[]).filter(e=>e.geometry).map(e=>e.geometry.filter(g=>g&&g.lat!=null).map(g=>[g.lat,g.lon])).filter(l=>l.length>1);}catch(e){last=e;}
+  }
+  throw last||new Error('sin respuesta');
+}
+async function evSnapCoast(){
+  if(!EV.on||!EV.e||EV.e.type!=='area')return;
+  if(EV.sels.size!==2){toast('Tocá 2 puntos del borde: donde empieza y donde termina el pedazo que tiene que seguir la costa. Después 🧲 de nuevo.',7000);return;}
+  const [ia,ib]=[...EV.sels],a=EV.pts[ia],b=EV.pts[ib];
+  /* 1) tus trazos de costa */
+  const own=(await DB.all('kv','edit:')).filter(e=>e.type==='path'&&e.kind==='costa'&&e.pts&&e.pts.length>1).map(e=>e.pts.map(p=>[p[0],p[1]]));
+  let coasts=joinCoastPieces(own),src='tus trazos de costa';
+  const near=C=>{const pa=projLine(C,a),pb=projLine(C,b);return pa&&pb&&pa.d<3000&&pb.d<3000;};
+  if(!coasts.some(near)){
+    /* 2) OpenStreetMap, en la zona de los dos puntos (con margen) */
+    const pad=.08,bb={s:Math.min(a[0],b[0])-pad,n:Math.max(a[0],b[0])+pad,w:Math.min(a[1],b[1])-pad*1.5,e:Math.max(a[1],b[1])+pad*1.5};
+    if(bb.n-bb.s>4||bb.e-bb.w>5){toast('Los dos puntos están muy lejos entre sí (más de ~400 km): elegí un pedazo más corto',6000);return;}
+    if(!(await netAllowed('bajar la costa de OpenStreetMap')))return;
+    toast('Bajando la costa de OpenStreetMap…',60000);
+    try{coasts=joinCoastPieces(await osmCoastNear(bb));src='OpenStreetMap';}catch(e){errLog(e,'costa OSM');toast('No se pudo bajar la costa: '+(e.message||e),6000);return;}
+    if(!coasts.length){toast('OpenStreetMap no tiene costa en esa zona',5000);return;}
+  }
+  const r=snapRingToCoast(EV.pts,ia,ib,coasts,10);
+  if(r.err){toast(r.err,6000);return;}
+  if(r.ring.length<3){toast('El área quedaría con menos de 3 puntos',5000);return;}
+  evPush();EV.pts=r.ring;EV.sels=new Set();evDraw();
+  toast(`🧲 El borde ahora sigue la costa (${src}): ${fmtLen(r.len)} con ${r.n} puntos nuevos. Revisalo y tocá ✓ Guardar; ↩ deshace.`,8000);
+}
+$('#evSnapC').onclick=()=>evSnapCoast().catch(e=>{errLog(e,'pegar a la costa');toast('No se pudo: '+(e.message||e),5000);});
+
 /* Desde el editor de puntos: una línea que da la vuelta (costa de un lago o dique) se convierte en área.
    La línea queda y el área se arma con ella: si después corregís la línea, el área se actualiza. */
 async function evToArea(){
@@ -8782,6 +8863,7 @@ function updEvUi(){
   $('#evCut').disabled=EV.closed||ns!==1;
   {const m=$('#evMerge');if(m)m.hidden=!(EV.e&&EV.e.type==='path'&&!EV.closed);}
   {const w=$('#evSnapW');if(w)w.hidden=!(EV.e&&EV.e.type==='path'&&!EV.ringPath&&['costa','limite','rio'].includes(EV.e.kind));}
+  {const w=$('#evSnapC');if(w){w.hidden=!(EV.e&&EV.e.type==='area');w.classList.toggle('on',ns===2);}}
   {const b=$('#evArea');if(b){b.hidden=EV.closed&&!EV.ringPath;if(EV.ringPath){b.textContent='⬛ Cerrar como área';b.classList.add('on');}else if(!EV.closed&&EV.pts.length>2){const g=hav(EV.pts[0],EV.pts[EV.pts.length-1]);b.textContent=g<=PB_TOL?'⬛ Cerrar como área':'⬛ Hacer área';b.classList.toggle('on',g<=PB_TOL);}}}
 }
 function evDelete(){
