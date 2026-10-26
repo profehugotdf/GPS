@@ -17,10 +17,10 @@ App de mapas offline, tracks, puertas tipo RaceChrono, rutas, grupo y guardián,
   - Firma fija: hay un chequeo de la huella, y si cambia la firma no se publica.
   - Publica en Releases como `build-N`.
   - Debe haber **un solo** workflow. Hubo una copia `build-1.yml` que compilaba dos APK por cada cambio.
-- **Pruebas**: `python3 tests/run_tests.py [filtro]`. Son 35, con Playwright y Node; ver `tests/README.md`.
+- **Pruebas**: `python3 tests/run_tests.py [filtro]`. Son más de 35, con Playwright y Node; ver `tests/README.md`.
   - Leaflet es de mentira, y las páginas `tests/harness/` toman pedazos de `index.html` buscando textos marcadores. Si cambiás un marcador, el armado falla y lo dice.
   - Para cada función nueva, agregá una `tests/ui_<algo>.py` siguiendo el estilo de las otras.
-- El código usa nombres cortos por módulo: `RT` rutas, `REC` grabación, `GRP`/`GD` grupo y guardián, `SH` compartir, `FL` Modo vuelo, `GN` satélites, `PL` trazar ruta, `MS` medir, `T3` 3D, `KY`/`BK` envío a Kayak/Bici.
+- El código usa nombres cortos por módulo: `RT` rutas, `REC` grabación, `GRP`/`GD` grupo y guardián, `SH` compartir, `FL` Modo vuelo, `GN` satélites, `PL` trazar ruta, `MS` medir, `T3` 3D, `KY`/`BK` envío a Kayak y a Bici/Correr (`bkSend({app:'correr'})`).
 
 ## Pendientes conversados con Hugo (en orden sugerido)
 
@@ -77,6 +77,6 @@ Todas las apps comparten `localStorage` (unos 5 MB en total para todas) y pueden
   - Rumbo: NGP con pendiente para correr, potencia estimada/FTP para bici.
   - Una salida grabada por Rumbo **y** por la app dedicada cuenta una sola vez, la de la dedicada.
 - Rumbo abre las otras apps con `#rumbo=` en el link:
-  - Bici y Kayak: `z` + base64url de JSON comprimido con deflate-raw. Bici recibe gpx, escenas, horizonte, cerros y suelo; Kayak recibe `app:'kayak'`, puntos, orillas y perfil, horizonte y cerros.
+  - Bici, Correr y Kayak: `z` + base64url de JSON comprimido con deflate-raw. Bici y Correr reciben el mismo paquete (gpx con la altura, escenas, horizonte, cerros y suelo); Kayak recibe `app:'kayak'`, puntos, orillas y perfil, horizonte y cerros.
   - Mi plan: base64 de `{v,s:[sesiones]}`, sin comprimir.
 - Hay una app de Backup (`profehugotdf.github.io`) que exporta y restaura localStorage e IndexedDB de todas.

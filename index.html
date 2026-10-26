@@ -4327,6 +4327,7 @@ async function showTrackDetail(id){
       ${MP_DISC[tr.act]?`<button class="btn" data-act="mp">📤 ${tr.mp?'Volver a mandar':'Mandar'} a Mi plan</button>`:''}
       ${!['kayak','swim','plane'].includes(tr.act)?`<button class="btn" data-act="bk">🚴 Entrenar en Bici Indoor</button>`:''}
       ${tr.act==='kayak'?`<button class="btn" data-act="ky">🛶 Entrenar en Kayak Indoor</button>`:''}
+      ${['run','walk'].includes(tr.act)?`<button class="btn" data-act="cr">🏃 Correrlo en Correr (recorrido virtual)</button>`:''}
       <button class="btn" data-act="anal">Medir con un circuito</button>
       <button class="btn primary" data-act="follow">🧭 Guiarme por este recorrido</button>
       <button class="btn" data-act="followrev">↩︎ Hacerlo al revés</button>
@@ -4339,6 +4340,7 @@ async function showTrackDetail(id){
       else if(a==='rel'){closeSheet();open3D({line:tr.pts.map(p=>[p[0],p[1]]),track:tr,relive:true});}
       else if(a==='multi')showMultiPick(id);
       else if(a==='mp'){await mpPublish([tr],true);showTrackDetail(id);}
+      else if(a==='cr')await bkSend({app:'correr',name:tr.name||('Rumbo '+fmtDate(tr.t0)),ll:t3TrackPts(tr).pts.map(p=>[p[0],p[1]]),grade:.35});
       else if(a==='ky')await kySend({name:tr.name||('Kayak '+fmtDate(tr.t0)),ll:t3TrackPts(tr).pts.map(p=>[p[0],p[1]])});
       else if(a==='bk')await bkSend({name:tr.name||('Rumbo '+fmtDate(tr.t0)),ll:t3TrackPts(tr).pts.map(p=>[p[0],p[1]]),grade:tr.act==='car'?.16:.25});
       else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);await DB.del('kv','prx:'+id).catch(errLog);showTrackDetail(id);}
@@ -5034,7 +5036,7 @@ function resultsHtml(){
   const r=RT.res[RT.sel];
   if(r&&!r.err)h+=`<button class="btn primary" data-act="nav" style="width:100%;margin-top:8px">▶ Guiarme por esta ruta</button>
     ${r.hzs&&r.hzs.length?`<p>⚠️ En el camino: ${hzSummary(r.hzs)}</p>`:''}
-    <div class="row"><button class="btn sm" data-act="rprof">⛰️ Perfil de desniveles</button><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button>${isWater(RT.sel)?(RT.sel==='kayak'?'<button class="btn sm" data-act="rky">🛶 Entrenar en Kayak Indoor</button>':''):'<button class="btn sm" data-act="rbk">🚴 Entrenar en Bici Indoor</button>'}<button class="btn sm" data-act="rclear">🧹 Quitar ruta, A y B</button></div><div id="rprof">${r.profHtml||''}</div>
+    <div class="row"><button class="btn sm" data-act="rprof">⛰️ Perfil de desniveles</button><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button>${isWater(RT.sel)?(RT.sel==='kayak'?'<button class="btn sm" data-act="rky">🛶 Entrenar en Kayak Indoor</button>':''):'<button class="btn sm" data-act="rbk">🚴 Entrenar en Bici Indoor</button>'+(RT.sel==='foot'?'<button class="btn sm" data-act="rcr">🏃 Correrla en Correr</button>':'')}<button class="btn sm" data-act="rclear">🧹 Quitar ruta, A y B</button></div><div id="rprof">${r.profHtml||''}</div>
     <h3>Indicaciones</h3>${r.steps.map(s=>`<div class="item"><div>${s.ico?s.ico+' ':''}${esc(s.text)}</div><small class="mut">${s.dist?fmtD(s.dist):''}</small></div>`).join('')}`;
   return h;
 }
@@ -5196,6 +5198,8 @@ async function showRoutes(){
     else if(a==='rclear'){rtClear();showRoutes();}
     else if(a==='rgpx'){const r=RT.res[RT.sel];shareFile('ruta.gpx',toGPX([{name:'Ruta',pts:r.coords.map(c=>[c[0],c[1],0,0,null,0])}],[],esc),'application/gpx+xml');}
     else if(a==='rsave')showSaveRoute();
+    else if(a==='rcr'){const r=RT.res[RT.sel],ll=r.coords.map(c=>[c[0],c[1]]);const bq=S.roundTrip&&backNow(RT.sel),vuelta=bq?bq.coords.map(c=>[c[0],c[1]]).slice(1):ll.slice(0,-1).reverse();
+      await bkSend({app:'correr',name:'Ruta a pie '+fmtDate(Date.now())+(S.roundTrip?' (ida y vuelta)':''),ll:S.roundTrip?ll.concat(vuelta):ll,grade:.35});}
     else if(a==='rky'){const r=RT.res[RT.sel];await kySend({name:'Ruta en kayak '+fmtDate(Date.now()),ll:r.coords.map(c=>[c[0],c[1]])});}
     else if(a==='rbk'){const r=RT.res[RT.sel],ll=r.coords.map(c=>[c[0],c[1]]);   // con 🔁 Ida y vuelta, el GPX lleva también la vuelta (en bajada si la ida sube)
       const bq=S.roundTrip&&backNow(RT.sel),vuelta=bq?bq.coords.map(c=>[c[0],c[1]]).slice(1):ll.slice(0,-1).reverse();   // la vuelta real, si está calculada
@@ -7563,7 +7567,7 @@ function plUi(){
   $('#plUndo').disabled=!PL.hist.length;$('#plClr').disabled=!pts.length;
   $('#plDel').hidden=PL.sel==null;$('#plLoop').hidden=PL.sel!=null;
   $('#plLoop').classList.toggle('on',PL.loop);$('#plLoop').textContent=PL.loop?'🔁 Circuito ✓':'🔁 Volver a A';$('#plLoop').disabled=pts.length<2;
-  $('#plOk').disabled=!S0;$('#plBk').disabled=!S0;$('#plBk').textContent=PL.mode==='kayak'?'🛶 Indoor':'🚴 Indoor';
+  $('#plOk').disabled=!S0;$('#plBk').disabled=!S0;$('#plBk').textContent=PL.mode==='kayak'?'🛶 Indoor':PL.mode==='foot'?'🏃 Correr':'🚴 Indoor';
 }
 document.querySelectorAll('#plMode button').forEach(b=>b.onclick=()=>{PL.mode=b.dataset.m;PL.ins=null;plRoute();});
 $('#plPref').onclick=e=>{const b=e.target.closest('[data-p]');if(!b)return;S.pref=b.dataset.p;saveS();plRoute();};
@@ -7599,6 +7603,7 @@ $('#plBk').onclick=()=>{
   const S0=plSum();if(!S0)return;
   const ll=[];for(const r of PL.legs)for(const c of r.coords){const p=[c[0],c[1]];const q=ll[ll.length-1];if(!q||q[0]!==p[0]||q[1]!==p[1])ll.push(p);}
   if(PL.mode==='kayak'){kySend({name:'Trazada en kayak '+fmtDate(Date.now()),ll});return;}
+  if(PL.mode==='foot'){bkSend({app:'correr',name:'Trazada a pie '+fmtDate(Date.now()),ll,grade:.35});return;}
   bkSend({name:'Trazada '+(MN[PL.mode]||'')+' '+fmtDate(Date.now()),ll,grade:PL.mode==='car'?.16:.25});
 };
 
@@ -12212,7 +12217,7 @@ async function mpPending(){
    2) escenario: con OpenStreetMap se ve dónde hay ciudad, bosque, costa, lago o río (y de qué lado), y con la altura,
       montaña y caminos de cornisa. Se arma con los mismos tipos del editor de Bici; después se retoca ahí;
    3) se abre Bici Indoor con todo en el link (comprimido): queda guardada como ruta y lista para pedalear. */
-const BK_URL='https://profehugotdf.github.io/Bici-Indoor-/';
+const BK_URL='https://profehugotdf.github.io/Bici-Indoor-/',CR_URL='https://profehugotdf.github.io/Carrera-virtual/';
 function bkResample(ll,st){
   const cum=[0];for(let i=1;i<ll.length;i++)cum.push(cum[i-1]+hav(ll[i-1],ll[i]));
   const L=cum[cum.length-1],n=Math.max(2,Math.round(L/st)+1),out=[];let j=1;
@@ -12358,9 +12363,11 @@ async function bkPack(o){
 }
 /* o: {name, ll:[[lat,lon],…], grade} */
 async function bkSend(o){
+  /* o.app='correr' → la misma ruta con su paisaje para Correr (recorrido virtual en la cinta o donde sea) */
+  const CR=o.app==='correr',APP=CR?{ico:'🏃',nom:'Correr',url:CR_URL}:{ico:'🚴',nom:'Bici Indoor',url:BK_URL};
   if(!o.ll||o.ll.length<2){toast('No hay recorrido para mandar',3000);return;}
   let L=0;for(let i=1;i<o.ll.length;i++)L+=hav(o.ll[i-1],o.ll[i]);
-  if(L<300){toast('El recorrido es muy corto para el rodillo',3000);return;}
+  if(L<300){toast(CR?'El recorrido es muy corto':'El recorrido es muy corto para el rodillo',3000);return;}
   const st=L>40000?20:10,R=bkResample(o.ll,st),z=L<=40000?14:L<=150000?13:12,list=demTilesAlong(o.ll,z,st*2);
   const falta=await demMissing(list,z);
   if(falta){
@@ -12368,7 +12375,7 @@ async function bkSend(o){
     const cel=S.dataMode==='wifi'&&connType()==='cellular';
     if(!confirm(`Para la altura del camino hay que bajar ${falta} tesela${falta>1?'s':''} de relieve (unos ${Math.max(1,Math.round(falta*.12))} MB)${cel?', con datos móviles':''}. Quedan guardadas. ¿Seguir?`))return;
   }
-  toast('🚴 Armando la ruta para Bici Indoor: altura del camino…',20000);
+  toast(`${APP.ico} Armando la ruta para ${APP.nom}: altura del camino…`,20000);
   const dem=await fetchDemList(list,z),demS=(la,lo)=>sampleDem(dem,z,la,lo);
   let raw=R.pts.map(p=>demS(p[0],p[1])),bad=raw.filter(v=>!isFinite(v)).length;
   if(bad>raw.length*.2){toast('No se pudo leer la altura del terreno de esta zona (¿sin conexión?)',6000);return;}
@@ -12379,7 +12386,7 @@ async function bkSend(o){
   /* escenario */
   let scenes=null,scErr='';
   if(!netBlocked()&&S.dataMode!=='never'){
-    toast('🚴 Armando el escenario (ciudad, bosque, costa…)…',60000);
+    toast(`${APP.ico} Armando el escenario (ciudad, bosque, costa…)…`,60000);
     try{let bb={n:-90,s:90,e:-180,w:180};for(const p of R.pts){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}
       bb={n:bb.n+.004,s:bb.s-.004,e:bb.e+.006,w:bb.w-.006};
       scenes=bkScenes(R.pts,prof,bkFeatures(await bkOsm(bb)),demS);}catch(e){scErr=e.message||String(e);}
@@ -12405,9 +12412,9 @@ async function bkSend(o){
   const gpx=`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Rumbo"><trk><name>${nm}</name><trkseg>`+R.pts.map((p,i)=>`<trkpt lat="${p[0].toFixed(6)}" lon="${p[1].toFixed(6)}"><ele>${prof[i].toFixed(1)}</ele></trkpt>`).join('')+'</trkseg></trk></gpx>';
   const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground});
   const resum=`${dec(R.L/1000,1)} km · ↑ ${Math.round(up)} m · pendiente máx ${Math.round(gm*100)} %`+(scenes?` · escenario de ${scenes.length} tramo${scenes.length>1?'s':''}`:'')+(hz?' · montañas reales':'')+(ground?' · colores del suelo':'');
-  toast(`🚴 Listo: ${resum}${scErr?' (sin datos de OpenStreetMap: escenario solo por altura)':''}. Se abre Bici Indoor…`,6000);
+  toast(`${APP.ico} Listo: ${resum}${scErr?' (sin datos de OpenStreetMap: escenario solo por altura)':''}. Se abre ${APP.nom}…`,6000);
   BK.last={name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground};
-  setTimeout(()=>{const a=document.createElement('a');a.href=BK_URL+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
+  setTimeout(()=>{const a=document.createElement('a');a.href=APP.url+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 const BK={last:null};
 
