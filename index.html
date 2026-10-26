@@ -8770,8 +8770,15 @@ async function openVEdit(id){
   if(EV.ringPath){EV.pts.pop();EV.closed=true;}EV.sels=new Set();EV.undo=[];EV.dirty=false;EV.lasso=false;EV.mergeDel=[];
   closeSheet();hidePin();setFollow(false);
   $('#vedit').hidden=false;$('#vedit').classList.remove('min');
-  map.fitBounds(L.latLngBounds(EV.pts),{padding:[40,200],maxZoom:19});
+  /* se queda con el zoom y el lugar que estabas mirando si el trazo se ve ahí (Hugo: "que mantenga el zoom de ese momento");
+     solo si no está a la vista, se acerca para mostrarlo entero */
+  if(!evEnVista(EV.pts))map.fitBounds(L.latLngBounds(EV.pts),{padding:[40,200],maxZoom:19});
   evDraw();
+}
+function evEnVista(P,vb){
+  try{const b=vb||map.getBounds(),s=+b.getSouth(),n=+b.getNorth(),w=+b.getWest(),e=+b.getEast();if(!(n>s&&e>w))return false;
+    let a=90,z=-90,o=180,x=-180;for(const p of P){a=Math.min(a,p[0]);z=Math.max(z,p[0]);o=Math.min(o,p[1]);x=Math.max(x,p[1]);}
+    return !(z<s||a>n||x<w||o>e);}catch(er){errLog(er);return false;}
 }
 function closeVEdit(){
   EV.on=false;EV.e=null;EV.pts=[];EV.sels=new Set();EV.lasso=false;EV.ringPath=false;

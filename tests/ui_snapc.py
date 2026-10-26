@@ -41,6 +41,10 @@ async def main():
         ok(r['bajo']==0 and r['has'],'con un trazo de 🏖️ costa propio cerca, usa ese')
         await pg.evaluate("evSave()");await pg.wait_for_timeout(300)
         r=await pg.evaluate("(async()=>{const e=await DB.get('kv','edit:mar1');return e.pts.some(p=>Math.abs(p[0]+16.995)<1e-6)})()");ok(r,'✓ Guardar lo guarda')
+        # Editar puntos mantiene el zoom si el área se ve; si no se ve, la muestra
+        r=await pg.evaluate("""(async()=>{const e=await DB.get('kv','edit:mar1'),B=(s,w,n,ee)=>({getSouth:()=>s,getWest:()=>w,getNorth:()=>n,getEast:()=>ee});
+          return [evEnVista(e.pts,B(-17.1,-100.6,-16.9,-100.4))?0:1, evEnVista(e.pts,B(-54.9,-68.4,-54.7,-68.2))?0:1];})()""")
+        ok(r==[0,1],'✏️ Editar puntos mantiene el zoom si el área está a la vista (y si no, la muestra) %s'%r)
         print('ERRORES JS:',errs[:3] or 'ninguno');ok(not errs,'sin errores');await b.close()
     srv.shutdown()
 asyncio.run(main())
