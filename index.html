@@ -4304,6 +4304,7 @@ async function showTrackDetail(id){
       <button class="btn" data-act="trim">✂️ Recortar</button>
       ${MP_DISC[tr.act]?`<button class="btn" data-act="mp">📤 ${tr.mp?'Volver a mandar':'Mandar'} a Mi plan</button>`:''}
       ${!['kayak','swim','plane'].includes(tr.act)?`<button class="btn" data-act="bk">🚴 Entrenar en Bici Indoor</button>`:''}
+      ${tr.act==='kayak'?`<button class="btn" data-act="ky">🛶 Entrenar en Kayak Indoor</button>`:''}
       <button class="btn" data-act="anal">Medir con un circuito</button>
       <button class="btn primary" data-act="follow">🧭 Guiarme por este recorrido</button>
       <button class="btn" data-act="followrev">↩︎ Hacerlo al revés</button>
@@ -4316,6 +4317,7 @@ async function showTrackDetail(id){
       else if(a==='rel'){closeSheet();open3D({line:tr.pts.map(p=>[p[0],p[1]]),track:tr,relive:true});}
       else if(a==='multi')showMultiPick(id);
       else if(a==='mp'){await mpPublish([tr],true);showTrackDetail(id);}
+      else if(a==='ky')await kySend({name:tr.name||('Kayak '+fmtDate(tr.t0)),ll:t3TrackPts(tr).pts.map(p=>[p[0],p[1]])});
       else if(a==='bk')await bkSend({name:tr.name||('Rumbo '+fmtDate(tr.t0)),ll:t3TrackPts(tr).pts.map(p=>[p[0],p[1]]),grade:tr.act==='car'?.16:.25});
       else if(a==='act'){tr.act=d.k;await commitRuns(tr);await DB.put('kv','track:'+id,tr);await DB.del('kv','prx:'+id).catch(()=>{});showTrackDetail(id);}
       else if(a==='trim')showTrim(id);
@@ -5010,7 +5012,7 @@ function resultsHtml(){
   const r=RT.res[RT.sel];
   if(r&&!r.err)h+=`<button class="btn primary" data-act="nav" style="width:100%;margin-top:8px">▶ Guiarme por esta ruta</button>
     ${r.hzs&&r.hzs.length?`<p>⚠️ En el camino: ${hzSummary(r.hzs)}</p>`:''}
-    <div class="row"><button class="btn sm" data-act="rprof">⛰️ Perfil de desniveles</button><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button>${isWater(RT.sel)?'':'<button class="btn sm" data-act="rbk">🚴 Entrenar en Bici Indoor</button>'}<button class="btn sm" data-act="rclear">🧹 Quitar ruta, A y B</button></div><div id="rprof">${r.profHtml||''}</div>
+    <div class="row"><button class="btn sm" data-act="rprof">⛰️ Perfil de desniveles</button><button class="btn sm" data-act="rfit">Ver en el mapa</button><button class="btn sm" data-act="rsave">Guardar como recorrido</button><button class="btn sm" data-act="rgpx">Compartir GPX</button>${isWater(RT.sel)?(RT.sel==='kayak'?'<button class="btn sm" data-act="rky">🛶 Entrenar en Kayak Indoor</button>':''):'<button class="btn sm" data-act="rbk">🚴 Entrenar en Bici Indoor</button>'}<button class="btn sm" data-act="rclear">🧹 Quitar ruta, A y B</button></div><div id="rprof">${r.profHtml||''}</div>
     <h3>Indicaciones</h3>${r.steps.map(s=>`<div class="item"><div>${s.ico?s.ico+' ':''}${esc(s.text)}</div><small class="mut">${s.dist?fmtD(s.dist):''}</small></div>`).join('')}`;
   return h;
 }
@@ -5172,6 +5174,7 @@ async function showRoutes(){
     else if(a==='rclear'){rtClear();showRoutes();}
     else if(a==='rgpx'){const r=RT.res[RT.sel];shareFile('ruta.gpx',toGPX([{name:'Ruta',pts:r.coords.map(c=>[c[0],c[1],0,0,null,0])}],[],esc),'application/gpx+xml');}
     else if(a==='rsave')showSaveRoute();
+    else if(a==='rky'){const r=RT.res[RT.sel];await kySend({name:'Ruta en kayak '+fmtDate(Date.now()),ll:r.coords.map(c=>[c[0],c[1]])});}
     else if(a==='rbk'){const r=RT.res[RT.sel],ll=r.coords.map(c=>[c[0],c[1]]);   // con 🔁 Ida y vuelta, el GPX lleva también la vuelta (en bajada si la ida sube)
       const bq=S.roundTrip&&backNow(RT.sel),vuelta=bq?bq.coords.map(c=>[c[0],c[1]]).slice(1):ll.slice(0,-1).reverse();   // la vuelta real, si está calculada
       await bkSend({name:'Ruta '+(MN[RT.sel]||'')+' '+fmtDate(Date.now())+(S.roundTrip?' (ida y vuelta)':''),ll:S.roundTrip?ll.concat(vuelta):ll,grade:RT.sel==='car'?.16:.25});}
@@ -7538,7 +7541,7 @@ function plUi(){
   $('#plUndo').disabled=!PL.hist.length;$('#plClr').disabled=!pts.length;
   $('#plDel').hidden=PL.sel==null;$('#plLoop').hidden=PL.sel!=null;
   $('#plLoop').classList.toggle('on',PL.loop);$('#plLoop').textContent=PL.loop?'🔁 Circuito ✓':'🔁 Volver a A';$('#plLoop').disabled=pts.length<2;
-  $('#plOk').disabled=!S0;$('#plBk').disabled=!S0||isWater(PL.mode);
+  $('#plOk').disabled=!S0;$('#plBk').disabled=!S0;$('#plBk').textContent=PL.mode==='kayak'?'🛶 Indoor':'🚴 Indoor';
 }
 document.querySelectorAll('#plMode button').forEach(b=>b.onclick=()=>{PL.mode=b.dataset.m;PL.ins=null;plRoute();});
 $('#plPref').onclick=e=>{const b=e.target.closest('[data-p]');if(!b)return;S.pref=b.dataset.p;saveS();plRoute();};
@@ -7573,6 +7576,7 @@ $('#plOk').onclick=plUse;
 $('#plBk').onclick=()=>{
   const S0=plSum();if(!S0)return;
   const ll=[];for(const r of PL.legs)for(const c of r.coords){const p=[c[0],c[1]];const q=ll[ll.length-1];if(!q||q[0]!==p[0]||q[1]!==p[1])ll.push(p);}
+  if(PL.mode==='kayak'){kySend({name:'Trazada en kayak '+fmtDate(Date.now()),ll});return;}
   bkSend({name:'Trazada '+(MN[PL.mode]||'')+' '+fmtDate(Date.now()),ll,grade:PL.mode==='car'?.16:.25});
 };
 
@@ -12365,6 +12369,114 @@ async function bkSend(o){
   setTimeout(()=>{const a=document.createElement('a');a.href=BK_URL+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 const BK={last:null};
+
+/* ---------- 🛶 Kayak Indoor: la ruta de kayak con su paisaje ----------
+   Como para Bici Indoor, pero lo que importa en el agua son las orillas: cada 25 m de la ruta, a qué distancia está la
+   tierra a la izquierda y a la derecha (hasta 2 km), qué altura tiene la orilla (barranca, bosque) y de qué color es
+   (foto satelital). Además, las montañas reales del horizonte y los cerros con nombre, igual que en Bici. */
+const KY_URL='https://profehugotdf.github.io/Kayak-Indoor-/';
+const KY={last:null,SP:25,MAX:2000};
+/* color promedio de la foto satelital en grupos de puntos: groups = [[[lat,lon],…],…] → [[r,g,b]|null,…] */
+async function satAvg(groups,z){
+  const need=new Map(),G=groups.map(g=>g.map(([la,lo])=>{const t=tileXY(la,lo,z),tx=Math.floor(t.x),ty=Math.floor(t.y);need.set(tx+'/'+ty,1);return {tx,ty,px:Math.floor((t.x%1)*256),py:Math.floor((t.y%1)*256)};}));
+  if(need.size>320)return groups.map(()=>null);
+  const l=LAYERS.sat,img=new Map(),keys=[...need.keys()];let i=0;
+  const worker=async()=>{while(i<keys.length){const k=keys[i++],[x,y]=k.split('/').map(Number),key=`sat/${z}/${x}/${y}`;
+    try{let blob=await DB.get('tiles',key);if(!blob&&!netBlocked()){blob=await getTileBlob(tileUrl(l,z,x,y));if(blob&&blob.size>80)try{await DB.put('tiles',key,blob);}catch(e){}}
+      if(!blob)continue;const bm=await createImageBitmap(blob),c=document.createElement('canvas');c.width=c.height=256;const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(bm,0,0);img.set(k,cx.getImageData(0,0,256,256).data);}catch(e){}}};
+  await Promise.all(Array.from({length:4},worker));
+  return G.map(g=>{let r=0,gg=0,b=0,c=0;for(const q of g){const d=img.get(q.tx+'/'+q.ty);if(!d)continue;
+    for(let yy=-2;yy<=2;yy+=2)for(let xx=-2;xx<=2;xx+=2){const o=(Math.max(0,Math.min(255,q.py+yy))*256+Math.max(0,Math.min(255,q.px+xx)))*4;r+=d[o];gg+=d[o+1];b+=d[o+2];c++;}}
+    return c?[r/c,gg/c,b/c]:null;});
+}
+/* nivel del agua a lo largo de la ruta: plano si casi no cambia (lago, mar); si baja (río), suavizado ±250 m */
+function kyWaterLevel(raw,ds){
+  const v=raw.map(x=>isFinite(x)?Math.max(0,x):NaN),ok=v.filter(isFinite).sort((a,b)=>a-b);
+  if(!ok.length)return v.map(()=>0);
+  const med=ok[Math.floor(ok.length/2)],lo=ok[Math.floor(ok.length*.05)],hi=ok[Math.floor(ok.length*.95)];
+  if(hi-lo<=8)return v.map(()=>med);
+  return Array.from(t3Box(Float32Array.from(v.map(x=>isFinite(x)?x:med)),Math.max(1,Math.round(250/ds))));
+}
+/* orillas: desde cada punto, hacia cada costado, hasta dónde sigue el agua.
+   Se usa lo que haya: las costas y lagos cargados en Rumbo (lo más preciso) y, si no, el relieve (tierra = más de 2 m sobre el agua). */
+function kyShores(P,wl,demS,shore){
+  const n=P.length,out=[],K=111320;
+  for(let i=0;i<n;i++){
+    const [la,lo]=P[i],a=P[Math.max(0,i-2)],b=P[Math.min(n-1,i+2)],kc=Math.cos(la*rad);
+    const dx=(b[1]-a[1])*kc,dy=b[0]-a[0],l=Math.hypot(dx,dy)||1,nx=-dy/l,ny=dx/l,res=[];
+    for(const side of [1,-1]){
+      let s=8,hit=null;
+      while(s<=KY.MAX){
+        const qa=la+ny*s*side/K,qo=lo+nx*s*side/(K*kc),step=Math.max(8,s*.07);
+        const ds=shore&&shore.n?shore.dist([qa,qo],step*1.2):Infinity;
+        if(ds<=step*.6){hit=s+ds*.5;break;}
+        const h=demS(qa,qo);if(isFinite(h)&&h-wl[i]>2.2){hit=s;break;}
+        s+=Math.min(step,isFinite(ds)?Math.max(8,ds*.8):step);
+      }
+      /* altura de la orilla: lo más alto a 40-160 m tierra adentro (barranca, loma); el bosque se suma en Kayak según el color */
+      let bank=0;
+      if(hit!=null)for(const off of [40,90,160]){const qa=la+ny*(hit+off)*side/K,qo=lo+nx*(hit+off)*side/(K*kc),h=demS(qa,qo);if(isFinite(h))bank=Math.max(bank,h-wl[i]);}
+      res.push({side,d:hit,bank:Math.max(0,Math.min(255,Math.round(bank))),nx,ny,kc});
+    }
+    out.push(res);
+  }
+  return out;
+}
+/* o: {name, ll:[[lat,lon],…]} */
+async function kySend(o){
+  if(!o.ll||o.ll.length<2){toast('No hay recorrido para mandar',3000);return;}
+  let L=0;for(let i=1;i<o.ll.length;i++)L+=hav(o.ll[i-1],o.ll[i]);
+  if(L<200){toast('El recorrido es muy corto',3000);return;}
+  if(L>80000){toast('Para Kayak Indoor, hasta 80 km',4000);return;}
+  const R=bkResample(o.ll,KY.SP),P=R.pts,ds=R.L/(P.length-1);
+  let z=13,list=bkTilesBB(bkPadBB(P,KY.MAX+300),z);if(list.length>140){z=12;list=bkTilesBB(bkPadBB(P,KY.MAX+300),z);}
+  const falta=await demMissing(list,z);
+  if(falta){
+    if(S.dataMode==='never'||netBlocked()){toast('Falta el relieve de esta zona y no se puede usar internet (Ajustes → Datos móviles)',6000);return;}
+    const cel=S.dataMode==='wifi'&&connType()==='cellular';
+    if(!confirm(`Para las orillas y las montañas hay que bajar ${falta} tesela${falta>1?'s':''} de relieve (unos ${Math.max(1,Math.round(falta*.12))} MB)${cel?', con datos móviles':''}. Quedan guardadas. ¿Seguir?`))return;
+  }
+  toast('🛶 Armando la ruta para Kayak Indoor: orillas…',30000);
+  const dem=await fetchDemList(list,z),demS=(la,lo)=>sampleDem(dem,z,la,lo);
+  const wl=kyWaterLevel(P.map(p=>demS(p[0],p[1])),ds);
+  let shoreIdx=null;try{const w=await kayakWG();shoreIdx=w&&w.shore&&w.shore.n?w.shore:null;}catch(e){}
+  const sh=kyShores(P,wl,demS,shoreIdx);
+  /* color de cada orilla (foto satelital, 30-90 m tierra adentro), cada 4 puntos (100 m) */
+  let cols=null;
+  try{toast('🎨 Mirando el color de las orillas en la foto satelital…',30000);
+    const groups=[],gi=[];
+    for(let i=0;i<P.length;i+=4)for(const s of sh[i]){if(s.d==null||s.d>1200)continue;const [la,lo]=P[i];
+      groups.push([30,60,90].map(off=>[la+s.ny*(s.d+off)*s.side/111320,lo+s.nx*(s.d+off)*s.side/(111320*s.kc)]));gi.push([i,s.side]);}
+    const c=await satAvg(groups,R.L>30000?14:15);cols=new Map();gi.forEach(([i,side],k)=>{if(c[k])cols.set(i+':'+side,c[k]);});
+  }catch(e){cols=null;}
+  /* 10 bytes por punto: distancia izq/der (÷8 m, 255 = no hay tierra a menos de 2 km), altura izq/der (m), color izq rgb, color der rgb */
+  const U=new Uint8Array(P.length*10);let lastC={1:[70,95,60],'-1':[70,95,60]};
+  sh.forEach((res,i)=>{for(const s of res){const o=i*10,L0=s.side>0;
+    U[o+(L0?0:1)]=s.d==null?255:Math.min(254,Math.round(s.d/8));U[o+(L0?2:3)]=s.bank;
+    const k=Math.floor(i/4)*4,c=cols&&cols.get(k+':'+s.side)||lastC[s.side];lastC[s.side]=c;
+    const q=o+(L0?4:7);U[q]=c[0];U[q+1]=c[1];U[q+2]=c[2];}});
+  /* horizonte real (montañas) y cerros con nombre, como en Bici */
+  let hz=null,peaks=[];
+  try{
+    const bbF=bkPadBB(P,BKH.R),zF=11,lF=bkTilesBB(bbF,zF),falt=await demMissing(lF,zF);
+    if(!falt||(!netBlocked()&&S.dataMode!=='never'&&confirm(`Para dibujar las montañas reales que se ven desde el agua hay que bajar ${falt} tesela${falt>1?'s':''} más de relieve (unos ${Math.max(1,Math.round(falt*.1))} MB). Quedan guardadas. ¿Seguir?`))){
+      toast('🏔️ Calculando las montañas que se ven desde el agua…',60000);
+      const dF=await fetchDemList(lF,zF),sp=Math.max(200,Math.ceil(R.L/120/50)*50);
+      await new Promise(r=>setTimeout(r,30));
+      hz=bkHorizon(P,wl,sp,(a,b)=>{const v=demS(a,b);return isFinite(v)?v:sampleDem(dF,zF,a,b);},(a,b)=>sampleDem(dF,zF,a,b));
+      hz.snow=P[0][0]<-50?750:P[0][0]<-40?1500:P[0][0]<-30?4200:4800;
+      if(!netBlocked()&&S.dataMode!=='never')peaks=(await bkPeaks(bkPadBB(P,BKH.R*.9))).slice(0,200);
+    }
+  }catch(e){hz=null;}
+  const nm=(o.name||'Ruta de Rumbo').replace(/[<>&"]/g,'').slice(0,60);
+  const ll=P.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]);
+  const loop=hav(o.ll[0],o.ll[o.ll.length-1])<60;
+  const data=await bkPack({v:1,app:'kayak',name:nm,L:Math.round(R.L),loop,ll,shore:{sp:ds,n:P.length,d:bkB64(U)},hz,peaks});
+  const nL=sh.filter(r=>r[0].d!=null).length,nR=sh.filter(r=>r[1].d!=null).length;
+  KY.last={name:nm,L:R.L,len:data.length,hz:!!hz,peaks:peaks.length,shoreL:nL/P.length,shoreR:nR/P.length,src:shoreIdx?'costas':'relieve'};
+  toast(`🛶 Listo: ${dec(R.L/1000,1)} km${hz?' · montañas reales':''}${peaks.length?' con nombres':''} · orillas ${shoreIdx?'de tus costas cargadas':'por el relieve'}. Se abre Kayak Indoor…`,6000);
+  setTimeout(()=>{const a=document.createElement('a');a.href=KY_URL+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
+}
 
 /* ---------- 🛟 Guardián del grupo: si alguien corta su ritmo de golpe (caída, pinchazo, vuelco), se le pregunta y todos ven la respuesta ----------
    Corre en el teléfono de cada uno mientras comparte en un grupo. Mira la velocidad del GPS (y, con la pantalla prendida, los golpes del acelerómetro):
