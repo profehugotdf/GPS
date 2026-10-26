@@ -1,0 +1,1 @@
+(function(){const h={get:(t,k)=>k===Symbol.toPrimitive?()=>0:k===Symbol.iterator?function*(){}:k==='then'?undefined:P,apply:()=>P,construct:()=>P};const P=new Proxy(function(){},h);window.L=P;})();
