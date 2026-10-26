@@ -1,0 +1,140 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width"><style>:root{--top:0px;--bot:0px}body{margin:0}#t3{position:fixed;inset:0;z-index:1600;background:#B8D1E6}
+#t3[hidden]{display:none}
+#t3c{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+#t3 .t3bar{position:absolute;left:8px;right:8px;top:calc(var(--top) + 8px);display:flex;align-items:center;gap:10px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
+#t3 .t3bar b{font:800 18px system-ui}#t3 .t3bar span{font:600 13px system-ui;flex:1}
+#t3 button{pointer-events:auto;border:0;border-radius:22px;background:rgba(14,42,54,.82);color:#fff;font:700 16px system-ui;min-width:44px;height:44px;padding:0 12px;box-shadow:0 1px 6px rgba(0,0,0,.35)}
+#t3 button.on{background:#F2A900;color:#111}
+#t3 .t3r{position:absolute;right:10px;top:calc(var(--top) + 70px);display:flex;flex-direction:column;gap:8px}
+#t3 #t3cmp{display:inline-block;transition:transform .15s}
+#t3 #t3tl{flex-basis:100%;display:flex;align-items:center;gap:8px;background:rgba(14,42,54,.72);border-radius:22px;padding:4px 10px 4px 4px}
+#t3 #t3tl[hidden]{display:none}
+#t3 #t3tl .tlw{flex:1;position:relative;height:40px;display:flex;align-items:center}
+#t3 #t3sb{width:100%;accent-color:#F04A1C;height:28px;margin:0}
+#t3 #t3tk{position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none}
+#t3 #t3tk i{position:absolute;top:4px;bottom:4px;width:2px;background:#fff;opacity:.8}
+#t3 #t3tk b{position:absolute;top:-6px;transform:translateX(-50%);font-size:12px}
+#t3 #t3tt{color:#fff;font:700 13px system-ui;min-width:92px;text-align:right;white-space:nowrap}
+#t3 .t3b{position:absolute;left:8px;right:8px;bottom:calc(var(--bot) + 40px);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#t3 .t3b span{color:#fff;font:700 13px system-ui;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+#t3 #t3fly,#t3 #t3rv{margin-left:auto;background:#F04A1C}
+#t3rel{position:absolute;left:8px;right:8px;top:calc(var(--top) + 60px);background:rgba(14,42,54,.72);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:#fff;border-radius:16px;padding:8px 12px;pointer-events:none;margin-right:56px}
+#t3rel[hidden],#t3mk[hidden]{display:none}
+#t3rel .rt{font:600 13px system-ui}#t3rel .rt b{font:800 15px system-ui;margin-right:6px}#t3rel .rt small{opacity:.8}
+#t3rel .rs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px 4px;margin-top:4px}
+#t3rel .rs .hr b{color:#FF8A80}#t3rel .rs .pw b{color:#FFD27A}
+#t3rel .rs b{display:block;font:800 19px/1.1 var(--num,system-ui);font-variant-numeric:tabular-nums}#t3rel .rs small{font:600 11px system-ui;opacity:.8}
+#t3rel .re{margin-top:6px;font:800 15px system-ui;color:#FFD27A}
+#t3mk{position:fixed;transform:translate(-50%,-50%);width:38px;height:38px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font-size:22px;pointer-events:none;z-index:1601}</style><div id="t3" hidden><canvas id="t3c"></canvas>
+  <div class="t3bar"><button data-t3="x" aria-label="Cerrar 3D">✕</button><b>🏔️ 3D</b><span id="t3msg"></span></div>
+  <div class="t3r"><button data-t3="n" aria-label="Norte arriba y vista de arriba"><span id="t3cmp">🧭</span></button><button data-t3="in" aria-label="Acercar">+</button><button data-t3="out" aria-label="Alejar">−</button><button id="t3fp" data-t3="fpv" aria-label="Vista a ras del suelo">👁️</button></div>
+  <div class="t3b"><div id="t3tl" hidden><button id="t3pp" data-t3="pp" aria-label="Pausa o seguir">⏸</button><button id="t3cm" data-t3="cm" aria-label="Cámara automática o mi vista">🎥</button><div class="tlw"><input type="range" id="t3sb" min="0" max="1000" step="1" value="0" aria-label="Línea de tiempo"><div id="t3tk"></div></div><span id="t3tt">0:00</span></div><span>Relieve</span><button data-t3="ex" data-ex="1">×1</button><button data-t3="ex" data-ex="1.5">×1,5</button><button data-t3="ex" data-ex="2">×2</button><button id="t3fly" data-t3="fly">▶ Sobrevolar</button><button id="t3rv" data-t3="rv" hidden>🎬 Revivir</button><button id="t3vid" data-t3="vid" hidden>⏺ Video</button></div>
+  <div id="t3rel" hidden></div><div id="t3mk" hidden></div>
+  <div class="t3h">Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar</div><script>
+const rad=Math.PI/180,R_EARTH=6371008.8,$=q=>document.querySelector(q),pad2=n=>String(n).padStart(2,'0'),esc=x=>String(x);
+const KV=new Map();const DB={get:async(st,k)=>KV.get(k),put:async(st,k,v)=>KV.set(k,v),has:async(st,k)=>KV.has(k)};
+const S={layer:'sat'},LAYERS={sat:{maxNative:18,url:'x'}};const saveS=()=>{};const netBlocked=()=>false;const isNative=()=>false,plugin=()=>null;const TOASTS=[];const toast=t=>TOASTS.push(t);
+const tileUrl=()=>'x';const getTileBlob=async()=>{throw new Error('offline')};const fmtDate=t=>new Date(t).toLocaleDateString();
+let lastFix={lat:-26.95,lon:-65.72,t:1};const REC={state:'idle',pts:[]};const RT={res:null,sel:null};let shown=null;
+const map={getBounds:()=>({getNorth:()=>-26.90,getSouth:()=>-27.02,getEast:()=>-65.65,getWest:()=>-65.80})};
+const ACT={walk:['🚶','Caminata'],run:['🏃','Correr'],bike:['🚴','Bici'],car:['🚗','Auto'],kayak:['🛶','Kayak'],swim:['🏊','Natación'],plane:['✈️','Avión']};const FL_APT=[];const miles=n=>String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+function tileXY(lat,lon,z){
+  const n=Math.pow(2,z),r=lat*rad;
+  return {x:(lon+180)/360*n,y:(1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n};
+}function hav(a,b){
+  const dLat=(b[0]-a[0])*rad, dLon=(b[1]-a[1])*rad;
+  const x=Math.sin(dLat/2)**2+Math.cos(a[0]*rad)*Math.cos(b[0]*rad)*Math.sin(dLon/2)**2;
+  return 2*R_EARTH*Math.asin(Math.sqrt(x));
+}async function fetchDemList(list,z,prog){
+  const tiles=new Map();let i=0,done=0;
+  const worker=async()=>{
+    while(i<list.length){
+      const t=list[i++];
+      try{
+        const dk=`dem/${z}/${t.x}/${t.y}`;
+        let blob=null;try{blob=await DB.get('tiles',dk);}catch(er){}
+        if(!blob){
+          blob=await getTileBlob(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${t.x}/${t.y}.png`);
+          try{await DB.put('tiles',dk,blob);}catch(er){}
+        }
+        const bmp=await createImageBitmap(blob);
+        const c=document.createElement('canvas');c.width=c.height=256;
+        const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(bmp,0,0);
+        const d=ctx.getImageData(0,0,256,256).data,el=new Float32Array(65536);
+        for(let k=0;k<65536;k++)el[k]=d[k*4]*256+d[k*4+1]+d[k*4+2]/256-32768;
+        tiles.set(t.x+'/'+t.y,el);
+      }catch(e){}
+      done++;if(prog)prog(done,list.length);
+    }
+  };
+  await Promise.all(Array.from({length:4},worker));
+  return tiles;
+}function fmtT(ms,dec){
+  if(ms==null||!isFinite(ms))return '–';
+  const neg=ms<0; ms=Math.abs(ms);
+  const t=Math.floor(ms/1000), tenth=Math.floor((ms%1000)/100);
+  const h=Math.floor(t/3600), m=Math.floor(t%3600/60), s=t%60;
+  let o=h?`${h}:${pad2(m)}:${pad2(s)}`:`${m}:${pad2(s)}`;
+  if(dec)o+='.'+tenth;
+  return (neg?'−':'')+o;
+}function fmtSp(mps,mode){
+  if(mode==='kmh')return (mps>0?mps*3.6:0).toFixed(1);
+  if(!(mps>0.3))return '–';
+  const T=Math.min(5999,Math.round((mode==='minkm'?1000:500)/mps));
+  return Math.floor(T/60)+':'+pad2(T%60);
+}
+const bbPad=(b,km)=>{const dl=km/110.54,dn=km/(111.32*Math.cos((b.n+b.s)/2*rad));return {n:b.n+dl,s:b.s-dl,e:b.e+dn,w:b.w-dn};};
+function sensStats(arr){const v=(arr||[]).filter(x=>x!=null&&x>0);if(!v.length)return null;return {avg:Math.round(v.reduce((a,b)=>a+b,0)/v.length),max:Math.round(Math.max(...v))};}
+const MI={foot:'🚶',bike:'🚴',car:'🚗',kayak:'🛶',swim:'🏊'};
+let shownTrack=null;
+const DSEP=()=>',';
+/*@@SLICE@@*/const trBeg=t=>t.pts[0][2],trEnd=t=>t.pts[t.pts.length-1][2];
+async function showMultiPick(id){
+  const all=(await DB.all('kv','track:')).filter(t=>t.pts&&t.pts.length>1&&t.pts[0][2]).sort((a,b)=>trBeg(a)-trBeg(b));
+  const me=all.find(t=>t.id===id);if(!me){toast('Este track no tiene horarios: no se puede encadenar',4000);return;}
+  const cand=all.filter(t=>Math.abs(trBeg(t)-trBeg(me))<14*3600e3),sel=new Set([id]),i=cand.indexOf(me),near=(a,b)=>{const g=trBeg(b)-trEnd(a);return g>-120000&&g<40*60000;};
+  for(let j=i-1;j>=0&&near(cand[j],cand[j+1]);j--)sel.add(cand[j].id);
+  for(let j=i+1;j<cand.length&&near(cand[j-1],cand[j]);j++)sel.add(cand[j].id);
+  const draw=()=>{const ch=cand.filter(t=>sel.has(t.id));
+    openSheet('🧩 Revivir multideporte',`<p class="mut">Marcá las etapas en orden de horario (natación, transiciones, bici, correr…). Ya marqué las que están pegadas a esta.</p>
+    ${cand.map(t=>{const st=t.stats||calcStats(t.pts);return `<label class="item chk" style="gap:10px"><input type="checkbox" data-id="${t.id}" ${sel.has(t.id)?'checked':''}><div><b>${(ACT[t.act]||['❓'])[0]} ${esc(t.name||'Track')}</b><br><small class="mut">${hhmm(trBeg(t))}–${hhmm(trEnd(t))} · ${fmtD(st.dist||0)} · ${fmtT(trEnd(t)-trBeg(t))}</small></div></label>`;}).join('')}
+    <div class="row" style="margin-top:10px"><button class="btn primary" data-act="go" ${ch.length<2?'disabled':''}>🎬 Revivir la secuencia (${ch.length} etapas)</button></div>`,
+    a=>{if(a==='go'){const T=multiTrack(cand.filter(t=>sel.has(t.id)));closeSheet();open3D({line:T.pts.map(p=>[p[0],p[1]]),track:T,relive:true});}},
+    t=>{if(t.dataset.id){if(t.checked)sel.add(t.dataset.id);else sel.delete(t.dataset.id);draw();}});};
+  draw();
+}
+/* une los tracks en uno solo, con las etapas marcadas (y pulso, potencia y cadencia si los hay) */
+function multiTrack(trs){
+  trs=trs.slice().sort((a,b)=>trBeg(a)-trBeg(b));
+  const pts=[],hr=[],pw=[],cad=[],legs=[];let seg=0;
+  for(const t of trs){
+    const i0=pts.length;let mx=0;
+    t.pts.forEach((p,i)=>{pts.push([p[0],p[1],p[2],p[3],p[4],seg+(p[5]||0)]);mx=Math.max(mx,p[5]||0);hr.push(t.hr?t.hr[i]:null);pw.push(t.pw?t.pw[i]:null);cad.push(t.cad?t.cad[i]:null);});
+    seg+=mx+1;
+    const st=t.stats||calcStats(t.pts);
+    legs.push({i0,i1:pts.length-1,act:t.act||guessAct(t)||'walk',name:t.name,dur:trEnd(t)-trBeg(t),dist:st.dist||0});
+  }
+  /* transiciones: etapas cortas entre otras dos */
+  let tn=0;legs.forEach((l,k)=>{if(k>0&&k<legs.length-1&&l.dur<20*60000&&l.dist<2500){l.tr=true;l.lab='T'+(++tn);}});
+  const o={name:'Multideporte · '+legs.filter(l=>!l.tr).map(l=>ACT[l.act][0]).join(' → '),t0:pts[0][2],pts,act:legs[0].act,legs};
+  if(hr.some(v=>v!=null))o.hr=hr;if(pw.some(v=>v!=null))o.pw=pw;if(cad.some(v=>v!=null))o.cad=cad;
+  return o;
+}
+
+/* datos falsos: un cerro (gaussiana) en terrarium y fotos de colores */
+async function fake(){
+  const zd=13,ct=tileXY(-26.96,-65.725,zd),N=4,x0=Math.round(ct.x-N/2),y0=Math.round(ct.y-N/2);
+  const peak=tileXY(-26.975,-65.73,zd);
+  for(let x=x0;x<x0+N;x++)for(let y=y0;y<y0+N;y++){
+    const c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d'),im=g.createImageData(256,256);
+    for(let j=0;j<256;j++)for(let i=0;i<256;i++){const gx=x+i/256,gy=y+j/256,d2=((gx-peak.x)**2+(gy-peak.y)**2);
+      const h=2000+1300*Math.exp(-d2/0.35)+200*Math.sin(gx*9)*Math.cos(gy*7),v=h+32768,k=(j*256+i)*4;
+      im.data[k]=Math.floor(v/256);im.data[k+1]=Math.floor(v%256);im.data[k+2]=Math.floor((v%1)*256);im.data[k+3]=255;}
+    g.putImageData(im,0,0);KV.set(`dem/${zd}/${x}/${y}`,await new Promise(r=>c.toBlob(r)));
+  }
+  const zs=15,sx=x0*4,sy=y0*4;
+  for(let a=0;a<16;a++)for(let b=0;b<16;b++){const c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d');
+    g.fillStyle=`hsl(${90+((a+b)%5)*12},35%,${32+((a*3+b)%4)*6}%)`;g.fillRect(0,0,256,256);g.strokeStyle='rgba(255,255,255,.35)';g.lineWidth=3;g.strokeRect(0,0,256,256);
+    KV.set(`sat/${zs}/${sx+a}/${sy+b}`,await new Promise(r=>c.toBlob(r,'image/jpeg',.8)));}
+}
+</script>
