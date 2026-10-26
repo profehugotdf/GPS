@@ -53,6 +53,12 @@ async def main():
         await pg.evaluate("plLegTap(0)");await pg.evaluate("document.querySelector('#plLm [data-lm=\"\"]').click()");await pg.evaluate(W)
         ok(await pg.evaluate("!PL.lm[0]&&PL.legs[0].dist>1800"),'"Como la ruta" lo vuelve a la normal')
         await pg.screenshot(path=BUILD+'/plft.png')
+        # a pie: el botón Indoor deja elegir Correr o Bici Indoor
+        await pg.evaluate("document.querySelector('#plMode [data-m=foot]').click()");await pg.evaluate(W)
+        await pg.evaluate("window.__bk=[];bkSend=o=>{window.__bk.push(o)};$('#plBk').click()");await pg.wait_for_timeout(200)
+        s=await pg.inner_text('#sheet');ok('Bici Indoor' in s and 'Correr' in s,'a pie: Indoor ofrece Correr o Bici Indoor')
+        await pg.evaluate("document.querySelector('#sheet [data-act=bk]').click()");await pg.wait_for_timeout(200)
+        r=await pg.evaluate("window.__bk.map(o=>({app:o.app||'bici',n:o.ll.length}))");ok(r and r[0]['app']=='bici' and r[0]['n']>=2,'manda el recorrido a pie a Bici Indoor')
         print('ERRORES JS:',errs[:3] or 'ninguno');ok(not errs,'sin errores');await b.close()
     srv.shutdown()
 asyncio.run(main())

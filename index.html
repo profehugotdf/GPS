@@ -7581,7 +7581,7 @@ function plUi(){
   $('#plUndo').disabled=!PL.hist.length;$('#plClr').disabled=!pts.length;
   $('#plDel').hidden=PL.sel==null;$('#plLoop').hidden=PL.sel!=null;
   $('#plLoop').classList.toggle('on',PL.loop);$('#plLoop').textContent=PL.loop?'🔁 Circuito ✓':'🔁 Volver a A';$('#plLoop').disabled=pts.length<2;
-  $('#plOk').disabled=!S0;$('#plBk').disabled=!S0;$('#plBk').textContent=PL.mode==='kayak'?'🛶 Indoor':PL.mode==='foot'?'🏃 Correr':'🚴 Indoor';
+  $('#plOk').disabled=!S0;$('#plBk').disabled=!S0;$('#plBk').textContent=PL.mode==='kayak'?'🛶 Indoor':PL.mode==='foot'?'🏃🚴 Indoor':'🚴 Indoor';
 }
 document.querySelectorAll('#plMode button').forEach(b=>b.onclick=()=>{PL.mode=b.dataset.m;PL.ins=null;plRoute();});
 $('#plPref').onclick=e=>{const b=e.target.closest('[data-p]');if(!b)return;S.pref=b.dataset.p;saveS();plRoute();};
@@ -7620,7 +7620,11 @@ $('#plBk').onclick=()=>{
   const S0=plSum();if(!S0)return;
   const ll=[];for(const r of PL.legs)for(const c of r.coords){const p=[c[0],c[1]];const q=ll[ll.length-1];if(!q||q[0]!==p[0]||q[1]!==p[1])ll.push(p);}
   if(PL.mode==='kayak'){kySend({name:'Trazada en kayak '+fmtDate(Date.now()),ll});return;}
-  if(PL.mode==='foot'){bkSend({app:'correr',name:'Trazada a pie '+fmtDate(Date.now()),ll,grade:.35});return;}
+  /* a pie se puede mandar a Correr o a Bici Indoor (Hugo: "¿cómo la paso a Bici Indoor? cuando pongo Bici vuelve a poner el desvío largo") */
+  if(PL.mode==='foot'){openSheet('¿A qué app la mandás?',`<p class="mut">El recorrido tal como lo trazaste (${fmtD(S0.d)}).</p>
+      <div class="item" data-act="cr"><b>🏃 Correr</b><span>›</span></div><div class="item" data-act="bk"><b>🚴 Bici Indoor</b><span>›</span></div>`,
+    a=>{if(a==='cr'){closeSheet();bkSend({app:'correr',name:'Trazada a pie '+fmtDate(Date.now()),ll,grade:.35});}
+        else if(a==='bk'){closeSheet();bkSend({name:'Trazada '+fmtDate(Date.now()),ll,grade:.25});}});return;}
   bkSend({name:'Trazada '+(MN[PL.mode]||'')+' '+fmtDate(Date.now()),ll,grade:PL.mode==='car'?.16:.25});
 };
 
