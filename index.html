@@ -12410,7 +12410,11 @@ function kyShores(P,wl,demS,shore){
         const qa=la+ny*s*side/K,qo=lo+nx*s*side/(K*kc),step=Math.max(8,s*.07);
         const ds=shore&&shore.n?shore.dist([qa,qo],step*1.2):Infinity;
         if(ds<=step*.6){hit=s+ds*.5;break;}
-        const h=demS(qa,qo);if(isFinite(h)&&h-wl[i]>2.2){hit=s;break;}
+        const h=demS(qa,qo);
+        if(isFinite(h)&&h-wl[i]>2.2){   // tierra solo si sigue siendo tierra un poco más allá (un píxel suelto del relieve no es orilla)
+          const s2=s+Math.max(12,step),h2=demS(la+ny*s2*side/K,lo+nx*s2*side/(K*kc));
+          if(!isFinite(h2)||h2-wl[i]>2.2){hit=s;break;}
+        }
         s+=Math.min(step,isFinite(ds)?Math.max(8,ds*.8):step);
       }
       /* altura de la orilla: lo más alto a 40-160 m tierra adentro (barranca, loma); el bosque se suma en Kayak según el color */
