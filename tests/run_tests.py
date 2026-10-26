@@ -82,8 +82,14 @@ def main():
             mal.append(n); print(f'✘ {n}  ({dt:.0f} s)')
             lineas = [l for l in out.splitlines() if 'GET /' not in l and 'code 404' not in l]
             print('    ' + '\n    '.join(lineas[-25:]))
+            if os.environ.get('GITHUB_ACTIONS'):   # en GitHub: queda como anotación visible en la página de la compilación
+                malas = [l.strip() for l in lineas if '✘' in l or 'Error' in l][-3:]
+                print(f'::error title=Falló {n}::' + ' | '.join(malas or lineas[-3:]).replace('%', '%25').replace('\r', '').replace('\n', ' ')[:900])
         sys.stdout.flush()
     print(f'\n{len(ok)} bien · {len(mal)} mal · {len(salt)} salteadas')
+    if os.environ.get('GITHUB_STEP_SUMMARY'):
+        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as fh:
+            fh.write(f'### Pruebas de Rumbo: {len(ok)} bien · {len(mal)} mal · {len(salt)} salteadas\n' + ''.join(f'- ✘ {x}\n' for x in mal) + ''.join(f'- – {x} (salteada)\n' for x in salt))
     if mal:
         print('Fallaron: ' + ', '.join(mal))
         sys.exit(1)
