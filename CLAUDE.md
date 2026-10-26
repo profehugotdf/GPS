@@ -54,6 +54,14 @@ App de mapas offline, tracks, puertas tipo RaceChrono, rutas, grupo y guardián,
 4. Si la app muestra un número de versión, subirlo y anotar en el comentario de historial **qué se cambió y por qué** (incluido lo que dijo o mostró Hugo).
 5. Commit en castellano, directo a `main`, y avisarle a Hugo en pocas líneas qué cambió y cómo probarlo en el teléfono.
 
+## Lo usan otras personas
+
+Además de Hugo, usan las apps su primo, su hermano y compañeros, cada uno en su teléfono y con sus datos (que quedan solo en ese teléfono).
+
+- **Nada personal en el código.** Nada de valores por defecto pensados para Hugo: peso, edad, umbrales, calibraciones de sus equipos, su ciudad, su nombre en los ejemplos. Lo personal se pregunta o se toma del perfil compartido (`entrenamiento_perfil`, `entrenamiento_umbrales`), y si no hay nada, se usa un valor neutro.
+- **Los cambios en cómo se guardan los datos tienen que leer lo viejo** (migrar), nunca empezar de cero ni borrar. Una actualización les llega a todos al instante.
+- Lo que depende de un equipo (rodillo, sensor, ergómetro) tiene que decir qué hace falta y cómo calibrarlo, para quien no lo tiene configurado.
+
 ## Ecosistema compartido (mismo origen profehugotdf.github.io)
 
 Todas las apps comparten `localStorage` (unos 5 MB en total para todas) y pueden leer las claves de las otras.

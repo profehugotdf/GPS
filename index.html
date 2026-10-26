@@ -3062,7 +3062,7 @@ const CachedTiles=L.TileLayer.extend({
   }
 });
 
-const map=L.map('map',{zoomControl:false,preferCanvas:true,maxZoom:21,rotate:(!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function')&&(S.orient!=='north'||S.fingerRotate!==false)),bearing:0,touchRotate:(!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function')&&S.fingerRotate!==false),shiftKeyRotate:false,rotateControl:false}).setView([-54.8019,-68.3030],13);
+const map=L.map('map',{zoomControl:false,preferCanvas:true,maxZoom:21,rotate:(!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function')&&(S.orient!=='north'||S.fingerRotate!==false)),bearing:0,touchRotate:(!!(L.Map&&L.Map.prototype&&typeof L.Map.prototype.setBearing==='function')&&S.fingerRotate!==false),shiftKeyRotate:false,rotateControl:false}).setView(S.view&&isFinite(S.view[0])?[S.view[0],S.view[1]]:[-38.4,-63.6],S.view?S.view[2]:4);
 map.attributionControl.setPrefix(false);
 let baseLayer=null;
 /* Nombres que el mapa de fondo trae en inglés: se superpone el nombre en castellano (tapando el original lo más posible) */
@@ -3791,7 +3791,7 @@ async function showPreStart(){
       ${watched.length?`<button data-act="ci" data-k="all" class="${st.circ==='all'?'on':''}">Todos los vigilados (${watched.length})</button>`:''}
       ${cs.map(c=>`<button data-act="ci" data-k="${c.id}" class="${st.circ===c.id?'on':''}">${lapGateOf(c)>=0?'🔄':c.type==='p2p'?'➡️':'🔁'} ${esc(c.name)}${c.nLaps?` · ${c.nLaps} v.`:''}</button>`).join('')}</div>
     ${cs.length?`<label>🏎️ En los sectores, comparar con</label><div class="chips"><button data-act="ref" data-k="best" class="${S.f1Ref!=='prev'?'on':''}">🏆 Tu récord</button><button data-act="ref" data-k="prev" class="${S.f1Ref==='prev'?'on':''}">⏮ La vuelta anterior</button></div>`:''}
-    ${GRP.on?`<label for="psn">👥 Tu nombre en el grupo</label><input class="in" id="psn" value="${esc(st.name)}" placeholder="Ej: Hugo">
+    ${GRP.on?`<label for="psn">👥 Tu nombre en el grupo</label><input class="in" id="psn" value="${esc(st.name)}" placeholder="Ej: Ana">
       <label class="chk"><input type="checkbox" id="psg" ${gdCfg().on?'checked':''}> 🛟 Guardián activado</label>`:''}
     <label>❤️ Banda cardíaca</label><div class="row"><button class="btn${HR.on?'':' primary'}" data-act="hr">${HR.on?`✓ ${esc(HR.name)} · ${hrNow()!=null?hrNow()+' lpm':'esperando pulso'} (desconectar)`:'Conectar la banda'}</button></div>
     <label class="chk"><input type="checkbox" id="psv" ${S.voice?'checked':''}> 🔊 Avisos por voz</label>
@@ -8891,7 +8891,7 @@ $('#evX').onclick=()=>{
   if(EV.dirty&&!confirm('¿Descartar los cambios de los puntos?'))return;
   closeVEdit();
 };
-map.on('moveend',()=>{if(EV.on)evDraw();});
+map.on('moveend',()=>{if(EV.on)evDraw();try{const c=map.getCenter();S.view=[+c.lat.toFixed(5),+c.lng.toFixed(5),map.getZoom()];clearTimeout(window.__svT);window.__svT=setTimeout(saveS,2000);}catch(e){errLog(e)}});  // la próxima vez el mapa abre donde lo dejaste
 
 /* ---------- Calcar: dibujar senderos, calles y escaleras sobre la imagen (quedan en el mapa y son ruteables) ---------- */
 const TR={on:false,pts:[],snapped:[],strokes:[],mode:'taps',shape:'line',kind:'sendero',akind:'bosque',oneway:0,props:{},aprops:{},snap:true,saved:0,drawing:false,pid:null};
@@ -10338,7 +10338,7 @@ function showShare(){
   }
   const hasRoute=!!shCourse(),st={mode:S.shareMode||'race',name:S.shareName||'',course:hasRoute};
   const draw=()=>openSheet('📡 Compartir mi posición en vivo',`
-    <label for="shn">Tu nombre (lo ve quien te sigue)</label><input class="in" id="shn" value="${esc(st.name)}" placeholder="Ej: Hugo">
+    <label for="shn">Tu nombre (lo ve quien te sigue)</label><input class="in" id="shn" value="${esc(st.name)}" placeholder="Ej: Ana">
     <label>Modo</label>${Object.entries(SH_MODES).map(([k,m])=>`<div class="card ${k===st.mode?'on':''}" data-act="md" data-k="${k}"><b>${m.n}</b><br><small class="mut">${m.d}</small></div>`).join('')}
     ${hasRoute?`<label class="chk"><input type="checkbox" id="shc" ${st.course?'checked':''}> Mostrar también la ruta del mapa (el circuito de la carrera): así ven cuánto te falta y a qué hora llegás</label>`:`<p class="mut">Si querés que vean el circuito y la hora de llegada, primero abrí la ruta en Rutas (o importá el GPX de la carrera) y después compartí.</p>`}
     <div class="row" style="margin-top:12px"><button class="btn primary" data-act="go">📡 Empezar a compartir</button></div>
@@ -10544,7 +10544,7 @@ async function grpShareLink(){
 function showGroup(join){
   if(GRP.on&&!join){
     const ppl=[...GRP.people.values()].filter(p=>p.sid!==SH.sid);
-    openSheet('👥 Grupo en vivo',`${SH.on&&SH.group?`<label for="gnm">Tu nombre (así te ven los demás)</label><div class="row"><input class="in" id="gnm" value="${esc(SH.name||'')}" placeholder="Ej: Hugo" style="flex:1"><button class="btn primary" data-act="nm">Guardar</button></div>`:''}<p>${ppl.length?`${ppl.length} persona${ppl.length>1?'s':''} más en el grupo.`:'Todavía no se sumó nadie más: mandales el link.'}${SH.on&&SH.group?' Vos estás compartiendo tu posición.':' <b>Vos solo estás mirando</b> (no compartís tu posición).'}</p>
+    openSheet('👥 Grupo en vivo',`${SH.on&&SH.group?`<label for="gnm">Tu nombre (así te ven los demás)</label><div class="row"><input class="in" id="gnm" value="${esc(SH.name||'')}" placeholder="Ej: Ana" style="flex:1"><button class="btn primary" data-act="nm">Guardar</button></div>`:''}<p>${ppl.length?`${ppl.length} persona${ppl.length>1?'s':''} más en el grupo.`:'Todavía no se sumó nadie más: mandales el link.'}${SH.on&&SH.group?' Vos estás compartiendo tu posición.':' <b>Vos solo estás mirando</b> (no compartís tu posición).'}</p>
       <div class="row"><button class="btn primary" data-act="lk">📤 Invitar (mandar el link)</button><button class="btn" data-act="sr">🔎 Modo búsqueda</button><button class="btn" data-act="gd">🛟 Guardián</button><button class="btn primary" data-act="msg">💬 Avisar</button></div>
       ${SH.on&&SH.group?'':'<div class="row"><button class="btn" data-act="sh">📡 Compartir también mi posición</button></div>'}
       <label>Modo</label><div class="chips">${Object.entries(SH_MODES).map(([k,m])=>`<button data-act="md" data-k="${k}" class="${SH.on&&SH.group&&k===SH.mode?'on':''}">${m.n}</button>`).join('')}</div>
@@ -10568,7 +10568,7 @@ function showGroup(join){
   const st={name:S.shareName||'',mode:'meet'};
   const draw=()=>openSheet(join?'👥 Unirte al grupo':'👥 Grupo en vivo',`
     ${join?'<p>Te invitaron a un grupo en vivo: cada uno ve dónde están los demás.</p>':'<p>Creá un grupo y mandá <b>un solo link</b>: cada uno que lo abra comparte su posición y ve a todos en el mapa. Sirve para una travesía, una salida en grupo o para encontrarse en una largada.</p>'}
-    <label for="gn">Tu nombre (lo ven los demás)</label><input class="in" id="gn" value="${esc(st.name)}" placeholder="Ej: Hugo">
+    <label for="gn">Tu nombre (lo ven los demás)</label><input class="in" id="gn" value="${esc(st.name)}" placeholder="Ej: Ana">
     <label>Cada cuánto</label>${Object.entries(SH_MODES).map(([k,m])=>`<div class="card ${k===st.mode?'on':''}" data-act="md" data-k="${k}"><b>${m.n}</b><br><small class="mut">${m.d}</small></div>`).join('')}
     <div class="row" style="margin-top:12px"><button class="btn primary" data-act="go">${join?'👥 Unirme y compartir':'👥 Crear el grupo'}</button>${join?'<button class="btn" data-act="watch">👀 Solo mirar</button>':''}</div>
     ${join?'':`<h3>¿Te mandaron un link?</h3><input class="in" id="gl" placeholder="https://…#grupo=…" autocomplete="off"><div class="row" style="margin-top:6px"><button class="btn" data-act="pst">📋 Pegar</button><button class="btn" data-act="jl">Unirme con ese link</button></div>`}
@@ -11704,7 +11704,9 @@ const FL_CITY=[['Ushuaia',-54.80,-68.30],['Tolhuin',-54.51,-67.20],['Río Grande
 const FL={on:false,t0:0,hist:[],dist:0,maxAlt:null,maxV:0,last:null,tm:0};
 const card8=b=>['N','NE','E','SE','S','SO','O','NO'][Math.round(((b%360)+360)%360/45)%8];
 function flDest(){
-  const k=S.flDest||'SAWH';
+  /* sin destino elegido no se supone ninguno (antes era Ushuaia): se usa el primero solo como relleno y se marca def */
+  if(!S.flDest&&!(RT.to)){const a=FL_APT[0];return {k:'',name:'(elegí el destino)',lat:a[2],lon:a[3],elev:a[4],def:true};}
+  const k=S.flDest||'B';
   if(k==='B'&&RT.to)return {k,name:RT.to.label||'Destino B',lat:RT.to.lat,lon:RT.to.lon};
   const a=FL_APT.find(x=>x[0]===k)||FL_APT[0];return {k:a[0],name:a[1],lat:a[2],lon:a[3],elev:a[4]};
 }
@@ -11736,7 +11738,7 @@ function flCalc(){
 function flDraw(){
   const el=$('#flt');if(!FL.on||!el)return;
   const f=lastFix,c=flCalc(),old=!f||Date.now()-lastFixWall>15000,D=flDest();
-  const raw=f&&f.alt!=null?f.alt:null,v=c.v,dd=f?hav([f.lat,f.lon],[D.lat,D.lon]):null;
+  const raw=f&&f.alt!=null?f.alt:null,v=c.v,dd=f&&!D.def?hav([f.lat,f.lon],[D.lat,D.lon]):null;
   /* control de cordura de la altura del teléfono: después de un vuelo, el barómetro calibrado en el aire o el filtro del
      GPS pueden quedar con miles de metros de error (2.700 m en la pista de El Calafate, a 204 m). En tierra cerca de un
      aeropuerto conocido manda su elevación; en la aproximación, si marca más de lo posible, se usa la rampa de 3°. */
@@ -11775,7 +11777,7 @@ function flDraw(){
     <div class="${old?'old':''}"><small>Rumbo</small><b>${c.brg!=null&&!isNaN(c.brg)?Math.round((c.brg+360)%360)+'°<i>'+card8(c.brg)+'</i>':'—'}</b><small>hacia donde va el avión</small></div>
     <div class="${old?'old':''}"><small>Vertical (m/min)</small><b style="font-size:24px">${vsTxt}</b><small>${c.vs!=null&&Math.abs(c.vs)>=60?(c.vs>0?'subiendo':'bajando'):''}</small></div>`;
   el.querySelector('.fw').innerHTML=`${f?flBelow(f):'Buscando GPS… (en la ventanilla anda mejor)'}<br>
-    ✈️ <b>${esc(D.name)}</b>: ${dd!=null?(dd>=100000?miles(dd/1000)+' km':fmtD(dd)):'—'}${eta?` · llegás ${hhmm(eta)}`:''}<br>
+    ${D.def?'✈️ <b>Tocá 📍 Destino</b> para elegir a dónde volás':`✈️ <b>${esc(D.name)}</b>: ${dd!=null?(dd>=100000?miles(dd/1000)+' km':fmtD(dd)):'—'}${eta?` · llegás ${hhmm(eta)}`:''}`}<br>
     <small>Recorrido ${fmtD(FL.dist)} · ${fmtT(Date.now()-FL.t0)}${FL.maxAlt!=null?` · máx ${miles(Math.round(FL.maxAlt))} m`:''}${FL.maxV?` · ${Math.round(FL.maxV*3.6)} km/h`:''}${old&&f?' · ⚠️ sin GPS hace '+Math.round((Date.now()-lastFixWall)/1000)+' s':''}</small>`;
   { const fc=el.querySelector('.fc');if(fc)fc.textContent=`${alt!=null?miles(Math.round(estA||alt))+' m'+(estA?' ≈':''):'— m'} · ${v!=null?Math.round(v*3.6)+' km/h':'—'} · ${c.brg!=null&&!isNaN(c.brg)?Math.round((c.brg+360)%360)+'° '+card8(c.brg):'—'}${dd!=null?' · '+(dd>=100000?miles(dd/1000)+' km':fmtD(dd)):''}`;
     const mb=el.querySelector('[data-fl=min]');if(mb)mb.textContent=S.flMin?'▾':'▴'; }
@@ -11790,7 +11792,7 @@ function flDraw(){
         if(v>139&&H>7000){const tas=.8*a,w=v*3.6-tas;it.push(`💨 Viento ≈ <b>${Math.abs(w)<30?'casi nada':Math.round(Math.abs(w))+' km/h '+(w>0?'a favor':'en contra')}</b> <small>(est.)</small>`);}
       }
       /* aproximación: la rampa de 3° (≈ 52 m por km), si la altura es la del GPS */
-      if(dd!=null&&dd<25000&&alt!=null&&!cabin&&!altBad&&D.elev!=null&&v>40){const ideal=dd*Math.tan(3*rad),real=alt-D.elev,dif=real-ideal;
+      if(!D.def&&dd!=null&&dd<25000&&alt!=null&&!cabin&&!altBad&&D.elev!=null&&v>40){const ideal=dd*Math.tan(3*rad),real=alt-D.elev,dif=real-ideal;
         it.push(`🛬 Rampa 3°: <b>${miles(Math.round(ideal/10)*10)} m</b> sobre la pista · ${Math.abs(dif)<60?'<b>justo en la rampa</b>':`<b>${miles(Math.round(Math.abs(dif)/10)*10)} m ${dif>0?'alto':'bajo'}</b>`}`);}
       if(GM.on){const gp=gmGps();
         it.push(`🎢 G: <b>${gmF(GM.g)}</b> <small>(máx ${gmF(GM.max)} · mín ${gmF(GM.min)})</small>`);
@@ -11810,7 +11812,7 @@ function flDraw(){
       const pre=FL.hist.filter(h=>h.t>=now-40000&&h.t<now-500).map(h=>[h.lat,h.lon,h.t,10,h.alt==null?null:Math.round(h.alt),0]);
       if(pre.length&&REC.pts.length===0){REC.pts.push(...pre);REC.hr=pre.map(()=>null);for(let k=1;k<pre.length;k++)REC.dist+=hav(pre[k-1],pre[k]);}
       toast(why,6000);try{waPost(why,'');}catch(e){errLog(e)}flDraw();});};
-  const autoEnd=async(nm,msg)=>{FL.dep=FL.dep;FL.auto=null;FL.autoOn=0;FL.lvl=0;FL.slow=0;FL.mv0=null;FL.mvT=0;FL.flew=false;try{await saveRec(nm+' '+fmtDate(Date.now()));}catch(e){errLog(e)}toast(msg,7000);try{waPost(msg,'');}catch(e){errLog(e)}
+  const autoEnd=async(nm,msg)=>{FL.dep=FL.dep;FL.auto=null;FL.autoOn=0;FL.lvl=0;FL.slow=0;FL.mv0=null;FL.mvT=0;FL.flew=false;try{await saveRec(nm+' '+fmtDate(Date.now()));}catch(e){errLog(e,'No se pudo guardar el vuelo',true)}toast(msg,7000);try{waPost(msg,'');}catch(e){errLog(e)}
     if(FL.prevAct&&FL.prevAct!=='plane'){S.act=FL.prevAct;saveS();updActBtn();}};
   /* "se empieza a mover": salir de la manga (empuje hacia atrás) o empezar a carretear. Más de 40 m desde donde estaba
      y más de 5 km/h durante 10 s, así el GPS que salta adentro del avión parado no lo dispara */
@@ -11891,6 +11893,7 @@ document.addEventListener('click',e=>{
       (x,d)=>{
         if(x==='ak'){S.flApprKm=+d.k;saveS();document.querySelectorAll('#sheet [data-act=ak]').forEach(o=>o.classList.toggle('on',o.dataset.k===d.k));return;}
         if(x==='over'){flPickOver();return;}
+        if((x==='down'||x==='both')&&flDest().def){toast('Primero elegí el destino (📍 Destino): la llegada se detecta cerca de ese aeropuerto',5000);return;}
         if(x==='gate'||x==='full'||x==='both'){FL.auto=x;FL.mv0=lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null;FL.mvT=0;FL.flew=false;closeSheet();flDraw();toast(x==='full'?'🧳 Listo: graba todo el vuelo apenas el avión se mueva':x==='both'?`🛫🛬 Listo: la partida apenas el avión se mueva, y la llegada a ${S.flApprKm||80} km de ${flDest().name}`:'🚶 Listo: empieza a grabar apenas el avión se mueva',4000);return;}
         if(x==='up'||x==='down'){FL.auto=x;closeSheet();flDraw();toast(x==='up'?'🛫 Listo: empieza a grabar cuando el avión acelere en la pista':`🛬 Listo: empieza a grabar a ${S.flApprKm||80} km de ${flDest().name}`,4000);}
         else if(x==='off'){FL.auto=null;closeSheet();flDraw();}});
@@ -11899,7 +11902,7 @@ document.addEventListener('click',e=>{
   else if(a==='rec'){if(REC.state==='idle'){FL.prevAct=S.act;S.act='plane';saveS();updActBtn();startRec().then(()=>{toast('⏺ Grabando el vuelo como ✈️ Avión. Después lo ves volando en 🎬 Revivir 3D',6000);flDraw();});}else toast('Ya está grabando',2500);}
   else if(a==='dest'){
     const opts=(RT.to?[['B','Destino B de la ruta']]:[]).concat(FL_APT.map(x=>[x[0],x[1]+' ('+x[0]+')']));
-    openSheet('✈️ Destino',`<div class="list">${opts.map(([k,n])=>`<div class="item" data-act="fd" data-k="${k}"><b>${esc(n)}</b>${(S.flDest||'SAWH')===k?' ✓':''}</div>`).join('')}</div>`,
+    openSheet('✈️ Destino',`<div class="list">${opts.map(([k,n])=>`<div class="item" data-act="fd" data-k="${k}"><b>${esc(n)}</b>${(S.flDest||'')===k?' ✓':''}</div>`).join('')}</div>`,
       (x,d)=>{if(x==='fd'){S.flDest=d.k;saveS();closeSheet();flDraw();}});
   }
 });
@@ -12060,6 +12063,8 @@ function bkCfg(){
   const b={w:75,b:9,cda:.32,crr:.005,ftp:null,src:''},num=x=>{const v=parseFloat(String(x==null?'':x).replace(',','.'));return v>0?v:null;};
   try{const c=JSON.parse(localStorage.getItem('bici_config')||'null');if(c){for(const [k,q] of [['weight','w'],['bike','b'],['cda','cda'],['crr','crr'],['ftp','ftp']]){const v=num(c[k]);if(v)b[q]=v;}b.src='Bici Indoor';}}catch(e){errLog(e)}
   try{const u=JSON.parse(localStorage.getItem('entrenamiento_umbrales')||'null');if(u&&num(u.ftpBici))b.ftp=num(u.ftpBici);}catch(e){errLog(e)}
+  /* sin peso en Bici Indoor: el del perfil compartido (Mi plan, Correr, Fuerza) */
+  try{if(b.src!=='Bici Indoor'||!(()=>{try{return num(JSON.parse(localStorage.getItem('bici_config')||'{}').weight)}catch(e){return null}})()){const p=JSON.parse(localStorage.getItem('entrenamiento_perfil')||'null');if(p&&num(p.pesoKg))b.w=num(p.pesoKg);}}catch(e){errLog(e)}
   const o=S.bk||{};for(const k of ['w','b','cda','crr','ftp'])if(num(o[k]))b[k]=num(o[k]);
   return b;
 }

@@ -13,7 +13,7 @@ async def main():
         await pg.add_init_script("navigator.geolocation.watchPosition=(ok)=>{window.__ok=ok;return 1};navigator.geolocation.clearWatch=()=>{};")
         await pg.goto('http://127.0.0.1:8785/index.html');await pg.wait_for_function('!!window.__ok')
         await pg.evaluate("showMoreMenu()");await pg.wait_for_timeout(300)
-        await pg.evaluate("document.querySelector('[data-act=fly]').click()");await pg.wait_for_timeout(800)
+        await pg.evaluate("S.flDest='SAWH'");await pg.evaluate("document.querySelector('[data-act=fly]').click()");await pg.wait_for_timeout(800)
         # despegue desde Tucumán hacia el sur, subiendo 600 m/min a 450 km/h (sin velocidad del GPS: se calcula)
         await pg.evaluate("""async()=>{let la=-26.84,lo=-65.105,alt=500,t=Date.now()-40000;for(let i=0;i<41;i++){window.__ok({coords:{latitude:la,longitude:lo,accuracy:8,altitude:alt,speed:null,heading:null,altitudeAccuracy:10},timestamp:t});la-=125/111320;alt+=10;t+=1000;await new Promise(r=>setTimeout(r,15));}}""")
         await pg.wait_for_timeout(1200)
