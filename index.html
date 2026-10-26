@@ -12234,30 +12234,92 @@ function bkProfile(raw,ds,G){
   for(let i=0;i<n;i++)h[i]=(U[i]+Lo[i])/2;
   return t3Box(h,1);
 }
-async function bkOsm(bb){
+/* line: [[la,lo],…] del recorrido. Además del uso del suelo de la zona (rectángulo), trae solo lo que está pegado al
+   camino: las casas y edificios a menos de 55 m (con su centro, pisos y tipo) y las calles y senderos a menos de 18 m
+   (para saber si es asfalto, ripio, sendero, si tiene vereda…). Si la consulta completa falla, se pide la de antes. */
+const BK_AREAS='way["natural"="coastline"]{B};way["natural"="water"]{B};rel["natural"="water"]{B};way["waterway"~"^(river|canal|riverbank)$"]{B};'+
+  'way["landuse"]{B};rel["landuse"]{B};way["natural"~"^(wood|scrub|heath|grassland|sand|beach|dune|bare_rock|scree|wetland|glacier)$"]{B};rel["natural"~"^(wood|scrub|heath|grassland|sand|beach|bare_rock|scree|wetland|glacier)$"]{B};'+
+  'way["leisure"~"^(park|garden|pitch|golf_course|playground|recreation_ground|sports_centre|nature_reserve)$"]{B};rel["leisure"~"^(park|garden|golf_course)$"]{B};way["amenity"="grave_yard"]{B};';
+function bkOsmQ(bb,line){
   const bx=`(${bb.s},${bb.w},${bb.n},${bb.e})`;
-  const q=`[out:json][timeout:90];(way["natural"="coastline"]${bx};way["natural"="water"]${bx};rel["natural"="water"]${bx};way["waterway"~"^(river|canal)$"]${bx};way["landuse"~"^(residential|commercial|retail)$"]${bx};rel["landuse"~"^(residential|commercial|retail)$"]${bx};way["natural"="wood"]${bx};way["landuse"="forest"]${bx};rel["natural"="wood"]${bx};rel["landuse"="forest"]${bx};);out geom qt;`;
+  if(!line)return `[out:json][timeout:90];(way["natural"="coastline"]${bx};way["natural"="water"]${bx};rel["natural"="water"]${bx};way["waterway"~"^(river|canal)$"]${bx};way["landuse"~"^(residential|commercial|retail)$"]${bx};rel["landuse"~"^(residential|commercial|retail)$"]${bx};way["natural"="wood"]${bx};way["landuse"="forest"]${bx};rel["natural"="wood"]${bx};rel["landuse"="forest"]${bx};);out geom qt;`;
+  const ln=line.map(p=>p[0].toFixed(5)+','+p[1].toFixed(5)).join(',');
+  return `[out:json][timeout:150];(${BK_AREAS.split('{B}').join(bx)});out geom qt;way["building"](around:55,${ln});out tags center qt;way["highway"](around:18,${ln});out tags geom qt;`;
+}
+async function bkOver(q,ms){
   let last;
   for(const url of OVERPASS){
-    try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),100000);
+    try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),ms);
       const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});clearTimeout(to);
       if(!r.ok)throw new Error('HTTP '+r.status);return (await r.json()).elements||[];}catch(e){last=e;}
   }
   throw last||new Error('sin respuesta');
 }
-/* cada elemento de OSM → {k:clase, seg:[[la,lo,la,lo],…], bb} (los multipolígonos se miden por par/impar, sin armar anillos) */
+async function bkOsm(bb,line){
+  if(!line)return bkOver(bkOsmQ(bb,null),100000);
+  try{return await bkOver(bkOsmQ(bb,line),160000);}catch(e){errLog(e,'escenario completo (OpenStreetMap)');return bkOver(bkOsmQ(bb,null),100000);}
+}
+/* el recorrido cada ~40 m (como mucho 1200 puntos) para las consultas "pegadas al camino" */
+function bkLine(P){const L=P[P.length-1][2],st=Math.max(40,L/1200),out=[];let nx=0;for(const p of P)if(p[2]>=nx){out.push(p);nx=p[2]+st;}const z=P[P.length-1];if(out[out.length-1]!==z)out.push(z);return out;}
+/* clases de uso del suelo (las mismas en Bici y Correr): 1 barrio, 2 comercios, 3 industria, 4 parque o césped, 5 campo
+   cultivado, 6 pradera o estepa, 7 bosque, 8 matorral, 9 arena o playa, 10 roca o pedrero, 11 agua, 12 mallín o humedal,
+   13 cementerio, 14 nieve o glaciar */
+function bkLandCls(t){
+  const u=t.landuse,n=t.natural,l=t.leisure;
+  if(n==='water'||t.waterway==='riverbank'||/^(reservoir|basin)$/.test(u||''))return 11;
+  if(n==='glacier')return 14;if(n==='wetland')return 12;
+  if(n==='bare_rock'||n==='scree'||u==='quarry')return 10;
+  if(/^(sand|beach|dune)$/.test(n||''))return 9;
+  if(n==='wood'||u==='forest')return 7;if(n==='scrub')return 8;
+  if(/^(heath|grassland)$/.test(n||'')||u==='meadow')return 6;
+  if(u==='cemetery'||t.amenity==='grave_yard')return 13;
+  if(/^(park|garden|pitch|golf_course|playground|recreation_ground|sports_centre)$/.test(l||'')||/^(grass|recreation_ground|village_green|flowerbed)$/.test(u||''))return 4;
+  if(/^(farmland|orchard|vineyard|farmyard|allotments|greenhouse_horticulture|plant_nursery|animal_keeping)$/.test(u||''))return 5;
+  if(/^(industrial|construction|railway|military|landfill|brownfield|depot|port)$/.test(u||''))return 3;
+  if(/^(commercial|retail)$/.test(u||''))return 2;
+  if(/^(residential|education|religious|institutional)$/.test(u||''))return 1;
+  return 0;
+}
+/* casa o edificio → byte: tipo<<5 | pisos. Tipos: 0 casa, 1 edificio de departamentos, 2 comercio u oficinas, 3 galpón,
+   4 escuela, iglesia, hospital u otro edificio público */
+function bkBld(t){
+  const b=t.building||'yes',lv=parseFloat(String(t['building:levels']||'').replace(',','.'));
+  let k=/^(apartments|residential|dormitory|hotel)$/.test(b)?1:(/^(commercial|retail|office|supermarket|kiosk)$/.test(b)||t.shop)?2:
+    /^(industrial|warehouse|shed|garage|garages|barn|farm_auxiliary|hangar|storage_tank|service|roof|carport|greenhouse|stable|cowshed|hut|cabin)$/.test(b)?3:
+    (/^(school|church|chapel|cathedral|hospital|public|civic|university|college|government|kindergarten|train_station|transportation|sports_hall|stadium|fire_station|mosque|temple)$/.test(b)||t.amenity)?4:0;
+  let L=isFinite(lv)&&lv>0?Math.round(lv):0;
+  if(!L)L=k===1?(b==='residential'?2:4):k===4?2:1;
+  if(k===0&&L>=3)k=1;
+  return k<<5|Math.max(1,Math.min(31,L));
+}
+/* tipo de camino → byte: 1 autopista, 2 avenida o ruta principal, 3 secundaria, 4 calle, 5 huella o ripio, 6 sendero,
+   7 peatonal o vereda, 8 ciclovía; +16 sin asfaltar, +32 puente, +64 con luz, +128 con vereda */
+function bkVia(t){
+  const h=t.highway||'';
+  const c=/^(motorway|trunk)(_link)?$/.test(h)?1:/^primary(_link)?$/.test(h)?2:/^(secondary|tertiary)(_link)?$/.test(h)?3:/^(residential|unclassified|living_street|service|road)$/.test(h)?4:
+    h==='track'?5:/^(path|bridleway)$/.test(h)?6:/^(footway|pedestrian|steps|corridor)$/.test(h)?7:h==='cycleway'?8:0;
+  if(!c)return 0;
+  const s=t.surface||'',unp=/^(unpaved|gravel|fine_gravel|dirt|ground|grass|compacted|sand|earth|mud|pebblestone|rock|woodchips|grass_paver)$/.test(s)||(!s&&(c===5||c===6))||(t.tracktype&&t.tracktype!=='grade1');
+  return c|(unp?16:0)|(t.bridge&&t.bridge!=='no'?32:0)|(t.lit==='yes'?64:0)|(/^(both|left|right|yes|separate)$/.test(t.sidewalk||t['sidewalk:both']||'')?128:0);
+}
+/* cada elemento de OSM → {k:clase, c:uso del suelo, seg:[[la,lo,la,lo],…], bb} (los multipolígonos se miden por par/impar,
+   sin armar anillos). Las casas van aparte en F.bld y las calles en F.hw. */
 function bkFeatures(els){
-  const F=[];
+  const F=[];F.bld=[];F.hw=[];
   for(const el of els){
-    const t=el.tags||{};let k=null;
+    const t=el.tags||{};
+    if(t.building&&el.center){F.bld.push({la:el.center.lat,lo:el.center.lon,b:bkBld(t)});continue;}
+    if(t.highway){const v=bkVia(t);if(v&&el.geometry)for(let i=0;i+1<el.geometry.length;i++){const a=el.geometry[i],b=el.geometry[i+1];if(a&&b)F.hw.push({s:[a.lat,a.lon,b.lat,b.lon],v});}continue;}
+    let k=null;const c=bkLandCls(t);
     if(t.natural==='coastline')k='coast';else if(t.natural==='water')k='lake';else if(t.waterway)k='river';
     else if(/^(residential|commercial|retail)$/.test(t.landuse||''))k='urban';else if(t.natural==='wood'||t.landuse==='forest')k='forest';
+    else if(c===6||c===8)k='open';else if(c)k='land';
     if(!k)continue;
     const lines=el.type==='way'?[el.geometry]:(el.members||[]).filter(m=>m.type==='way'&&m.geometry&&m.role!=='inner'||m.role==='inner'&&m.geometry).map(m=>m.geometry);
     const seg=[],bb={s:90,n:-90,w:180,e:-180};
     for(const g of lines){if(!g)continue;for(let i=0;i+1<g.length;i++){const a=g[i],b=g[i+1];if(!a||!b)continue;seg.push([a.lat,a.lon,b.lat,b.lon]);
       bb.s=Math.min(bb.s,a.lat,b.lat);bb.n=Math.max(bb.n,a.lat,b.lat);bb.w=Math.min(bb.w,a.lon,b.lon);bb.e=Math.max(bb.e,a.lon,b.lon);}}
-    if(seg.length)F.push({k,seg,bb,area:el.type==='relation'||(el.geometry&&el.geometry.length>3&&el.geometry[0].lat===el.geometry[el.geometry.length-1].lat&&el.geometry[0].lon===el.geometry[el.geometry.length-1].lon)});
+    if(seg.length)F.push({k,c,seg,bb,area:el.type==='relation'||(el.geometry&&el.geometry.length>3&&el.geometry[0].lat===el.geometry[el.geometry.length-1].lat&&el.geometry[0].lon===el.geometry[el.geometry.length-1].lon)});
   }
   return F;
 }
@@ -12282,13 +12344,13 @@ function bkScenes(P,prof,F,demS){
   const south=P[0][0]<-45,hiAlt=P[0][0]<-50?550:P[0][0]<-35?1500:2600,every=5,sm=[];   // un dato cada 50 m
   for(let i=0;i<P.length;i+=every){
     const [la,lo]=P[i],a=P[Math.max(0,i-2)],b=P[Math.min(P.length-1,i+2)],dx=(b[1]-a[1])*Math.cos(la*rad),dy=b[0]-a[0];
-    const urban=F.some(f=>f.k==='urban'&&bkInside(f,la,lo)),forest=F.some(f=>f.k==='forest'&&bkInside(f,la,lo));
+    const urban=F.some(f=>f.k==='urban'&&bkInside(f,la,lo)),forest=F.some(f=>f.k==='forest'&&bkInside(f,la,lo));const open=!urban&&!forest&&F.some(f=>f.k==='open'&&bkInside(f,la,lo));
     let w=null;
     for(const f of F){if(!/coast|lake|river/.test(f.k))continue;const lim=f.k==='river'?80:150,nn=bkNear(f,la,lo,lim);
       if(nn&&(!w||nn.d<w.d))w={d:nn.d,kind:f.k==='coast'?'mar':f.k==='lake'?'laguna':'rio',side:(dx*nn.y-dy*nn.x)>0?'left':'right'};}
     /* cornisa: el terreno sube fuerte de un lado del camino (más de 25 m en 70 m) */
     let corn=false;if(demS){const nx=-dy,ny=dx,l=Math.hypot(nx,ny)||1,o=35/111320,hl=demS(la+ny/l*o,lo+nx/l*o/Math.cos(la*rad)),hr=demS(la-ny/l*o,lo-nx/l*o/Math.cos(la*rad));corn=isFinite(hl)&&isFinite(hr)&&Math.abs(hl-hr)>25;}
-    const sc=urban?(south?'ciudad':'urbana'):prof[i]>=hiAlt?'montana':forest?'bosque':corn?'cornisa':w&&w.kind==='mar'?(south?'canal':'mar'):'rural';
+    const sc=urban?(south?'ciudad':'urbana'):prof[i]>=hiAlt?'montana':forest?'bosque':corn?'cornisa':w&&w.kind==='mar'?(south?'canal':'mar'):open?'estepa':'rural';
     sm.push({km:P[i][2]/1000,scene:sc,water:w?w.side:null,waterKind:w?w.kind:'mar'});
   }
   /* tramos: se juntan los iguales y los de menos de 400 m se suman al anterior */
@@ -12297,6 +12359,54 @@ function bkScenes(P,prof,F,demS){
   for(let i=1;i<segs.length;){const len=(i+1<segs.length?segs[i+1].km:P[P.length-1][2]/1000)-segs[i].km;
     if(len<.4){segs.splice(i,1);if(i<segs.length&&key(segs[i])===key(segs[i-1]))segs.splice(i,1);}else i++;}
   return segs.map((x,i)=>({km:i?+x.km.toFixed(2):0,scene:x.scene,water:x.water||null,waterKind:x.waterKind||'mar',wall:null}));
+}
+/* --- 🏘️ qué hay a cada costado, cada 25 m: 7 bytes por punto → [uso del suelo izq, der, casa izq, der, distancia (m) a
+   esa casa izq, der, tipo de camino]. Izquierda = sentido de marcha. Con esto Bici y Correr dibujan las casas con sus
+   pisos y a la distancia real, el campo con alambrado, el bosque, la vereda, el ripio o el sendero, tramo por tramo. */
+function bkGrid(items,bbOf,cell){
+  const g=new Map(),big=[];
+  for(const it of items){const b=bbOf(it),x0=Math.floor(b.w/cell),x1=Math.floor(b.e/cell),y0=Math.floor(b.s/cell),y1=Math.floor(b.n/cell);
+    if((x1-x0+1)*(y1-y0+1)>400){big.push(it);continue;}
+    for(let x=x0;x<=x1;x++)for(let y=y0;y<=y1;y++){const k=x+'_'+y;let a=g.get(k);if(!a)g.set(k,a=[]);a.push(it);}}
+  return (la,lo)=>{const a=g.get(Math.floor(lo/cell)+'_'+Math.floor(la/cell));return a?(big.length?a.concat(big):a):big;};
+}
+function bkLand(P,F){
+  const L=P[P.length-1][2],sp=25,n=Math.max(2,Math.floor(L/sp)+1),out=new Uint8Array(n*7),k=111320;
+  const areas=F.filter(f=>f.c&&f.area);for(const f of areas)f.sz=(f.bb.n-f.bb.s)*(f.bb.e-f.bb.w);
+  const gA=bkGrid(areas,f=>f.bb,.004);
+  const bl=F.bld||[],gB=bkGrid(bl,b=>({s:b.la,n:b.la,w:b.lo,e:b.lo}),.001);
+  const hw=F.hw||[],gH=bkGrid(hw,h=>({s:Math.min(h.s[0],h.s[2]),n:Math.max(h.s[0],h.s[2]),w:Math.min(h.s[1],h.s[3]),e:Math.max(h.s[1],h.s[3])}),.001);
+  const near=(g,la,lo)=>{const r=new Set();for(const a of [-.001,0,.001])for(const o of [-.0012,0,.0012])for(const x of g(la+a,lo+o))r.add(x);return r;};
+  let nB=0,nH=0,nC=0;
+  for(let q=0;q<n;q++){
+    const x=Math.min(P.length-1,q*sp/(L||1)*(P.length-1)),i=Math.round(x),la=P[i][0],lo=P[i][1],kc=k*Math.cos(la*rad);
+    const a=P[Math.max(0,i-3)],b=P[Math.min(P.length-1,i+3)];let ex=(b[1]-a[1])*kc,ey=(b[0]-a[0])*k;const el=Math.hypot(ex,ey)||1;ex/=el;ey/=el;
+    const lx=-ey,ly=ex;   // normal hacia la izquierda
+    const o=q*7;
+    for(const side of [1,-1]){
+      /* uso del suelo a 15 m del borde del camino (si no hay nada, a 35 m): gana el polígono más chico (el más específico) */
+      let c=0;
+      for(const off of [15,35]){let best=null;const qa=la+ly*off*side/k,qo=lo+lx*off*side/kc;
+        for(const f of gA(qa,qo))if((!best||f.sz<best.sz)&&bkInside(f,qa,qo))best=f;
+        if(best){c=best.c;break;}}
+      out[o+(side>0?0:1)]=c;if(c)nC++;
+    }
+    /* la casa más cercana de cada lado, a la altura de este punto (±16 m) y a 3-55 m del eje */
+    const bs=[null,null];
+    for(const B of near(gB,la,lo)){const dx=(B.lo-lo)*kc,dy=(B.la-la)*k,al=dx*ex+dy*ey,lat=dx*lx+dy*ly;
+      if(Math.abs(al)>16||Math.abs(lat)<3||Math.abs(lat)>55)continue;const s=lat>0?0:1,dd=Math.abs(lat);if(!bs[s]||dd<bs[s].d)bs[s]={d:dd,b:B.b};}
+    for(const s of [0,1])if(bs[s]){let bb=bs[s].b;
+      /* zona comercial sin datos de pisos: más probable un edificio de 3 que una casita */
+      if((bb>>5)===0&&(bb&31)===1&&out[o+s]===2)bb=1<<5|3;
+      out[o+2+s]=bb;out[o+4+s]=Math.min(255,Math.round(bs[s].d));nB++;}
+    /* el camino: el tramo de calle o sendero más cercano (a menos de 14 m) que vaya en la misma dirección */
+    let bv=null;
+    for(const H of near(gH,la,lo)){const [a1,o1,a2,o2]=H.s,x1=(o1-lo)*kc,y1=(a1-la)*k,x2=(o2-lo)*kc,y2=(a2-la)*k,dx=x2-x1,dy=y2-y1,L2=dx*dx+dy*dy;if(!L2)continue;
+      const tt=Math.max(0,Math.min(1,-(x1*dx+y1*dy)/L2)),d=Math.hypot(x1+dx*tt,y1+dy*tt),cs=Math.abs(dx*ex+dy*ey)/Math.sqrt(L2);
+      if(d>14||cs<.55)continue;const sc=d+(1-cs)*12;if(!bv||sc<bv.sc)bv={sc,v:H.v};}
+    if(bv){out[o+6]=bv.v;nH++;}
+  }
+  return {v:1,sp,n,sur:P[0][0]<-45?1:0,d:bkB64(out),st:{cls:Math.round(nC/2/n*100),bld:nB,via:Math.round(nH/n*100)}};
 }
 /* --- 🏔️ el horizonte real para Bici: desde cada punto de la ruta (cada 200 m o más), en 90 direcciones, se recorre
    el relieve hasta 20 km y se guarda el ángulo más alto en tres franjas: cerca (<1,5 km), medio (1,5-6 km) y lejos
@@ -12384,12 +12494,13 @@ async function bkSend(o){
   const prof=bkProfile(raw,R.L/(R.pts.length-1),o.grade||.25);
   let up=0,gm=0;for(let i=1;i<prof.length;i++){const d=prof[i]-prof[i-1];if(d>0)up+=d;gm=Math.max(gm,d/(R.L/(R.pts.length-1)));}
   /* escenario */
-  let scenes=null,scErr='';
+  let scenes=null,scErr='',land=null;
   if(!netBlocked()&&S.dataMode!=='never'){
-    toast(`${APP.ico} Armando el escenario (ciudad, bosque, costa…)…`,60000);
+    toast(`${APP.ico} Armando el escenario (casas, calles, campo, bosque, costa…)…`,90000);
     try{let bb={n:-90,s:90,e:-180,w:180};for(const p of R.pts){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}
       bb={n:bb.n+.004,s:bb.s-.004,e:bb.e+.006,w:bb.w-.006};
-      scenes=bkScenes(R.pts,prof,bkFeatures(await bkOsm(bb)),demS);}catch(e){scErr=e.message||String(e);}
+      const F=bkFeatures(await bkOsm(bb,bkLine(R.pts)));scenes=bkScenes(R.pts,prof,F,demS);
+      if(F.bld.length||F.hw.length||F.some(f=>f.c))try{land=bkLand(R.pts,F);}catch(e){errLog(e,'costados del camino');}}catch(e){scErr=e.message||String(e);}
   }
   if(!scenes){try{scenes=bkScenes(R.pts,prof,[],demS);}catch(e){errLog(e)}}
   /* horizonte real y color del suelo (si algo falla, Bici usa sus montañas y colores de siempre) */
@@ -12410,10 +12521,10 @@ async function bkSend(o){
   try{toast('🎨 Mirando el color del suelo en la foto satelital…',30000);ground=await bkGround(R.pts,R.L>40000?14:15);}catch(e){ground=null;}
   const nm=(o.name||'Ruta de Rumbo').replace(/[<>&"]/g,'').slice(0,60);
   const gpx=`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Rumbo"><trk><name>${nm}</name><trkseg>`+R.pts.map((p,i)=>`<trkpt lat="${p[0].toFixed(6)}" lon="${p[1].toFixed(6)}"><ele>${prof[i].toFixed(1)}</ele></trkpt>`).join('')+'</trkseg></trk></gpx>';
-  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground});
-  const resum=`${dec(R.L/1000,1)} km · ↑ ${Math.round(up)} m · pendiente máx ${Math.round(gm*100)} %`+(scenes?` · escenario de ${scenes.length} tramo${scenes.length>1?'s':''}`:'')+(hz?' · montañas reales':'')+(ground?' · colores del suelo':'');
+  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground,land});
+  const resum=`${dec(R.L/1000,1)} km · ↑ ${Math.round(up)} m · pendiente máx ${Math.round(gm*100)} %`+(scenes?` · escenario de ${scenes.length} tramo${scenes.length>1?'s':''}`:'')+(hz?' · montañas reales':'')+(ground?' · colores del suelo':'')+(land&&land.st.bld?` · ${land.st.bld} casas y edificios`:'')+(land&&land.st.via?' · tipo de calle':'');
   toast(`${APP.ico} Listo: ${resum}${scErr?' (sin datos de OpenStreetMap: escenario solo por altura)':''}. Se abre ${APP.nom}…`,6000);
-  BK.last={name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground};
+  BK.last={name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground,land:land&&land.st};
   setTimeout(()=>{const a=document.createElement('a');a.href=APP.url+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 const BK={last:null};

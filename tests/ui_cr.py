@@ -29,7 +29,13 @@ async def main():
           bkOsm=async()=>[
             {type:'way',tags:{natural:'coastline'},geometry:[{lat:-26.8008,lon:lo(0)},{lat:-26.8008,lon:lo(1.2)}]},      // agua a la izquierda (sur) los primeros 1,2 km... 
             {type:'way',tags:{landuse:'residential'},geometry:ring(-26.81,lo(1.5),-26.79,lo(0.8))},
-            {type:'way',tags:{landuse:'forest'},geometry:ring(-26.81,lo(5.5),-26.79,lo(4))}];
+            {type:'way',tags:{landuse:'forest'},geometry:ring(-26.81,lo(5.5),-26.79,lo(4))},
+            {type:'way',tags:{landuse:'farmland'},geometry:ring(-26.81,lo(3.5),-26.79,lo(2))},
+            // casas al norte (derecha, yendo al oeste) entre 0,8 y 1,5 km, a 20 m del eje; cada tanto un edificio de 6 pisos
+            ...Array.from({length:46},(_,i)=>({type:'way',tags:i%7?{building:'house'}:{building:'apartments','building:levels':'6'},center:{lat:-26.80+20/111320,lon:lo(0.8+i*0.015)}})),
+            {type:'way',tags:{highway:'residential',sidewalk:'both',lit:'yes'},geometry:[{lat:-26.80,lon:lo(0.75)},{lat:-26.80,lon:lo(1.55)}]},
+            {type:'way',tags:{highway:'track',tracktype:'grade3'},geometry:[{lat:-26.80,lon:lo(2)},{lat:-26.80,lon:lo(3.4)}]},
+            {type:'way',tags:{highway:'path'},geometry:[{lat:-26.80,lon:lo(4)},{lat:-26.80,lon:lo(5.6)}]}];
           const E0=window.E;window.E=(la,lo)=>{const xw=(-65.20-lo)*111320*Math.cos(26.8*Math.PI/180),yn=(la+26.80)*111320;return E0(la,lo)+1500*Math.exp(-((xw-3000)**2+(yn-8000)**2)/(2*2500**2));};
           bkPeaks=async()=>[{n:'Cerro Prueba',e:2185,la:+(-26.80+8000/111320).toFixed(5),lo:+lo(3).toFixed(5)},{n:'Escondido',e:520,la:-26.75,lo:lo(3)}];
           getTileBlob=async(url)=>{const m=url.match(/tile\\/(\\d+)\\/(\\d+)\\/(\\d+)/),z=+m[1],y=+m[2],c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d');
@@ -48,6 +54,21 @@ async def main():
         ok(st['nombre']=='Subida para correr' and st['L']>5800 and st['e'],'Correr: recorrido guardado con la altura')
         ok(st['esc']=='ruta' and st['p'] and st['sc']>=3,'Correr: elegido como escenario, con paisaje y tramos')
         ok(st['h']=='','Correr: el link se limpia')
+        ld=await cp.evaluate("""(()=>{const r=rutaActiva(),P=paisajeDe(r);if(!P||!P.land)return null;const L=P.land;
+          return [1000,2500,4800].map(d=>{const m=landEn(L,d);return {c:m.c,b:m.b,dist:m.dist,via:m.v&15,unp:!!(m.v&16),ver:!!(m.v&128),ancho:+landAncho(L,d,5.2).toFixed(1)};});})()""")
+        print('   costados (1 km, 2,5 km, 4,8 km):',ld)
+        ok(ld is not None,'Correr recibe los costados del camino (land)')
+        ok(ld[0]['c'][1]==1 and ld[0]['b'][1]>0 and 10<=ld[0]['dist'][1]<=30 and ld[0]['b'][0]==0,'a 1 km: barrio con casas a la derecha, a la distancia real')
+        ok(ld[0]['via']==4 and ld[0]['ver'],'a 1 km: calle con vereda')
+        ok(ld[1]['c']==[5,5] and ld[1]['via']==5 and ld[1]['unp'],'a 2,5 km: campo a los dos lados, huella de ripio')
+        ok(ld[2]['c']==[7,7] and ld[2]['via']==6 and ld[2]['ancho']<1.5,'a 4,8 km: bosque y sendero angosto')
+        for km in (1.0,2.5,4.8):
+            du=await cp.evaluate("""(km=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');const ruta=rutaActiva();const d=km*1000;
+              roadBands(x,412,300,d,dd=>valorRuta(ruta.b,ruta.paso,dd),dd=>valorRuta(ruta.e,ruta.paso,dd),ruta,escenaRumboEn(ruta,d),null);return c.toDataURL('image/png');})""",km)
+            import base64;open(BUILD+'/cr_land_%s.png'%str(km).replace('.','_'),'wb').write(base64.b64decode(du.split(',')[1]))
+        ms=await cp.evaluate("""(()=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');const ruta=rutaActiva();
+          const t0=performance.now();for(let k=0;k<40;k++){const d=900+k*5;roadBands(x,412,300,d,dd=>valorRuta(ruta.b,ruta.paso,dd),dd=>valorRuta(ruta.e,ruta.paso,dd),ruta,escenaRumboEn(ruta,d),null);}return (performance.now()-t0)/40;})()""")
+        print('   un cuadro en el barrio: %.1f ms'%ms);ok(ms<30,'dibujar el barrio no es lento (%.1f ms por cuadro)'%ms)
         r=await cp.evaluate("""(()=>{const c=document.createElement('canvas');c.width=412;c.height=240;c.id='tstc';document.body.appendChild(c);const x=c.getContext('2d');
           let used=0,lab=[];const o1=dibujarHorizonteReal;dibujarHorizonteReal=function(){used++;return o1.apply(this,arguments)};
           const ft=x.fillText.bind(x);x.fillText=(t,a,b)=>{lab.push(t);ft(t,a,b)};

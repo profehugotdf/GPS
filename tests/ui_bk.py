@@ -29,7 +29,12 @@ async def main():
           bkOsm=async()=>[
             {type:'way',tags:{natural:'coastline'},geometry:[{lat:-26.8008,lon:lo(0)},{lat:-26.8008,lon:lo(1.2)}]},      // agua a la izquierda (sur) los primeros 1,2 km... 
             {type:'way',tags:{landuse:'residential'},geometry:ring(-26.81,lo(1.5),-26.79,lo(0.8))},
-            {type:'way',tags:{landuse:'forest'},geometry:ring(-26.81,lo(5.5),-26.79,lo(4))}];
+            {type:'way',tags:{landuse:'forest'},geometry:ring(-26.81,lo(5.5),-26.79,lo(4))},
+            {type:'way',tags:{landuse:'farmland'},geometry:ring(-26.81,lo(3.5),-26.79,lo(2))},
+            ...Array.from({length:46},(_,i)=>({type:'way',tags:i%7?{building:'house'}:{building:'apartments','building:levels':'6'},center:{lat:-26.80+20/111320,lon:lo(0.8+i*0.015)}})),
+            {type:'way',tags:{highway:'residential',sidewalk:'both',lit:'yes'},geometry:[{lat:-26.80,lon:lo(0.75)},{lat:-26.80,lon:lo(1.55)}]},
+            {type:'way',tags:{highway:'track',tracktype:'grade3'},geometry:[{lat:-26.80,lon:lo(2)},{lat:-26.80,lon:lo(3.4)}]},
+            {type:'way',tags:{highway:'path'},geometry:[{lat:-26.80,lon:lo(4)},{lat:-26.80,lon:lo(5.6)}]}];
           const E0=window.E;window.E=(la,lo)=>{const xw=(-65.20-lo)*111320*Math.cos(26.8*Math.PI/180),yn=(la+26.80)*111320;return E0(la,lo)+1500*Math.exp(-((xw-3000)**2+(yn-8000)**2)/(2*2500**2));};
           bkPeaks=async()=>[{n:'Cerro Prueba',e:2185,la:+(-26.80+8000/111320).toFixed(5),lo:+lo(3).toFixed(5)},{n:'Escondido',e:520,la:-26.75,lo:lo(3)}];
           getTileBlob=async(url)=>{const m=url.match(/tile\\/(\\d+)\\/(\\d+)\\/(\\d+)/),z=+m[1],y=+m[2],c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d');
@@ -85,6 +90,15 @@ async def main():
         await bp.evaluate("sceneScrubKm=0.5;drawScenePreview()");await bp.wait_for_timeout(300)
         el=await bp.query_selector('#sceneCard');await el.screenshot(path=BUILD+'/bk_scene.png')
         print('   editor:',await bp.evaluate("$('scenePrevInfo').textContent"))
-        print('ERRORES JS Rumbo:',errs[:3] or 'ninguno',' · Bici:',berrs[:3] or 'ninguno');await b.close()
+        # v167: costados reales (casas, calle, campo, sendero)
+        ld=await bp.evaluate("""(()=>{const rx=routeExtra(fname);if(!rx||!rx.land)return null;const L=rx.land;return [1000,2500,4800].map(d=>{const m=landEn(L,d);return {c:m.c,b:m.b,via:m.v&15,ancho:+landAncho(L,d,5.2).toFixed(1)};});})()""")
+        print('   Bici, costados:',ld)
+        ok(ld and ld[0]['c'][1]==1 and ld[0]['b'][1]>0 and ld[1]['c']==[5,5] and ld[1]['via']==5 and ld[2]['via']==6,'Bici recibe los costados del camino (casas, campo, sendero)')
+        import base64
+        for km in (1.0,2.5,4.8):
+            du=await bp.evaluate("""(km=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d'),rt={pts:points,dist},d=km*1000;
+              roadBands(x,412,300,d,dd=>bearingRoute(rt,dd),dd=>eleRoute(rt,dd),fname);return c.toDataURL('image/png');})""",km)
+            open(BUILD+'/bk_land_%s.png'%str(km).replace('.','_'),'wb').write(base64.b64decode(du.split(',')[1]))
+        print('ERRORES JS Rumbo:',errs[:3] or 'ninguno',' · Bici:',berrs[:3] or 'ninguno');ok(not errs and not berrs,'sin errores');await b.close()
     srv.shutdown()
 asyncio.run(main())
