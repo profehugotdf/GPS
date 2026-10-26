@@ -63,6 +63,17 @@ async def main():
         await kp.evaluate("togglePlayRuta()");await kp.wait_for_timeout(700);d=await kp.evaluate("rutaPreviewD");await kp.evaluate("togglePlayRuta()");ok(d>5,'▶ Recorrer sin remar avanza (%d m)'%d)
         # recargar: sigue elegida
         await kp.reload();await kp.wait_for_timeout(1200);ok(await kp.evaluate("rutaActiva&&rutaActiva.nombre")=='Canal de prueba','queda guardada al recargar')
+        # v110: carrera virtual sobre el recorrido
+        r=await kp.evaluate("""(async()=>{const P=v=>Array.from({length:61},(_,i)=>({t:i*10,distAcum:i*10*v,cadencia:60,pulso:140}));
+          carreraCorredores=[{sesion:{puntos:P(2.2),duracionSeg:600,fecha:new Date().toISOString()},fase:0,color:'#E8B84B'},{sesion:{puntos:P(2.0),duracionSeg:600,fecha:new Date().toISOString()},fase:0,color:'#3d7ec9'}];
+          carreraDuracionMax=600;carreraT=300;carreraCamaraIdx=0;rutaCarrera=rutaActiva;cambiarTab('carrera');await poblarRutasCarrera();await new Promise(r=>setTimeout(r,200));
+          let n=0;const o1=dibujarEscenaRuta;dibujarEscenaRuta=function(){n++;return o1.apply(this,arguments)};renderCarrera();dibujarEscenaRuta=o1;
+          const opts=[...document.getElementById('selRutaCarrera').options].map(o=>o.textContent);
+          const du=document.getElementById('canvasCarrera').toDataURL('image/png');
+          return {n,opts,du,ok:rutaActiva&&rutaActiva.nombre};})()""")
+        import base64;open(BUILD+'/ky_carrera.png','wb').write(base64.b64decode(r['du'].split(',')[1]))
+        ok(r['n']==1 and any('Canal de prueba' in x for x in r['opts']),'carrera virtual: se puede correr sobre el recorrido')
+        await kp.evaluate("elegirRutaCarrera('')");ok(await kp.evaluate("rutaCarrera===null&&rutaActiva&&rutaActiva.nombre==='Canal de prueba'"),'carrera virtual: volver al lago sin tocar el recorrido de la sesión')
         await kp.evaluate("elegirRuta('')");await kp.wait_for_timeout(300);ok(await kp.evaluate("rutaActiva")is None,'volver al lago de siempre')
         print('ERRORES JS:',errs[:3] or 'ninguno');ok(not errs,'sin errores')
         await b.close()
