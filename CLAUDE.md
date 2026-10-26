@@ -28,7 +28,7 @@ App de mapas offline, tracks, puertas tipo RaceChrono, rutas, grupo y guardián,
 2. Una sola pieza para los paneles flotantes (Medir, Trazar ruta, Calcar, Editar puntos, Puertas, Modo vuelo): cerrar, achicar, z-index y modo noche iguales.
 3. Pasar a un Web Worker los cálculos pesados: el horizonte para Bici y Kayak, las orillas y el armado de la red de calles.
 4. Links de grupo y seguimiento que venzan, con cambio de clave. Los mensajes ya van cifrados con AES-GCM y la clave viaja en el `#` del link; falta escribir el modelo de amenazas.
-5. Ideas presentadas, sin respuesta todavía: "niebla de exploración" (para hacer con su señora), que ▶ Guiarme siga con la vuelta, un tramo "a mano" en línea recta en Trazar ruta.
+5. Ideas presentadas, sin respuesta todavía: "niebla de exploración" (para hacer con su señora), que ▶ Guiarme siga con la vuelta. (El tramo "a mano" ya está: en Trazar ruta, cada tramo puede ir 🚶 a pie o 📏 en línea recta, `PL.lm`, y Rutas lo respeta con `RT.legOv`.)
 6. Partir `index.html` en módulos que GitHub vuelva a juntar en un solo HTML. Recién ahora que hay pruebas; no es urgente.
 
 ## Quién y cómo trabajamos

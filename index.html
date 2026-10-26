@@ -429,7 +429,7 @@ body.night #meas .nvb button{background:#E4EDEF;color:#0E2A36}
 
 #rplan{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:62vh;overflow:auto}
 #rplan[hidden]{display:none}
-#rplan .chips{margin-top:4px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}#rplan .chips button{flex:0 0 auto}
+#rplan .chips{margin-top:4px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}#rplan .chips button{flex:0 0 auto}#rplan #plLm{flex-wrap:wrap;overflow:visible}#rplan #plLm button{font-size:13.5px}
 #rplan .caph span{display:inline-flex;gap:6px}
 #rplan.min #plPref,#rplan.min #plHint,#rplan.min .nvb button:not(.ok):not(#plUndo){display:none}
 #plPref button{font-size:12.5px;padding:4px 9px}
@@ -5095,7 +5095,7 @@ async function calcRoutes(g,keep){
   RT.res.kayak=await waterRouteFor('kayak',from,RT.to);
   RT.res.swim=D>25000?{err:'lejos'}:await waterRouteFor('swim',from,RT.to);
   if(RT.res.swim&&!RT.res.swim.err&&RT.res.swim.dist>40000)RT.res.swim={err:'lejos'};
-  if(stopsList().length)await applyStops(g,from,hz);
+  if(stopsList().length||RT.legOv)await applyStops(g,from,hz);
   if(D>100000)toast('Ruta calculada',1800);
   RT.calcFrom=from;
   const ok=m=>RT.res[m]&&!RT.res[m].err;
@@ -7455,21 +7455,32 @@ map.on('zoomend',()=>{if(MS.on)drawMeasureLines();});
    si un tramo da una vuelta que no querés, tocás esa parte de la línea y después por dónde querés pasar: se mete un
    punto en el medio de ese tramo. Los puntos se arrastran; tocando uno se elige para moverlo o quitarlo.
    "Usar la ruta" lo pasa a Rutas (A, paradas de "solo pasar" y B) para guiarte, guardarla o mandarla a Bici Indoor. */
-const PL={on:false,pts:[],mode:'bike',loop:false,legs:[],sel:null,ins:null,tok:0,cache:new Map(),hist:[],busy:false};
+const PL={on:false,pts:[],mode:'bike',loop:false,legs:[],sel:null,ins:null,tok:0,cache:new Map(),hist:[],busy:false,lm:[]};
+/* lm[i]: cómo va el tramo i cuando no sigue la regla del modo. 'foot' = por donde se pasa a pie (en bici: empujando o a
+   contramano, cuando el mapa marca mano única o no une las calles); 'line' = derecho, en línea recta. Hugo: "si elijo
+   caminando hace el recorrido que quiero hacer en bicicleta" (la bici daba una vuelta de 948 m por una mano única). */
+const PL_LM={foot:['🚶','a pie'],line:['📏','en línea recta']};
+function plLineRoute(a,b,m,last){return routeFromLine([a,b],{tol:0,mode:m,speed:m==='bike'?(S.vBike||18)/3.6*.9:m==='car'?30/3.6:m==='kayak'?(S.vKayak||7)/3.6:(S.vFoot||5)/3.6,startText:'Seguí derecho hacia el próximo punto',startIco:'📏',endText:last?'Llegaste a tu destino':'Llegaste al punto'});}
+/* tramo "a pie" dentro de una ruta en bici: el camino de a pie, con el tiempo de la bici un poco más lento (a contramano o empujando un rato) */
+function plFootLeg(g,a,b,m,pref){const r=findRoute(g,'foot',a,b,pref);if(r.err||m!=='bike')return r;const v=(S.vBike||18)/3.6*.75;return Object.assign({},r,{mode:'bike',time:r.dist/v,timeBack:r.dist/v,avgKmh:v*3.6});}
+/* en Rutas, los tramos marcados se respetan mientras los puntos sean los mismos que se trazaron */
+const legSig=pts=>pts.map(p=>(+p.lat).toFixed(5)+','+(+p.lon).toFixed(5)).join(';');
+function legOvFor(m,pts){const o=RT.legOv;return o&&o.m===m&&o.sig===legSig(pts)?o.v:null;}
 const PL_MODES=['foot','bike','car','kayak'];
 const plLayer=L.layerGroup().addTo(map);
 const plLegN=()=>PL.pts.length<2?0:PL.pts.length-1+(PL.loop?1:0);
 const plLL=p=>({lat:p[0],lon:p[1]});
-function plPush(){PL.hist.push({pts:PL.pts.map(p=>p.slice()),loop:PL.loop});if(PL.hist.length>80)PL.hist.shift();}
+function plPush(){PL.hist.push({pts:PL.pts.map(p=>p.slice()),loop:PL.loop,lm:PL.lm.slice()});if(PL.hist.length>80)PL.hist.shift();}
 function openPlanner(fromRoute){
   if(TR.on||GE.on||CAP.on||NP.on||draw||PICK||MS.on||EV.on){toast('Cerrá primero la otra herramienta',4000);return;}
   closeSheet();hidePin();
-  Object.assign(PL,{on:true,sel:null,ins:null,legs:[],hist:[],pts:[],loop:false});
+  Object.assign(PL,{on:true,sel:null,ins:null,legs:[],hist:[],pts:[],loop:false,lm:[]});
   PL.mode=PL_MODES.includes(RT.sel)&&RT.res?RT.sel:PL_MODES.includes(S.routeMode)?S.routeMode:'bike';
   const f=RT.calcFrom||RT.from,t=RT.to;
   if(fromRoute&&f&&t){
     PL.pts=[[f.lat,f.lon]].concat(stopsList().map(s=>[s.lat,s.lon]));
     if(hav([f.lat,f.lon],[t.lat,t.lon])<15&&PL.pts.length>1)PL.loop=true;else PL.pts.push([t.lat,t.lon]);
+    const ov=legOvFor(PL.mode,[f].concat(stopsList(),[t]));if(ov)PL.lm=ov.slice();
   }
   routeLayer.clearLayers();$('#rtp').hidden=true;
   $('#rplan').hidden=false;$('#rplan').classList.toggle('min',!!S.plMin);$('#plMin').textContent=S.plMin?'▴':'▾';setFollow(false);
@@ -7482,7 +7493,7 @@ function closePlanner(keep){
 }
 function plTap(e){
   const ll=[e.latlng.lat,e.latlng.lng];plPush();
-  if(PL.ins!=null){PL.pts.splice(PL.ins+1,0,ll);PL.ins=null;}      // el tramo que cierra el circuito (último → A) agrega al final
+  if(PL.ins!=null){PL.pts.splice(PL.ins+1,0,ll);PL.lm.splice(PL.ins+1,0,PL.lm[PL.ins]);PL.ins=null;}   // las dos mitades siguen como estaba el tramo      // el tramo que cierra el circuito (último → A) agrega al final
   else if(PL.sel!=null){PL.pts[PL.sel]=ll;PL.sel=null;}
   else PL.pts.push(ll);
   plRoute();
@@ -7504,11 +7515,11 @@ async function plRoute(){
   }
   const legs=[];
   for(let i=0;i<n;i++){
-    const a=pts[i],b=pts[(i+1)%pts.length],k=[m,pref,a[0].toFixed(6),a[1].toFixed(6),b[0].toFixed(6),b[1].toFixed(6)].join('|');
-    let r=PL.cache.get(k);
+    const a=pts[i],b=pts[(i+1)%pts.length],lm=PL.lm[i]==='line'||(PL.lm[i]==='foot'&&!isWater(m))?PL.lm[i]:null,k=[lm||m,pref,a[0].toFixed(6),a[1].toFixed(6),b[0].toFixed(6),b[1].toFixed(6)].join('|');
+    let r=lm==='line'?plLineRoute(a,b,m,i===n-1):PL.cache.get(k);
     if(!r){
       PL.busy=true;
-      try{r=isWater(m)?await waterRouteFor(m,plLL(a),plLL(b)):!g?{err:'sinred'}:findRoute(g,m,plLL(a),plLL(b),pref);}catch(e){r={err:'falla',msg:String(e&&e.message||e)};}
+      try{r=lm==='foot'?(!g?{err:'sinred'}:plFootLeg(g,plLL(a),plLL(b),m,pref)):isWater(m)?await waterRouteFor(m,plLL(a),plLL(b)):!g?{err:'sinred'}:findRoute(g,m,plLL(a),plLL(b),pref);}catch(e){r={err:'falla',msg:String(e&&e.message||e)};}
       if(tok!==PL.tok)return;
       if(!(r.err&&['sinred','sinagua','falla'].includes(r.err))){PL.cache.set(k,r);if(PL.cache.size>400)PL.cache.delete(PL.cache.keys().next().value);}
     }
@@ -7521,9 +7532,9 @@ function plDraw(){
   const pts=PL.pts,n=plLegN(),col=MC[PL.mode];
   for(let i=0;i<n;i++){
     const a=pts[i],b=pts[(i+1)%pts.length],r=PL.legs[i],ok=r&&!r.err,line=ok?r.coords.map(c=>[c[0],c[1]]):[a,b];
-    const on=PL.ins===i,det=plDetour(r,a,b);
+    const on=PL.ins===i,det=plDetour(r,a,b),lm=PL.lm[i];
     L.polyline(line,{color:'#fff',weight:on?13:10,opacity:.9,interactive:false}).addTo(plLayer);
-    L.polyline(line,{color:on?'#FFC400':r&&!ok?'#C0392B':det?'#E0A100':col,weight:6,opacity:r?1:.55,dashArray:ok?null:'8 8',interactive:false}).addTo(plLayer);
+    L.polyline(line,{color:on?'#FFC400':r&&!ok?'#C0392B':det?'#E0A100':lm==='foot'?MC.foot:col,weight:6,opacity:r?1:.55,dashArray:!ok||lm==='line'?'8 8':lm==='foot'?'2 9':null,interactive:false}).addTo(plLayer);
     const hit=L.polyline(line,{color:'#000',opacity:0,weight:28,bubblingMouseEvents:false});   // para tocar la línea con el dedo
     hit.on('click',ev=>{try{L.DomEvent.stop(ev);}catch(e){errLog(e)}plLegTap(i);});
     hit.addTo(plLayer);
@@ -7556,10 +7567,13 @@ function plUi(){
   const warn=[];
   for(let i=0;i<n;i++){const r=PL.legs[i];if(!r)continue;const a=pts[i],b=pts[(i+1)%pts.length],tr=`${plLab(i)}→${plLab((i+1)%pts.length)}`;
     if(r.err)warn.push(`⛔ Tramo ${tr}: ${r.err==='sinred'?'no hay calles bajadas de esta zona (Más → Correcciones)':r.err==='sinagua'?'no hay agua cargada en esta zona':esc(errText(r)||'no hay camino')}`);
-    else if(plDetour(r,a,b))warn.push(`↪️ El tramo ${tr} da una vuelta de ${fmtD(r.dist)} (en línea recta son ${fmtD(hav(a,b))}). Tocá esa parte de la línea y después por dónde querés pasar.`);}
+    else if(plDetour(r,a,b))warn.push(`↪️ El tramo ${tr} da una vuelta de ${fmtD(r.dist)} (en línea recta son ${fmtD(hav(a,b))}). Tocá esa parte de la línea y después por dónde querés pasar${PL.mode==='bike'?', o elegí que ese tramo vaya 🚶 a pie':''}.`);}
+  const marc=[];for(let i=0;i<n;i++){const v=PL.lm[i];if(PL_LM[v]&&!(v==='foot'&&isWater(PL.mode)))marc.push(`${PL_LM[v][0]} ${plLab(i)}→${plLab((i+1)%pts.length)} ${PL_LM[v][1]}`);}
+  if(marc.length&&S0)h+=`<div class="mut">Tramos marcados: ${marc.join(' · ')}</div>`;
   if(warn.length)h+=`<div class="mwarn">${warn.slice(0,3).join('<br>')}${warn.length>3?`<br>…y ${warn.length-3} más`:''}</div>`;
   $('#plOut').innerHTML=h;
-  $('#plHint').innerHTML=PL.ins!=null?`<b>Tocá en el mapa por dónde querés pasar</b> entre ${plLab(PL.ins)} y ${plLab((PL.ins+1)%pts.length)} (tocá la línea de nuevo para cancelar).`
+  $('#plHint').innerHTML=PL.ins!=null?`<b>Tocá en el mapa por dónde querés pasar</b> entre ${plLab(PL.ins)} y ${plLab((PL.ins+1)%pts.length)} (tocá la línea de nuevo para cancelar). O elegí cómo va este tramo:
+      <div class="chips" id="plLm">${[['',MI[PL.mode]+' Como la ruta'],...(PL.mode==='bike'?[['foot','🚶 A pie (empujando o a contramano)']]:[]),['line','📏 En línea recta']].map(([v,tx])=>`<button data-lm="${v}" class="${(PL.lm[PL.ins]||'')===v?'on':''}">${tx}</button>`).join('')}</div>`
     :PL.sel!=null?`<b>Punto ${plLab(PL.sel)}:</b> tocá el mapa para moverlo ahí, o quitalo.`
     :!pts.length?'Tocá el mapa donde empezás (A) y después cada punto por donde querés pasar, en orden.'
     :pts.length<2?'Tocá el siguiente punto.'
@@ -7571,9 +7585,10 @@ function plUi(){
 }
 document.querySelectorAll('#plMode button').forEach(b=>b.onclick=()=>{PL.mode=b.dataset.m;PL.ins=null;plRoute();});
 $('#plPref').onclick=e=>{const b=e.target.closest('[data-p]');if(!b)return;S.pref=b.dataset.p;saveS();plRoute();};
-$('#plUndo').onclick=()=>{const h=PL.hist.pop();if(!h)return;PL.pts=h.pts;PL.loop=h.loop;PL.sel=null;PL.ins=null;plRoute();};
-$('#plClr').onclick=()=>{plPush();PL.pts=[];PL.loop=false;PL.sel=null;PL.ins=null;plRoute();};
-$('#plDel').onclick=()=>{if(PL.sel==null)return;plPush();PL.pts.splice(PL.sel,1);PL.sel=null;if(PL.pts.length<2)PL.loop=false;plRoute();};
+$('#plUndo').onclick=()=>{const h=PL.hist.pop();if(!h)return;PL.pts=h.pts;PL.loop=h.loop;PL.lm=h.lm||[];PL.sel=null;PL.ins=null;plRoute();};
+$('#plClr').onclick=()=>{plPush();PL.pts=[];PL.lm=[];PL.loop=false;PL.sel=null;PL.ins=null;plRoute();};
+$('#plHint').onclick=e=>{const b=e.target.closest('[data-lm]');if(!b||PL.ins==null)return;plPush();PL.lm[PL.ins]=b.dataset.lm||undefined;PL.ins=null;plRoute();};
+$('#plDel').onclick=()=>{if(PL.sel==null)return;plPush();PL.pts.splice(PL.sel,1);PL.lm.splice(PL.sel,1);PL.sel=null;if(PL.pts.length<2)PL.loop=false;plRoute();};
 $('#plMe').onclick=()=>{if(!lastFix){toast('Todavía no hay señal de GPS');return;}plPush();const ll=[lastFix.lat,lastFix.lon];if(PL.sel!=null){PL.pts[PL.sel]=ll;PL.sel=null;}else PL.pts.push(ll);plRoute();};
 $('#plLoop').onclick=()=>{if(PL.pts.length<2)return;plPush();
   /* si el último punto quedó encima de A, se toma como "volver a A" */
@@ -7591,6 +7606,8 @@ async function plUse(){
   RT.to=PL.loop?P(pts[0],'Punto A (llegada)'):P(pts[pts.length-1],'Punto B');
   RT.stops=mids.map((p,i)=>({lat:p[0],lon:p[1],label:'Punto '+(i+1),kind:'otro',stay:0}));
   RT.via=null;RT.cands=[];RT.res=null;RT.back=null;
+  {const n=plLegN(),v=PL.lm.slice(0,n).map(x=>x==='line'||(x==='foot'&&!isWater(PL.mode))?x:null);
+   RT.legOv=v.some(Boolean)?{m:PL.mode,sig:legSig([RT.from].concat(RT.stops,[RT.to])),v}:null;}
   if(PL.loop&&S.roundTrip){S.roundTrip=false;}
   S.routeMode=PL.mode;saveS();
   closePlanner(true);
@@ -8355,8 +8372,7 @@ function stagesHtml(r,start){
 const legErr=r=>`No se pudo armar la etapa «${esc(r.from)}» → «${esc(r.to)}»: ${r.why==='origen'?'no hay camino o agua cerca de la salida':r.why==='destino'?'no hay camino o agua cerca de la llegada':r.why==='lejos'?'es demasiado lejos para este modo':'no hay un camino conectado'}.`;
 /* calcula cada modo por etapas: salida → parada 1 → … → destino */
 async function applyStops(g,from,hz){
-  const L=stopsList();if(!L.length)return;
-  const pts=[from].concat(L,[RT.to]);
+  const L=stopsList(),pts=[from].concat(L,[RT.to]);if(!L.length&&!RT.legOv)return;
   let D=0;for(let i=1;i<pts.length;i++)D+=hav([pts[i-1].lat,pts[i-1].lon],[pts[i].lat,pts[i].lon]);
   for(const m of RMODES){
     const cur=RT.res[m];
@@ -8365,9 +8381,11 @@ async function applyStops(g,from,hz){
     if(m==='bike'&&D>600000){RT.res[m]={err:'lejos'};continue;}
     if(m==='swim'&&D>25000){RT.res[m]={err:'lejos'};continue;}
     if(!isWater(m)&&!g)continue;
-    const legs=[];let bad=null;
+    const legs=[],ov=legOvFor(m,pts);let bad=null;
+    if(!L.length&&!ov)continue;
     for(let i=0;i<pts.length-1&&!bad;i++){
-      const r=isWater(m)?await waterRouteFor(m,pts[i],pts[i+1]):findRoute(g,m,pts[i],pts[i+1],S.pref);
+      const o=ov&&ov[i],a=pts[i],b=pts[i+1];   // tramo marcado en Trazar ruta: a pie o en línea recta
+      const r=o==='line'?plLineRoute([a.lat,a.lon],[b.lat,b.lon],m,i===pts.length-2):o==='foot'?plFootLeg(g,a,b,m,S.pref):isWater(m)?await waterRouteFor(m,pts[i],pts[i+1]):findRoute(g,m,pts[i],pts[i+1],S.pref);
       if(r.err)bad={i,why:r.err};else legs.push(r);
     }
     if(bad){RT.res[m]={err:'tramo',why:bad.why,from:pts[bad.i].label||'Salida',to:pts[bad.i+1].label||'Destino'};continue;}
