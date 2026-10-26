@@ -68,6 +68,16 @@ async def main():
             import base64;open(BUILD+'/cr_land_%s.png'%str(km).replace('.','_'),'wb').write(base64.b64decode(du.split(',')[1]))
         ms=await cp.evaluate("""(()=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');const ruta=rutaActiva();
           const t0=performance.now();for(let k=0;k<40;k++){const d=900+k*5;roadBands(x,412,300,d,dd=>valorRuta(ruta.b,ruta.paso,dd),dd=>valorRuta(ruta.e,ruta.paso,dd),ruta,escenaRumboEn(ruta,d),null);}return (performance.now()-t0)/40;})()""")
+        # v137: la carrera virtual (replay) sobre el recorrido de Rumbo
+        rr=await cp.evaluate("""(()=>{abrirReplay();const sel=document.getElementById('selectRepEscenario'),ruta=rutaActiva(),op=[...sel.options].find(o=>o.value==='ruta:'+ruta.id);
+          if(!op)return {op:false};
+          document.getElementById('repSetupCard').style.display='none';document.getElementById('repViewCard').style.display='block';document.getElementById('repRoadWrap').style.display='block';repRuta=ruta;repRacers=[{color:'#3d7ec9',fase:0},{color:'#E8B84B',fase:1}];repCam=0;fitRepRoad();
+          let llamado=0;const o1=roadBands;roadBands=function(){llamado++;return o1.apply(this,arguments)};
+          dibujarRepRuta([{r:repRacers[0],d:7000,velocidad:3},{r:repRacers[1],d:6985,velocidad:3.1}]);roadBands=o1;
+          cerrarReplay();return {op:true,txt:op.textContent,llamado};})()""")
+        print('   replay:',rr)
+        ok(rr['op'] and '🧭' in rr['txt'],'carrera virtual: el recorrido de Rumbo aparece en Vista')
+        ok(rr.get('llamado')==1,'carrera virtual: se dibuja sobre el recorrido (con vueltas si es más larga)')
         print('   un cuadro en el barrio: %.1f ms'%ms);ok(ms<30,'dibujar el barrio no es lento (%.1f ms por cuadro)'%ms)
         r=await cp.evaluate("""(()=>{const c=document.createElement('canvas');c.width=412;c.height=240;c.id='tstc';document.body.appendChild(c);const x=c.getContext('2d');
           let used=0,lab=[];const o1=dibujarHorizonteReal;dibujarHorizonteReal=function(){used++;return o1.apply(this,arguments)};
