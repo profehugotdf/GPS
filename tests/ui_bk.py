@@ -99,6 +99,23 @@ async def main():
             du=await bp.evaluate("""(km=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d'),rt={pts:points,dist},d=km*1000;
               roadBands(x,412,300,d,dd=>bearingRoute(rt,dd),dd=>eleRoute(rt,dd),fname);return c.toDataURL('image/png');})""",km)
             open(BUILD+'/bk_land_%s.png'%str(km).replace('.','_'),'wb').write(base64.b64decode(du.split(',')[1]))
+        # v168: viento real del recorrido (a mano: 30 km/h del oeste; el recorrido va al oeste → de frente)
+        await bp.evaluate("wxBuscar=async()=>{};")
+        r=await bp.evaluate("""(()=>{wxCfgSet({on:true,pct:100});WX=wxManual(30,270);mode='gpx';
+          const rel=wxRelativo(WX,bearingAt(1000),0),still=0.5*RHO*0.32*8*8,con=wxAire_v(8,0.32,rel).F;
+          const vuelta=wxRelativo(WX,bearingAt(1000)+Math.PI,0);
+          state='riding';distanceM=1000;wxRelAhora=rel;fitRoad();road3d=true;
+          const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');WX.lluvia=2;WX.nubes=80;
+          let cielo=0;const o1=wxCielo;wxCielo=function(){cielo++;return o1.apply(this,arguments)};
+          roadBands(x,412,300,2500,dd=>bearingRoute({pts:points,dist},dd),dd=>eleRoute({pts:points,dist},dd),fname);wxCielo=o1;
+          wxAire(x,412,300,132,WX,rel,3,8);wxFlecha(x,376,36,WX,rel);
+          state='idle';wxCfgSet({on:false});
+          return {fr:rel.frente,vu:vuelta.frente,still,con,cielo,du:c.toDataURL('image/png')};})()""")
+        open(BUILD+'/bk_viento.png','wb').write(base64.b64decode(r['du'].split(',')[1]))
+        print('   viento:',{k:round(v,1) for k,v in r.items() if k!='du'})
+        ok(r['fr']>5 and r['vu']<-5,'viento del oeste yendo al oeste: de frente; a la vuelta, de cola')
+        ok(r['con']>r['still']*2,'con viento de frente el aire frena mucho más (%.0f N vs %.0f N)'%(r['con'],r['still']))
+        ok(r['cielo']>=1,'la vista 3D dibuja el cielo con el clima')
         print('ERRORES JS Rumbo:',errs[:3] or 'ninguno',' · Bici:',berrs[:3] or 'ninguno');ok(not errs and not berrs,'sin errores');await b.close()
     srv.shutdown()
 asyncio.run(main())

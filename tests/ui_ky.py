@@ -63,6 +63,17 @@ async def main():
         await kp.evaluate("togglePlayRuta()");await kp.wait_for_timeout(700);d=await kp.evaluate("rutaPreviewD");await kp.evaluate("togglePlayRuta()");ok(d>5,'▶ Recorrer sin remar avanza (%d m)'%d)
         # recargar: sigue elegida
         await kp.reload();await kp.wait_for_timeout(1200);ok(await kp.evaluate("rutaActiva&&rutaActiva.nombre")=='Canal de prueba','queda guardada al recargar')
+        # v111: viento y clima reales (a mano, sin internet en la prueba)
+        r=await kp.evaluate("""(()=>{wxBuscar=async()=>{};document.getElementById('wxManV').value='35';document.getElementById('wxManD').value='90';wxManualUsar();
+          WX.lluvia=1.5;WX.nubes=85;let n=0,e=0;const o1=wxCielo,o2=wxEspuma;wxCielo=function(){n++;return o1.apply(this,arguments)};wxEspuma=function(){e++;return o2.apply(this,arguments)};
+          rutaPreviewD=600;renderSesionVivo();wxCielo=o1;wxEspuma=o2;
+          const vf=velConViento(3.5,6,1.225),vc=velConViento(3.5,-6,1.225);
+          return {n,e,info:document.getElementById('wxInfo').textContent,vf,vc,du:document.getElementById('canvasSesionVivo').toDataURL('image/png')};})()""")
+        import base64;open(BUILD+'/ky_viento.png','wb').write(base64.b64decode(r['du'].split(',')[1]))
+        print('   viento:',r['info'][:90],'· v de frente %.2f, de cola %.2f m/s'%(r['vf'],r['vc']))
+        ok(r['n']==1 and r['e']==1 and '35 km/h del este' in r['info'],'kayak: el viento puesto a mano se ve (cielo, espuma) y se anota')
+        ok(r['vf']<3.1 and r['vc']>3.5,'kayak: con la misma remada, de frente se avanza menos y de cola más')
+        await kp.evaluate("wxGuardarCfg({on:false})")
         # v110: carrera virtual sobre el recorrido
         r=await kp.evaluate("""(async()=>{const P=v=>Array.from({length:61},(_,i)=>({t:i*10,distAcum:i*10*v,cadencia:60,pulso:140}));
           carreraCorredores=[{sesion:{puntos:P(2.2),duracionSeg:600,fecha:new Date().toISOString()},fase:0,color:'#E8B84B'},{sesion:{puntos:P(2.0),duracionSeg:600,fecha:new Date().toISOString()},fase:0,color:'#3d7ec9'}];
