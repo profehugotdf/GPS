@@ -68,6 +68,17 @@ async def main():
             import base64;open(BUILD+'/cr_land_%s.png'%str(km).replace('.','_'),'wb').write(base64.b64decode(du.split(',')[1]))
         ms=await cp.evaluate("""(()=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');const ruta=rutaActiva();
           const t0=performance.now();for(let k=0;k<40;k++){const d=900+k*5;roadBands(x,412,300,d,dd=>valorRuta(ruta.b,ruta.paso,dd),dd=>valorRuta(ruta.e,ruta.paso,dd),ruta,escenaRumboEn(ruta,d),null);}return (performance.now()-t0)/40;})()""")
+        # v138: viento y clima reales (a mano: 30 km/h del oeste; el recorrido va al oeste → de frente)
+        r=await cp.evaluate("""(()=>{wxBuscar=async()=>{};document.getElementById('wxManV').value='30';document.getElementById('wxManD').value='270';wxManualUsar();
+          WX.nubes=70;WX.lluvia=1;const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');
+          let fl=0,txt=[];const o1=wxFlecha;wxFlecha=function(){fl++;return o1.apply(this,arguments)};const ft=x.fillText.bind(x);x.fillText=(s,a,b)=>{txt.push(s);ft(s,a,b)};
+          const prev=distanciaAcumM;distanciaAcumM=2500;actual.velocidad=3.3;dibujarEscenaRuta(x,412,300);distanciaAcumM=prev;wxFlecha=o1;
+          const vf=velCorrerConViento(3.3,6,70),vc=velCorrerConViento(3.3,-6,70),pe=pendienteEquivViento(3.3,6,70);
+          wxGuardarCfg({on:false});return {fl,cinta:txt.filter(s=>/cinta/.test(s)),vf,vc,pe,du:c.toDataURL('image/png')};})()""")
+        open(BUILD+'/cr_viento.png','wb').write(base64.b64decode(r['du'].split(',')[1]))
+        print('   viento:',{k:v for k,v in r.items() if k!='du'})
+        ok(r['fl']==1 and r['cinta'] and '+' in r['cinta'][0],'correr: flecha del viento y pendiente equivalente para la cinta')
+        ok(r['vf']<3.2 and r['vc']>3.3 and 1<r['pe']<4,'correr: de frente avanzás menos y equivale a subir la cinta (%.1f %%)'%r['pe'])
         # v137: la carrera virtual (replay) sobre el recorrido de Rumbo
         rr=await cp.evaluate("""(()=>{abrirReplay();const sel=document.getElementById('selectRepEscenario'),ruta=rutaActiva(),op=[...sel.options].find(o=>o.value==='ruta:'+ruta.id);
           if(!op)return {op:false};
