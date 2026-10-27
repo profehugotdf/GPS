@@ -99,6 +99,11 @@ async def main():
             du=await bp.evaluate("""(km=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d'),rt={pts:points,dist},d=km*1000;
               roadBands(x,412,300,d,dd=>bearingRoute(rt,dd),dd=>eleRoute(rt,dd),fname);return c.toDataURL('image/png');})""",km)
             open(BUILD+'/bk_land_%s.png'%str(km).replace('.','_'),'wb').write(base64.b64decode(du.split(',')[1]))
+        # v169: cambiar el nombre de la ruta (se lleva el escenario, el paisaje y el clima)
+        r=await bp.evaluate("""(()=>{const viejo=fname;wxGuardar(viejo,wxManual(10,0));const ok=renombrarRuta(viejo,'Vuelta de prueba');
+          return {ok,f:fname,ruta:!!loadRoutesMap()['Vuelta de prueba.gpx'],vieja:!!loadRoutesMap()[viejo],esc:(loadScenes()['Vuelta de prueba.gpx']||[]).length,ex:!!loadRouteExtra()['Vuelta de prueba.gpx'],wx:!!wxUltimos()['Vuelta de prueba.gpx']};})()""")
+        print('   renombrar:',r)
+        ok(r['ok'] and r['f']=='Vuelta de prueba.gpx' and r['ruta'] and not r['vieja'] and r['esc']>0 and r['ex'] and r['wx'],'✏️ cambiar el nombre de la ruta se lleva escenario, paisaje y clima')
         # v168: viento real del recorrido (a mano: 30 km/h del oeste; el recorrido va al oeste → de frente)
         await bp.evaluate("wxBuscar=async()=>{};")
         r=await bp.evaluate("""(()=>{wxCfgSet({on:true,pct:100});WX=wxManual(30,270);mode='gpx';
