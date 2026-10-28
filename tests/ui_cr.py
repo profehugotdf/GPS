@@ -86,6 +86,19 @@ async def main():
           let llamado=0;const o1=roadBands;roadBands=function(){llamado++;return o1.apply(this,arguments)};
           dibujarRepRuta([{r:repRacers[0],d:7000,velocidad:3},{r:repRacers[1],d:6985,velocidad:3.1}]);roadBands=o1;
           cerrarReplay();return {op:true,txt:op.textContent,llamado};})()""")
+        # v139: perspectiva de los otros corredores
+        pp=await cp.evaluate("""(()=>{const ruta=rutaActiva(),c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');
+          const S=roadBands(x,412,300,2500,dd=>valorRuta(ruta.b,ruta.paso,dd),dd=>valorRuta(ruta.e,ruta.paso,dd),ruta,escenaRumboEn(ruta,2500),null);
+          const youS=Math.max(20,300*0.135),cam=camaraCorredor(S,300,youS),a=puntoOtroCorredor(S,cam,0,0),b=puntoOtroCorredor(S,cam,10,0.9),z=puntoOtroCorredor(S,cam,40,-0.9),atr=puntoOtroCorredor(S,cam,-30,0);
+          abrirReplay();repRuta=ruta;repRacers=[{color:'#3d7ec9',fase:0},{color:'#6FDD8E',fase:1},{color:'#E8B84B',fase:2},{color:'#c94b4b',fase:3}];repCam=0;
+          document.getElementById('repSetupCard').style.display='none';document.getElementById('repViewCard').style.display='block';document.getElementById('repRoadWrap').style.display='block';fitRepRoad();
+          dibujarRepRuta([{r:repRacers[0],d:2500,velocidad:3},{r:repRacers[1],d:2501,velocidad:3},{r:repRacers[2],d:2512,velocidad:3},{r:repRacers[3],d:2420,velocidad:3}]);
+          const du=document.getElementById('repRoad').toDataURL('image/png');cerrarReplay();
+          return {a0:a.s/youS,ay:a.y,b:b.s/youS,z:z.s/youS,atras:atr===null,du};})()""")
+        open(BUILD+'/cr_persp.png','wb').write(base64.b64decode(pp['du'].split(',')[1]))
+        print('   perspectiva:',{k:(round(v,2) if isinstance(v,float) else v) for k,v in pp.items() if k!='du'})
+        ok(abs(pp['a0']-1)<0.08 and abs(pp['ay']-294)<6,'otro corredor parejo con vos: mismo tamaño y en el mismo lugar del piso')
+        ok(pp['b']<0.75 and pp['z']<pp['b'] and pp['atras'],'más lejos, más chico; 30 m atrás queda detrás de la cámara')
         print('   replay:',rr)
         ok(rr['op'] and '🧭' in rr['txt'],'carrera virtual: el recorrido de Rumbo aparece en Vista')
         ok(rr.get('llamado')==1,'carrera virtual: se dibuja sobre el recorrido (con vueltas si es más larga)')
