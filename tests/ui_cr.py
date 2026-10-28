@@ -66,6 +66,15 @@ async def main():
             du=await cp.evaluate("""(km=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');const ruta=rutaActiva();const d=km*1000;
               roadBands(x,412,300,d,dd=>valorRuta(ruta.b,ruta.paso,dd),dd=>valorRuta(ruta.e,ruta.paso,dd),ruta,escenaRumboEn(ruta,d),null);return c.toDataURL('image/png');})""",km)
             import base64;open(BUILD+'/cr_land_%s.png'%str(km).replace('.','_'),'wb').write(base64.b64decode(du.split(',')[1]))
+        # v140: barrio sin casas en el mapa → casas genéricas del lado izquierdo; y el diagnóstico de datos del mapa
+        r=await cp.evaluate("""(()=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');const ruta=rutaActiva();
+          let izq=0,der=0;const o1=landCasa;landCasa=function(ctx,S,dd,side){if(side<0)izq++;else der++;return o1.apply(this,arguments)};
+          roadBands(x,412,300,1300,dd=>valorRuta(ruta.b,ruta.paso,dd),dd=>valorRuta(ruta.e,ruta.paso,dd),ruta,Object.assign({},escenaRumboEn(ruta,1300),{waterSide:null}),null);landCasa=o1;
+          const m=landEn(paisajeDe(ruta).land,1350);mapaInfoRuta(ruta);
+          return {izq,der,c:m.c,b:m.b,info:document.getElementById('mapaInfoRuta').textContent,du:c.toDataURL('image/png')};})()""")
+        open(BUILD+'/cr_barrio.png','wb').write(base64.b64decode(r.pop('du').split(',')[1]));print('   barrio:',r)
+        ok(r['izq']>3 and r['b'][0]==0,'barrio sin casas en el mapa: se completa con casas genéricas')
+        ok('casas en el mapa' in r['info'] and 'tramo' in r['info'],'se ve qué datos del mapa trajo el recorrido')
         ms=await cp.evaluate("""(()=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');const ruta=rutaActiva();
           const t0=performance.now();for(let k=0;k<40;k++){const d=900+k*5;roadBands(x,412,300,d,dd=>valorRuta(ruta.b,ruta.paso,dd),dd=>valorRuta(ruta.e,ruta.paso,dd),ruta,escenaRumboEn(ruta,d),null);}return (performance.now()-t0)/40;})()""")
         # v138: viento y clima reales (a mano: 30 km/h del oeste; el recorrido va al oeste → de frente)

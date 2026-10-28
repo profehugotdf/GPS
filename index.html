@@ -12355,6 +12355,9 @@ function bkOsmQ(bb,line){
   const bx=`(${bb.s},${bb.w},${bb.n},${bb.e})`;
   if(!line)return `[out:json][timeout:90];(way["natural"="coastline"]${bx};way["natural"="water"]${bx};rel["natural"="water"]${bx};way["waterway"~"^(river|canal)$"]${bx};way["landuse"~"^(residential|commercial|retail)$"]${bx};rel["landuse"~"^(residential|commercial|retail)$"]${bx};way["natural"="wood"]${bx};way["landuse"="forest"]${bx};rel["natural"="wood"]${bx};rel["landuse"="forest"]${bx};);out geom qt;`;
   const ln=line.map(p=>p[0].toFixed(5)+','+p[1].toFixed(5)).join(',');
+  /* nivel intermedio: el uso del suelo de antes + las calles pegadas al camino (sin casas): alcanza para saber si es
+     ciudad y que Bici y Correr completen las cuadras */
+  if(line.medio)return `[out:json][timeout:120];(way["natural"="coastline"]${bx};way["natural"="water"]${bx};rel["natural"="water"]${bx};way["waterway"~"^(river|canal)$"]${bx};way["landuse"~"^(residential|commercial|retail|industrial|farmland|meadow|grass|forest)$"]${bx};rel["landuse"~"^(residential|commercial|retail|industrial|forest)$"]${bx};way["natural"~"^(wood|scrub|grassland|sand|beach)$"]${bx};way["leisure"="park"]${bx};);out geom qt;way["highway"](around:18,${ln});out tags geom qt;`;
   return `[out:json][timeout:150];(${BK_AREAS.split('{B}').join(bx)});out geom qt;way["building"](around:55,${ln});out tags center qt;way["highway"](around:18,${ln});out tags geom qt;`;
 }
 async function bkOver(q,ms){
@@ -12366,9 +12369,14 @@ async function bkOver(q,ms){
   }
   throw last||new Error('sin respuesta');
 }
+/* de la consulta más completa a la más liviana: si OpenStreetMap no responde a tiempo (ciudades grandes), se pide menos.
+   BK.osmNivel queda con lo que se consiguió, para avisarlo. */
 async function bkOsm(bb,line){
+  BK.osmNivel='básico';
   if(!line)return bkOver(bkOsmQ(bb,null),100000);
-  try{return await bkOver(bkOsmQ(bb,line),160000);}catch(e){errLog(e,'escenario completo (OpenStreetMap)');return bkOver(bkOsmQ(bb,null),100000);}
+  try{const r=await bkOver(bkOsmQ(bb,line),160000);BK.osmNivel='completo';return r;}catch(e){errLog(e,'escenario completo (OpenStreetMap)');}
+  try{const l2=line.slice();l2.medio=true;const r=await bkOver(bkOsmQ(bb,l2),130000);BK.osmNivel='sin casas';return r;}catch(e){errLog(e,'escenario medio (OpenStreetMap)');}
+  return bkOver(bkOsmQ(bb,null),100000);
 }
 /* el recorrido cada ~40 m (como mucho 1200 puntos) para las consultas "pegadas al camino" */
 function bkLine(P){const L=P[P.length-1][2],st=Math.max(40,L/1200),out=[];let nx=0;for(const p of P)if(p[2]>=nx){out.push(p);nx=p[2]+st;}const z=P[P.length-1];if(out[out.length-1]!==z)out.push(z);return out;}
@@ -12634,8 +12642,8 @@ async function bkSend(o){
   const gpx=`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Rumbo"><trk><name>${nm}</name><trkseg>`+R.pts.map((p,i)=>`<trkpt lat="${p[0].toFixed(6)}" lon="${p[1].toFixed(6)}"><ele>${prof[i].toFixed(1)}</ele></trkpt>`).join('')+'</trkseg></trk></gpx>';
   const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground,land});
   const resum=`${dec(R.L/1000,1)} km · ↑ ${Math.round(up)} m · pendiente máx ${Math.round(gm*100)} %`+(scenes?` · escenario de ${scenes.length} tramo${scenes.length>1?'s':''}`:'')+(hz?' · montañas reales':'')+(ground?' · colores del suelo':'')+(land&&land.st.bld?` · ${land.st.bld} casas y edificios`:'')+(land&&land.st.via?' · tipo de calle':'');
-  toast(`${APP.ico} Listo: ${resum}${scErr?' (sin datos de OpenStreetMap: escenario solo por altura)':''}. Se abre ${APP.nom}…`,6000);
-  BK.last={name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground,land:land&&land.st};
+  toast(`${APP.ico} Listo: ${resum}${scErr?' (sin datos de OpenStreetMap: escenario solo por altura)':BK.osmNivel&&BK.osmNivel!=='completo'?` (OpenStreetMap respondió solo lo ${BK.osmNivel==='sin casas'?'de las calles, sin casas':'básico'})`:''}. Se abre ${APP.nom}…`,7000);
+  BK.last={osm:scErr?'sin datos':BK.osmNivel,name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground,land:land&&land.st};
   setTimeout(()=>{const a=document.createElement('a');a.href=APP.url+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 const BK={last:null};
