@@ -4740,7 +4740,7 @@ function ensureGraph(opt){
 function dropGraph(){G=null;GP=null;try{if(typeof PL!=='undefined'){PL.cache.clear();if(PL.on)setTimeout(plRoute,50);}}catch(e){errLog(e)}}  // una corrección nueva cambia los tramos ya calculados
 
 /* Descarga de la red desde OpenStreetMap (Overpass) */
-const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
 const KEEP=['highway','name','oneway','junction','access','foot','bicycle','motor_vehicle','motorcar','vehicle','maxspeed','service','oneway:bicycle','cycleway','cycleway:left','cycleway:right','route','duration','ref','surface','motorroad'];
 async function fetchNet(bb,regional){
   const bx=`(${bb.s},${bb.w},${bb.n},${bb.e})`;
@@ -12362,12 +12362,33 @@ function bkOsmQ(bb,line){
 }
 async function bkOver(q,ms){
   let last;
+  /* si el servidor dice "esperá" (429: muchas consultas seguidas; 504: ocupado), se espera un poco y se prueba el siguiente */
   for(const url of OVERPASS){
     try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),ms);
       const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});clearTimeout(to);
-      if(!r.ok)throw new Error('HTTP '+r.status);return (await r.json()).elements||[];}catch(e){last=e;}
+      if(!r.ok){if(r.status===429||r.status===504)await new Promise(z=>setTimeout(z,8000));throw new Error('HTTP '+r.status+' ('+url.split('/')[2]+')');}
+      return (await r.json()).elements||[];}catch(e){last=e.name==='AbortError'?new Error('no respondió a tiempo ('+url.split('/')[2]+')'):e;}
   }
   throw last||new Error('sin respuesta');
+}
+/* las calles que Rumbo ya tiene guardadas para calcular rutas (las de 🗺️ redes bajadas): sirven para los costados
+   aunque OpenStreetMap no responda en el momento. Hugo: un recorrido por la ciudad llegaba a Correr "sin los costados" */
+async function bkHwLocal(bb){
+  const out=[];
+  for(const n of await DB.all('kv','net:')){
+    if(!n||!n.bb||n.bb.n<bb.s||n.bb.s>bb.n||n.bb.e<bb.w||n.bb.w>bb.e)continue;
+    for(const w of n.ways||[]){const v=bkVia(w.t||{});if(!v||!w.p)continue;
+      for(let i=0;i+3<w.p.length;i+=2){const a=w.p[i],o=w.p[i+1],b=w.p[i+2],e=w.p[i+3];
+        if(Math.max(a,b)<bb.s||Math.min(a,b)>bb.n||Math.max(o,e)<bb.w||Math.min(o,e)>bb.e)continue;out.push({s:[a,o,b,e],v});}}
+  }
+  return out;
+}
+/* tramos que el mapa no marcó como ciudad pero van casi todos por calles de barrio asfaltadas → urbana */
+function bkScenesUrbanas(scenes,land,south){
+  if(!scenes||!land)return scenes;const U=Uint8Array.from(atob(land.d.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+  return scenes.map((x,i)=>{if(x.scene!=='rural')return x;const a=Math.floor(x.km*1000/land.sp),b=Math.min(land.n,Math.ceil(((i+1<scenes.length?scenes[i+1].km:1e9)*1000)/land.sp));
+    let n=0,c=0;for(let q=a;q<b;q++){const v=U[q*7+6];n++;if((v&15)===4&&!(v&16))c++;}
+    return n&&c/n>0.6?Object.assign({},x,{scene:south?'ciudad':'urbana'}):x;});
 }
 /* de la consulta más completa a la más liviana: si OpenStreetMap no responde a tiempo (ciudades grandes), se pide menos.
    BK.osmNivel queda con lo que se consiguió, para avisarlo. */
@@ -12619,9 +12640,14 @@ async function bkSend(o){
     try{let bb={n:-90,s:90,e:-180,w:180};for(const p of R.pts){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}
       bb={n:bb.n+.004,s:bb.s-.004,e:bb.e+.006,w:bb.w-.006};
       const F=bkFeatures(await bkOsm(bb,bkLine(R.pts)));scenes=bkScenes(R.pts,prof,F,demS);
-      if(F.bld.length||F.hw.length||F.some(f=>f.c))try{land=bkLand(R.pts,F);}catch(e){errLog(e,'costados del camino');}}catch(e){scErr=e.message||String(e);}
+      if(!F.hw.length)try{F.hw=await bkHwLocal(bb);}catch(e){errLog(e,'calles guardadas');}
+      if(F.bld.length||F.hw.length||F.some(f=>f.c))try{land=bkLand(R.pts,F);}catch(e){errLog(e,'costados del camino');}}catch(e){scErr=e.message||String(e);errLog(e,'escenario (OpenStreetMap)');}
   }
   if(!scenes){try{scenes=bkScenes(R.pts,prof,[],demS);}catch(e){errLog(e)}}
+  /* sin respuesta de OpenStreetMap: los costados igual salen de las calles guardadas en Rumbo */
+  if(!land){try{let bb={n:-90,s:90,e:-180,w:180};for(const p of R.pts){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}
+    const F=[];F.bld=[];F.hw=await bkHwLocal({n:bb.n+.002,s:bb.s-.002,e:bb.e+.003,w:bb.w-.003});if(F.hw.length)land=bkLand(R.pts,F);}catch(e){errLog(e,'costados con calles guardadas');}}
+  try{scenes=bkScenesUrbanas(scenes,land,R.pts[0][0]<-45);}catch(e){errLog(e);}
   /* horizonte real y color del suelo (si algo falla, Bici usa sus montañas y colores de siempre) */
   let hz=null,peaks=[],ground=null;
   try{
@@ -12640,7 +12666,7 @@ async function bkSend(o){
   try{toast('🎨 Mirando el color del suelo en la foto satelital…',30000);ground=await bkGround(R.pts,R.L>40000?14:15);}catch(e){ground=null;}
   const nm=(o.name||'Ruta de Rumbo').replace(/[<>&"]/g,'').slice(0,60);
   const gpx=`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Rumbo"><trk><name>${nm}</name><trkseg>`+R.pts.map((p,i)=>`<trkpt lat="${p[0].toFixed(6)}" lon="${p[1].toFixed(6)}"><ele>${prof[i].toFixed(1)}</ele></trkpt>`).join('')+'</trkseg></trk></gpx>';
-  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground,land});
+  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground,land,osm:scErr?('sin respuesta: '+scErr).slice(0,120):(BK.osmNivel||'')});
   const resum=`${dec(R.L/1000,1)} km · ↑ ${Math.round(up)} m · pendiente máx ${Math.round(gm*100)} %`+(scenes?` · escenario de ${scenes.length} tramo${scenes.length>1?'s':''}`:'')+(hz?' · montañas reales':'')+(ground?' · colores del suelo':'')+(land&&land.st.bld?` · ${land.st.bld} casas y edificios`:'')+(land&&land.st.via?' · tipo de calle':'');
   toast(`${APP.ico} Listo: ${resum}${scErr?' (sin datos de OpenStreetMap: escenario solo por altura)':BK.osmNivel&&BK.osmNivel!=='completo'?` (OpenStreetMap respondió solo lo ${BK.osmNivel==='sin casas'?'de las calles, sin casas':'básico'})`:''}. Se abre ${APP.nom}…`,7000);
   BK.last={osm:scErr?'sin datos':BK.osmNivel,name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground,land:land&&land.st};
