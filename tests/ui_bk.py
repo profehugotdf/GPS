@@ -104,6 +104,12 @@ async def main():
           return {ok,f:fname,ruta:!!loadRoutesMap()['Vuelta de prueba.gpx'],vieja:!!loadRoutesMap()[viejo],esc:(loadScenes()['Vuelta de prueba.gpx']||[]).length,ex:!!loadRouteExtra()['Vuelta de prueba.gpx'],wx:!!wxUltimos()['Vuelta de prueba.gpx']};})()""")
         print('   renombrar:',r)
         ok(r['ok'] and r['f']=='Vuelta de prueba.gpx' and r['ruta'] and not r['vieja'] and r['esc']>0 and r['ex'] and r['wx'],'✏️ cambiar el nombre de la ruta se lleva escenario, paisaje y clima')
+        # v172: lados a mano en el editor de escenarios de Bici
+        r=await bp.evaluate("""(()=>{const sc=getRouteScenes(fname).map(x=>Object.assign({},x));sc[0].izq='parque';sc[0].der='casas';setRouteScenes(fname,sc);
+          const L=landDeRuta(fname,routeExtra(fname)&&routeExtra(fname).land),m=landEn(L,100);openSceneEditor(fname,total,'routes');const sels=document.querySelectorAll('#sceneRows select').length;closeSceneEditor();
+          return {c:m.c,b:m.b.map(x=>x>>5),sels};})()""")
+        print('   bici lados:',r)
+        ok(r['c']==[4,1] and r['b'][0]==0 and r['b'][1]==0 and r['sels']>=5,'bici: lados a mano en el editor (parque izquierda, casas derecha)')
         # v168: viento real del recorrido (a mano: 30 km/h del oeste; el recorrido va al oeste → de frente)
         await bp.evaluate("wxBuscar=async()=>{};")
         r=await bp.evaluate("""(()=>{wxCfgSet({on:true,pct:100});WX=wxManual(30,270);mode='gpx';

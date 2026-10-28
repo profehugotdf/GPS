@@ -78,15 +78,16 @@ async def main():
         # v142: editor de escenarios, también para un GPX común (sin Rumbo): un tramo urbano arma las cuadras
         r=await cp.evaluate("""(()=>{const gpx='<gpx><trk><trkseg>'+Array.from({length:60},(_,i)=>'<trkpt lat="-34.6" lon="'+(-58.4-i*0.0005)+'"><ele>20</ele></trkpt>').join('')+'</trkseg></trk></gpx>';
           const prevId=rutaActiva().id;const ruta=construirRuta(leerPuntosGPX(gpx),'GPX común');guardarRuta(ruta);const sel=document.getElementById('selectEscenario');poblarOpcionesRutas();sel.value='ruta:'+ruta.id;cambiarEscenario();
-          abrirEditorEscenas();const antes=escEdit.filas.length;agregarTramoEscena();escEdit.filas[1].km=0.5;escEdit.filas[1].scene='ciudad';escEdit.filas[0].scene='rural';guardarEscenas();
+          abrirEditorEscenas();const antes=escEdit.filas.length;agregarTramoEscena();escEdit.filas[1].km=0.5;escEdit.filas[1].scene='ciudad';escEdit.filas[1].izq='parque';escEdit.filas[1].der='edificios';escEdit.filas[0].scene='rural';guardarEscenas();
           const r2=rutaActiva(),P=paisajeDe(r2);let casas=0;const o1=landCasa;landCasa=function(){casas++;return o1.apply(this,arguments)};
           const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');
           roadBands(x,412,300,1000,dd=>valorRuta(r2.b,r2.paso,dd),()=>0,r2,escenaRumboEn(r2,1000),null);landCasa=o1;
           const r0=casas;casas=0;landCasa=function(){casas++;return o1.apply(this,arguments)};roadBands(x,412,300,100,dd=>valorRuta(r2.b,r2.paso,dd),()=>0,r2,escenaRumboEn(r2,100),null);landCasa=o1;
-          const out={antes,tramos:P&&P.scenes.length,ciudad:escenaRumboEn(r2,1000).label,casasCiudad:r0,casasRural:casas};
+          const lm=landEn(P.land,1000);const out={lados:lm.c,bld:lm.b.map(b=>b>>5),antes,tramos:P&&P.scenes.length,ciudad:escenaRumboEn(r2,1000).label,casasCiudad:r0,casasRural:casas};
           bigSet(K_RUTAS,bigGet(K_RUTAS,[]).filter(x=>x.id!==r2.id));poblarOpcionesRutas();sel.value='ruta:'+prevId;cambiarEscenario();return out;})()""")
         print('   escenarios a mano:',r)
         ok(r['antes']==1 and r['tramos']==2 and r['ciudad']=='Casas de colores','🎨 editar escenarios: se guarda el tramo de ciudad en un GPX común')
+        ok(r['lados']==[4,2] and r['bld'][0]==0 and r['bld'][1]==1,'lados a mano: parque a la izquierda, edificios a la derecha')
         ok(r['casasCiudad']>5 and r['casasRural']<r['casasCiudad'],'en el tramo de ciudad se arman las cuadras aunque no haya datos del mapa')
         ms=await cp.evaluate("""(()=>{const c=document.createElement('canvas');c.width=412;c.height=300;const x=c.getContext('2d');const ruta=rutaActiva();
           const t0=performance.now();for(let k=0;k<40;k++){const d=900+k*5;roadBands(x,412,300,d,dd=>valorRuta(ruta.b,ruta.paso,dd),dd=>valorRuta(ruta.e,ruta.paso,dd),ruta,escenaRumboEn(ruta,d),null);}return (performance.now()-t0)/40;})()""")
