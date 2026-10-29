@@ -1025,7 +1025,8 @@ function toGPX(tracks,wpts,esc){
 /* ====================== RED DE CALLES Y RUTAS ====================== */
 const MODES=['foot','bike','car'];
 const KIND_TAGS={sendero:{highway:'path'},escalera:{highway:'steps'},peatonal:{highway:'footway'},ciclovia:{highway:'cycleway'},calle:{highway:'residential'},
-  camino:{highway:'track'},servicio:{highway:'service'},principal:{highway:'secondary'},ruta:{highway:'primary'},ferry:{route:'ferry'},nivel:{contour:'elevation'},medida:{measure:'yes'},costa:{natural:'coastline'},limite:{boundary:'administrative'},rio:{waterway:'river'}};
+  camino:{highway:'track'},servicio:{highway:'service'},principal:{highway:'secondary'},ruta:{highway:'primary'},ferry:{route:'ferry'},nivel:{contour:'elevation'},medida:{measure:'yes'},costa:{natural:'coastline'},limite:{boundary:'administrative'},rio:{waterway:'river'},
+  muelle:{man_made:'pier'},puente:{man_made:'bridge'},tunel:{man_made:'tunnel'},terraplen:{man_made:'embankment'},desmonte:{man_made:'cutting'}};
 /* "clave=valor" por línea -> pares válidos */
 function parseTagLines(s){
   const out=[];
@@ -4675,8 +4676,10 @@ const isWater=m=>m==='kayak'||m==='swim';
 /* cuántas veces más larga que la línea recta es la ruta (para detectar vueltas enormes, como ir en auto a una isla) */
 const rodeo=r=>{const f=RT.calcFrom,t=RT.to;if(!r||r.err||!f||!t)return 0;const d=hav([f.lat,f.lon],[t.lat,t.lon]);return d>300?r.dist/d:0;};
 const RMODES=['foot','bike','car','kayak','swim'];
-const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],calle:['🏘️','Calle'],ciclovia:['🚲','Ciclovía'],peatonal:['🚶','Paso peatonal'],camino:['🛤️','Camino de ripio o tierra'],medida:['📏','Medición'],costa:['🌊','Costa'],limite:['🚩','Límite'],rio:['🏞️','Río o arroyo'],servicio:['🅿️','Calle de servicio'],principal:['🚗','Calle principal'],ruta:['🛣️','Ruta'],ferry:['⛴️','Ferry'],nivel:['〰️','Curva de nivel']};
-const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',camino:'#8E5B2B',medida:'#F04A1C',costa:'#1F5F8B',limite:'#9B3FA0',rio:'#4A90D9',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E'};
+const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],calle:['🏘️','Calle'],ciclovia:['🚲','Ciclovía'],peatonal:['🚶','Paso peatonal'],camino:['🛤️','Camino de ripio o tierra'],medida:['📏','Medición'],costa:['🌊','Costa'],limite:['🚩','Límite'],rio:['🏞️','Río o arroyo'],servicio:['🅿️','Calle de servicio'],principal:['🚗','Calle principal'],ruta:['🛣️','Ruta'],ferry:['⛴️','Ferry'],nivel:['〰️','Curva de nivel'],muelle:['🪵','Muelle'],puente:['🌉','Puente'],tunel:['🚇','Túnel'],terraplen:['📐','Terraplén'],desmonte:['⛏️','Desmonte']};
+/* 🧱 elementos del camino y de la costa: no se rutean; viajan a Kayak (y después a Bici y Correr) con su posición real */
+const ELEMK=['muelle','puente','tunel','terraplen','desmonte'];
+const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',camino:'#8E5B2B',medida:'#F04A1C',costa:'#1F5F8B',limite:'#9B3FA0',rio:'#4A90D9',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E',muelle:'#8B5E34',puente:'#5D6D7E',tunel:'#34495E',terraplen:'#B9770E',desmonte:'#7D6608'};
 const routeLayer=L.layerGroup().addTo(map),editLayer=L.layerGroup().addTo(map),pickLayer=L.layerGroup().addTo(map);
 const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente'],['calm','🚲','Por bicisendas']];
 const CALM={cycleway:.7,footway:.75,pedestrian:.75,path:.8,track:.9,bridleway:.9,living_street:.9,steps:1,residential:1,service:1.05,road:1.1,unclassified:1.15,tertiary:1.3,secondary:1.5,primary:1.7,trunk:2,motorway:2.5};   // un rodeo de hasta ~2 veces para evitar una avenida, no más
@@ -9011,8 +9014,8 @@ map.on('moveend',()=>{if(EV.on)evDraw();try{const c=map.getCenter();S.view=[+c.l
 
 /* ---------- Calcar: dibujar senderos, calles y escaleras sobre la imagen (quedan en el mapa y son ruteables) ---------- */
 const TR={on:false,pts:[],snapped:[],strokes:[],mode:'taps',shape:'line',kind:'sendero',akind:'bosque',oneway:0,props:{},aprops:{},snap:true,saved:0,drawing:false,pid:null};
-const NOROUTE=new Set(['nivel','medida','costa','limite','rio']);
-const LINE_QUICK=['sendero','escalera','calle','camino','costa','limite','rio','nivel'],AREA_QUICK=['bosque','agua','parque','cerrada','edificio','otro'];
+const NOROUTE=new Set(['nivel','medida','costa','limite','rio',...ELEMK]);
+const LINE_QUICK=['sendero','escalera','calle','camino','costa','limite','rio','nivel',...ELEMK],AREA_QUICK=['bosque','agua','parque','cerrada','edificio','otro'];
 const traceLayer=L.layerGroup().addTo(map);
 const VKIND={costa:'coast',limite:'border',rio:'river',medida:'measure',sendero:'path',escalera:'steps',peatonal:'footway',ciclovia:'cycleway',calle:'residential',camino:'track',servicio:'service',principal:'secondary',ruta:'primary',ferry:'ferry',nivel:'contour_minor'};
 const mppNow=()=>40075016.686*Math.cos(map.getCenter().lat*rad)/(256*Math.pow(2,map.getZoom()));
@@ -9228,7 +9231,7 @@ function propsLine(e){
 }
 function propsForm(st,title,onSave,onBack){
   st.props=cleanProps(st.props);
-  const nivel=['nivel','medida','costa','limite','rio'].includes(st.kind);
+  const nivel=['nivel','medida','costa','limite','rio',...ELEMK].includes(st.kind);
   const LVL=[[2,'País'],[4,'Provincia'],[6,'Departamento'],[8,'Municipio']];
   const q=st.props,ac=q.access,chk=(id,v,txt)=>`<label class="chk"><input type="checkbox" id="${id}" ${v?'checked':''}> ${txt}</label>`;
   const html=`
@@ -9236,7 +9239,7 @@ function propsForm(st,title,onSave,onBack){
     <div class="chips">${Object.entries(KIND_UI).map(([k,[ic,n]])=>`<button data-act="pk" data-k="${k}" class="${k===st.kind?'on':''}">${ic} ${n}</button>`).join('')}</div>
     <label for="pn">Nombre (etiqueta en el mapa)</label><input class="in" id="pn" value="${esc(st.name||'')}">
     <label for="pr">Número de ruta (opcional)</label><input class="in" id="pr" value="${esc(q.ref||'')}" placeholder="ej. RN3">
-    ${nivel?(st.kind==='nivel'?`<label for="pe">Altitud de la curva (m)</label><input class="in" id="pe" type="number" min="0" max="9000" value="${q.ele||''}">`:st.kind==='rio'?`<label>Para dónde va la corriente</label><div class="chips">${[[1,'Como lo dibujé'],[-1,'Al revés'],[0,'No sé']].map(([v,n])=>`<button data-act="pfl" data-v="${v}" class="${v===(q.flow||0)?'on':''}">${n}</button>`).join('')}</div><p class="mut">Sirve para calcular el kayak a favor o en contra.</p>`:st.kind==='limite'?`<label>Qué límite es</label><div class="chips">${LVL.map(([v,n])=>`<button data-act="plv" data-v="${v}" class="${v===(q.level||4)?'on':''}">${n}</button>`).join('')}</div>`:''):`    ${st.kind==='ferry'?`<label for="pd">Duración del cruce (min)</label><input class="in" id="pd" type="number" min="1" max="1440" value="${q.duration||''}" placeholder="ej. 30">`:`<label for="pv">Velocidad máxima (km/h, vacío = la típica del tipo)</label><input class="in" id="pv" type="number" min="5" max="130" value="${q.maxspeed||''}">`}
+    ${nivel?(st.kind==='nivel'?`<label for="pe">Altitud de la curva (m)</label><input class="in" id="pe" type="number" min="0" max="9000" value="${q.ele||''}">`:st.kind==='rio'?`<label>Para dónde va la corriente</label><div class="chips">${[[1,'Como lo dibujé'],[-1,'Al revés'],[0,'No sé']].map(([v,n])=>`<button data-act="pfl" data-v="${v}" class="${v===(q.flow||0)?'on':''}">${n}</button>`).join('')}</div><p class="mut">Sirve para calcular el kayak a favor o en contra.</p>`:st.kind==='limite'?`<label>Qué límite es</label><div class="chips">${LVL.map(([v,n])=>`<button data-act="plv" data-v="${v}" class="${v===(q.level||4)?'on':''}">${n}</button>`).join('')}</div>`:['puente','terraplen','desmonte'].includes(st.kind)?`<label for="pal">${st.kind==='puente'?'Altura sobre el agua o el suelo (m)':'Altura (m)'} (vacío = la típica)</label><input class="in" id="pal" type="number" min="1" max="200" value="${q.alto||''}">`:''):`    ${st.kind==='ferry'?`<label for="pd">Duración del cruce (min)</label><input class="in" id="pd" type="number" min="1" max="1440" value="${q.duration||''}" placeholder="ej. 30">`:`<label for="pv">Velocidad máxima (km/h, vacío = la típica del tipo)</label><input class="in" id="pv" type="number" min="5" max="130" value="${q.maxspeed||''}">`}
     <label>Sentido</label>
     <div class="chips">${[[0,'⇄ Ambos'],[1,'➤ Como se dibujó'],[-1,'◀ Al revés']].map(([v,n])=>`<button data-act="po" data-v="${v}" class="${v===(st.oneway||0)?'on':''}">${n}</button>`).join('')}</div>
     ${chk('pb',q.bikeBoth,'Las bicis pueden ir en los dos sentidos')}
@@ -9263,7 +9266,7 @@ function propsForm(st,title,onSave,onBack){
         if(!o.maxspeed)delete o.maxspeed;if(!o.minz)delete o.minz;if(!o.surface)delete o.surface;if(!o.ref)delete o.ref;
         if(o.status!=='closed')delete o.status;
         for(const k of ['bikeBoth','bridge','tunnel','toll'])if(!o[k])delete o[k];
-        if(!o.ele)delete o.ele;if(!o.duration)delete o.duration;if(!o.note)delete o.note;if(!o.tags)delete o.tags;
+        if(!o.ele)delete o.ele;if(!o.alto)delete o.alto;if(!o.duration)delete o.duration;if(!o.note)delete o.note;if(!o.tags)delete o.tags;
         st.props=o;onSave(st);
       }
       else if(a==='back')onBack&&onBack();
@@ -9275,6 +9278,7 @@ function propsForm(st,title,onSave,onBack){
       else if(t.id==='pv')q.maxspeed=num(t.value);
       else if(t.id==='pd')q.duration=num(t.value);
       else if(t.id==='pe')q.ele=num(t.value);
+      else if(t.id==='pal')q.alto=num(t.value);
       else if(t.id==='pb')q.bikeBoth=t.checked;
       else if(t.id==='af')ac.foot=t.checked;
       else if(t.id==='ab')ac.bike=t.checked;
@@ -9986,7 +9990,7 @@ async function vecBuild(){
   };
   const edits=await DB.all('kv','edit:'),areas=[];
   for(const e of edits){
-    if(e.type==='path'&&e.pts&&e.pts.length>1){
+    if(e.type==='path'&&e.pts&&e.pts.length>1&&!ELEMK.includes(e.kind)){
       const q=e.props||{};
       let cls=VKIND[e.kind]||'path',name=e.name||'';
       if(e.kind==='nivel'){cls=(q.ele>0&&q.ele%100===0)?'contour_major':'contour_minor';if(!name&&q.ele)name=q.ele+' m';}
@@ -12679,6 +12683,69 @@ const BK={last:null};
    tierra a la izquierda y a la derecha (hasta 2 km), qué altura tiene la orilla (barranca, bosque) y de qué color es
    (foto satelital). Además, las montañas reales del horizonte y los cerros con nombre, igual que en Bici. */
 const KY_URL='https://profehugotdf.github.io/Kayak-Indoor-/';
+/* ---------- 🧱 Muelles, puentes, túneles, terraplenes y desmontes ----------
+   Se marcan a mano con ✍️ Calcar (🪵 muelle, 🌉 puente, 🚇 túnel, 📐 terraplén, ⛏️ desmonte; en puente, terraplén y desmonte
+   se puede poner la altura) y, además, se traen de OpenStreetMap al mandar una ruta. Viajan en el paquete #rumbo= como
+   `elems` con su latitud y longitud reales: cada app los ubica sobre su ruta. Lo marcado a mano manda: un elemento de
+   OpenStreetMap del mismo tipo que toca uno marcado a mano (a menos de 40 m) se descarta. */
+const EL_MAX=300;
+function elOsmQ(line,r){
+  const ln=line.map(p=>p[0].toFixed(5)+','+p[1].toFixed(5)).join(','),a=`(around:${r},${ln})`;
+  return `[out:json][timeout:90];(way["man_made"="pier"]${a};way["bridge"]["bridge"!="no"]${a};way["tunnel"]["tunnel"!="no"]["tunnel"!="culvert"]${a};way["embankment"="yes"]${a};way["man_made"="embankment"]${a};way["cutting"="yes"]${a};way["man_made"="cutting"]${a};);out geom qt;`;
+}
+/* pura: respuesta de Overpass → [{k,id,name,pts:[[la,lo],…],alto:null}] */
+function elFromOsm(els){
+  const out=[];
+  for(const e of els||[]){
+    if(e.type!=='way'||!e.geometry||e.geometry.length<2)continue;
+    const t=e.tags||{},pts=e.geometry.map(g=>[g.lat,g.lon]),add=k=>out.push({k,id:'osm:'+e.id,name:t.name||'',pts,alto:null});
+    if(t.man_made==='pier')add('muelle');
+    if(t.bridge&&t.bridge!=='no')add('puente');
+    if(t.tunnel&&t.tunnel!=='no'&&t.tunnel!=='culvert')add('tunel');
+    if(t.embankment==='yes'||t.man_made==='embankment')add('terraplen');
+    if(t.cutting==='yes'||t.man_made==='cutting')add('desmonte');
+  }
+  return out;
+}
+/* lo marcado a mano con Calcar, dentro del rectángulo bb */
+async function elManual(bb){
+  const out=[];
+  for(const e of await DB.all('kv','edit:')){
+    if(e.type!=='path'||!ELEMK.includes(e.kind)||!e.pts||e.pts.length<2)continue;
+    if(!e.pts.some(p=>p[0]>=bb.s&&p[0]<=bb.n&&p[1]>=bb.w&&p[1]<=bb.e))continue;
+    const a=e.props&&+e.props.alto>0?+e.props.alto:null;
+    out.push({k:e.kind,id:'edit:'+e.id,name:e.name||'',pts:e.pts.map(p=>[p[0],p[1]]),alto:a,man:1});
+  }
+  return out;
+}
+const elNear=(A,B,r)=>A.some(a=>B.some(b=>hav(a,b)<=r));
+/* pura: lo marcado a mano manda sobre lo de OpenStreetMap del mismo lugar */
+function elMerge(man,osm){return man.concat(osm.filter(o=>!man.some(m=>m.k===o.k&&elNear(m.pts,o.pts,40))));}
+/* pura: distancia (m) del elemento a la ruta, con cuentas planas (rápido para miles de puntos) */
+function elDistRuta(pts,line){
+  const kc=Math.cos(line[0][0]*rad),K=111320;let m=1e12;
+  for(const a of pts)for(const b of line){const dx=(a[1]-b[1])*kc*K,dy=(a[0]-b[0])*K,d=dx*dx+dy*dy;if(d<m)m=d;}
+  return Math.sqrt(m);
+}
+/* pura: a lo sumo n puntos (se afloja la tolerancia hasta que entre) */
+function elSimplify(pts,n){let tol=1;let q=simplifyDP(pts,tol);while(q.length>n&&tol<400){tol*=1.8;q=simplifyDP(pts,tol);}return q.length>n?q.filter((_,i)=>i%Math.ceil(q.length/n)===0||i===q.length-1):q;}
+/* P: puntos de la ruta [[la,lo,d],…]; bb: rectángulo de la ruta con margen; r: hasta qué distancia de la ruta importa (m) */
+async function elCollect(P,bb,r){
+  let man=[],osm=[],err='';
+  try{man=await elManual(bb);}catch(e){errLog(e,'muelles y puentes marcados a mano');}
+  if(!netBlocked()&&S.dataMode!=='never'){
+    try{osm=elFromOsm(await bkOver(elOsmQ(bkLine(P),r),90000));}catch(e){err=e.message||String(e);errLog(e,'muelles, puentes y terraplenes (OpenStreetMap)');}
+  }else err='sin internet';
+  const line=bkLine(P),list=[];
+  for(const e of elMerge(man,osm)){
+    const pts=elSimplify(e.pts,40);if(elDistRuta(pts,line)>r)continue;
+    list.push({k:e.k,n:(e.name||'').replace(/[<>&"]/g,'').slice(0,40),a:e.alto,m:e.man?1:0,d:Math.round(elDistRuta(pts,line)),p:pts.map(q=>[+q[0].toFixed(6),+q[1].toFixed(6)])});
+  }
+  list.sort((a,b)=>a.d-b.d);
+  return {list:list.slice(0,EL_MAX),err,nMan:man.length,nOsm:osm.length};
+}
+const elCount=l=>{const c={};for(const e of l)c[e.k]=(c[e.k]||0)+1;return c;};
+const elResumen=l=>Object.entries(elCount(l)).map(([k,n])=>`${n} ${KIND_UI[k][1].toLowerCase()}${n>1?(k==='tunel'?'es':'s'):''}`).join(', ');
 const KY={last:null,SP:25,MAX:2000,OFF:[0,25,60,120,220,400,700]};
 /* color promedio de la foto satelital en grupos de puntos: groups = [[[lat,lon],…],…] → [[r,g,b]|null,…] */
 async function satAvg(groups,z){
@@ -12781,13 +12848,16 @@ async function kySend(o){
       if(!netBlocked()&&S.dataMode!=='never')peaks=(await bkPeaks(bkPadBB(P,BKH.R*.9))).slice(0,200);
     }
   }catch(e){hz=null;}
+  /* muelles, puentes, túneles, terraplenes y desmontes: lo marcado a mano y lo de OpenStreetMap, hasta 900 m de la ruta */
+  let E={list:[],err:'',nMan:0,nOsm:0};
+  try{toast('🪵 Buscando muelles, puentes y terraplenes…',30000);E=await elCollect(P,bkPadBB(P,900),900);}catch(e){errLog(e,'muelles y puentes');}
   const nm=(o.name||'Ruta de Rumbo').replace(/[<>&"]/g,'').slice(0,60);
   const ll=P.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]);
   const loop=hav(o.ll[0],o.ll[o.ll.length-1])<60;
-  const data=await bkPack({v:1,app:'kayak',name:nm,L:Math.round(R.L),loop,ll,shore:{sp:ds,n:P.length,d:bkB64(U),off:KY.OFF,p:bkB64(PF)},hz,peaks});
+  const data=await bkPack({v:1,app:'kayak',name:nm,L:Math.round(R.L),loop,ll,shore:{sp:ds,n:P.length,d:bkB64(U),off:KY.OFF,p:bkB64(PF)},hz,peaks,elems:E.list});
   const nL=sh.filter(r=>r[0].d!=null).length,nR=sh.filter(r=>r[1].d!=null).length;
-  KY.last={name:nm,L:R.L,len:data.length,hz:!!hz,peaks:peaks.length,shoreL:nL/P.length,shoreR:nR/P.length,src:shoreIdx?'costas':'relieve'};
-  toast(`🛶 Listo: ${dec(R.L/1000,1)} km${hz?' · montañas reales':''}${peaks.length?' con nombres':''} · orillas ${shoreIdx?'de tus costas cargadas':'por el relieve'}. Se abre Kayak Indoor…`,6000);
+  KY.last={name:nm,L:R.L,len:data.length,hz:!!hz,peaks:peaks.length,elems:elCount(E.list),elErr:E.err,shoreL:nL/P.length,shoreR:nR/P.length,src:shoreIdx?'costas':'relieve'};
+  toast(`🛶 Listo: ${dec(R.L/1000,1)} km${hz?' · montañas reales':''}${peaks.length?' con nombres':''} · orillas ${shoreIdx?'de tus costas cargadas':'por el relieve'}${E.list.length?' · '+elResumen(E.list):''}${E.err?' (muelles y puentes: sin OpenStreetMap, solo los marcados a mano)':''}. Se abre Kayak Indoor…`,7000);
   setTimeout(()=>{const a=document.createElement('a');a.href=KY_URL+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 
