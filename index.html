@@ -11231,6 +11231,9 @@ async function open3D(o){
   const dem=use.length?await fetchDemList(use,zd,(d,n)=>{if(T3.gen===my)$('#t3msg').textContent=`Bajando la altura del terreno… ${d} de ${n}`;}):new Map();
   if(T3.gen!==my)return;
   t3Mesh(dem);
+  /* la costa de OpenStreetMap se pide aparte: el 3D se abre enseguida y, cuando llega, se vuelve a armar el relieve sin los picos sobre el agua */
+  if(dem.size&&typeof coastSea==='function'){const tl=(x,y)=>[Math.atan(Math.sinh(Math.PI*(1-2*y/2**zd)))*180/Math.PI,x/2**zd*360-180],a0=tl(T3.x0,T3.y0),a1=tl(T3.x0+N,T3.y0+N);
+    coastSea({n:a0[0],s:a1[0],w:a0[1],e:a1[1]}).then(sea=>{if(sea&&T3.gen===my&&T3.H)t3Flat(sea);}).catch(e=>errLog(e));}
   T3.air=!!(o.track&&o.track.act==='plane');T3.airY=null;
   if(line&&T3.air){t3AirRoad(line,o.track);}
   else if(line){const tr=o.track,rk=!tr&&!o.line&&RT.res&&RT.res[RT.sel]&&!RT.res[RT.sel].err?RT.sel:null;
@@ -11264,12 +11267,22 @@ function t3Gl(){
   return true;
 }
 /* malla: un vértice cada 2 píxeles de altura (≈ 35 m a zoom 13) */
-function t3Mesh(dem){
+/* ya armado el relieve (y tallado el camino): baja a 0 los puntos que OpenStreetMap dice que son mar */
+function t3Flat(sea){
+  const n=T3.n,P=T3.N*256,step=T3.step,zz=2**T3.zd,H=T3.H;let c=0;
+  for(let j=0;j<n;j++)for(let i=0;i<n;i++){const q=j*n+i;if(!(H[q]>0))continue;
+    const x=T3.x0+Math.min(P-1,i*step)/256,y=T3.y0+Math.min(P-1,j*step)/256;
+    if(sea(Math.atan(Math.sinh(Math.PI*(1-2*y/zz)))*180/Math.PI,x/zz*360-180)===true){H[q]=0;c++;}}
+  if(c)t3MeshBuf();
+}
+function t3Mesh(dem,sea){
   const gl=T3.gl,N=T3.N,P=N*256,step=T3.step,n=P/step+1;T3.n=n;
   const H=new Float32Array(n*n);let any=false;
   for(let j=0;j<n;j++)for(let i=0;i<n;i++){
     const gx=Math.min(P-1,i*step),gy=Math.min(P-1,j*step),t=dem.get((T3.x0+(gx>>8))+'/'+(T3.y0+(gy>>8)));
-    const v=t?t[(gy&255)*256+(gx&255)]:NaN;H[j*n+i]=isFinite(v)&&v>-12000?Math.max(0,v):NaN;if(isFinite(H[j*n+i]))any=true;   // el modelo trae el fondo del mar: se muestra la superficie (0 m)
+    let v=t?t[(gy&255)*256+(gx&255)]:NaN;
+    if(sea&&v>0){const x=T3.x0+gx/256,y=T3.y0+gy/256,zz=2**T3.zd;if(sea(Math.atan(Math.sinh(Math.PI*(1-2*y/zz)))*180/Math.PI,x/zz*360-180)===true)v=0;}   // picos falsos sobre el agua (barcos, muelles, ruido del radar)
+    H[j*n+i]=isFinite(v)&&v>-12000?Math.max(0,v):NaN;if(isFinite(H[j*n+i]))any=true;   // el modelo trae el fondo del mar: se muestra la superficie (0 m)
   }
   /* huecos: el promedio de lo que hay (o 0) */
   let s=0,k=0;for(const v of H)if(isFinite(v)){s+=v;k++;}const avg=k?s/k:0;for(let i=0;i<H.length;i++)if(!isFinite(H[i]))H[i]=avg;
@@ -12563,6 +12576,58 @@ const bkB64=a=>{let b='';for(let i=0;i<a.length;i+=8192)b+=String.fromCharCode.a
 function bkTilesBB(bb,z){const a=tileXY(bb.n,bb.w,z),b=tileXY(bb.s,bb.e,z),out=[];for(let x=Math.floor(a.x);x<=Math.floor(b.x);x++)for(let y=Math.floor(a.y);y<=Math.floor(b.y);y++)out.push({x,y});return out;}
 function bkPadBB(P,m){let bb={n:-90,s:90,e:-180,w:180};for(const p of P){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}
   const dl=m/111320,dn=m/(111320*Math.cos((bb.n+bb.s)/2*rad));return {n:bb.n+dl,s:bb.s-dl,e:bb.e+dn,w:bb.w-dn};}
+/* 🌊 Costa de OpenStreetMap para limpiar el relieve sobre el agua.
+   El relieve (AWS Terrarium, que sale de radar) trae picos falsos sobre el mar: barcos, muelles y ruido. Rumbo los tomaba por tierra (orillas, cerros
+   en el horizonte, 3D). En OSM la tierra queda a la IZQUIERDA del sentido de cada tramo de natural=coastline: con eso se sabe de qué lado del
+   agua cae un punto. Hugo, en el 3D de la bahía: "el problema está en la topografía que usa Rumbo". */
+/* pura: ways = [[[lat,lon],…],…] → función (lat,lon) → true (mar), false (tierra) o null (no se sabe: lejos de la costa o justo en una punta) */
+function coastSeaFn(ways){
+  const segs=[];for(const w of ways||[])for(let i=1;i<w.length;i++)segs.push([w[i-1],w[i]]);
+  if(!segs.length)return null;
+  const CA=0.01,lat0=segs[0][0][0],CO=CA/Math.max(.2,Math.cos(lat0*rad)),cells=new Map(),key=(i,j)=>(i+20000)*100000+(j+40000),cellM=CA*111195;
+  segs.forEach((g,k)=>{const i0=Math.floor(Math.min(g[0][0],g[1][0])/CA),i1=Math.floor(Math.max(g[0][0],g[1][0])/CA),j0=Math.floor(Math.min(g[0][1],g[1][1])/CO),j1=Math.floor(Math.max(g[0][1],g[1][1])/CO);
+    for(let i=i0;i<=i1;i++)for(let j=j0;j<=j1;j++){const q=key(i,j);let l=cells.get(q);if(!l){l=[];cells.set(q,l);}l.push(k);}});
+  const kc0=Math.cos(lat0*rad);
+  return (la,lo)=>{
+    const ci=Math.floor(la/CA),cj=Math.floor(lo/CO),RMAX=4,cand=[];let md=1e18;
+    for(let r=0;r<=RMAX;r++){
+      for(let i=ci-r;i<=ci+r;i++)for(let j=cj-r;j<=cj+r;j++){
+        if(Math.max(Math.abs(i-ci),Math.abs(j-cj))!==r)continue;
+        const l=cells.get(key(i,j));if(!l)continue;
+        for(const k of l){const g=segs[k],pr=projSeg(g[0],g[1],[la,lo]);if(pr.d<=md+.5){
+          const kc=Math.cos(g[0][0]*rad),bx=(g[1][1]-g[0][1])*kc,by=g[1][0]-g[0][0],px=(lo-g[0][1])*kc,py=la-g[0][0];
+          cand.push({d:pr.d,t:pr.t,cross:bx*py-by*px,dx:bx,dy:by,k});if(pr.d<md)md=pr.d;}}
+      }
+      if(md<1e17&&md<=r*cellM)break;
+    }
+    if(md>4000)return null;
+    const c=cand.filter(q=>q.d<=md+.5);
+    const sea=c.filter(q=>q.cross<0).length,tierra=c.length-sea;
+    if(!tierra)return true;if(!sea)return false;
+    /* en una esquina de la costa los dos tramos que se juntan dan lados distintos: si la costa dobla a la izquierda la tierra es la parte cerrada
+       (la cuña de afuera es mar); si dobla a la derecha, al revés */
+    const a=c.find(q=>q.t>=.999),b=c.find(q=>q.t<=.001&&q!==a);
+    if(a&&b)return (a.dx*b.dy-a.dy*b.dx)>0;
+    return null;
+  };
+}
+/* bb → función de mar (o null si no hay costa en la zona, no hay internet o falló). La costa se guarda en kv 'coast:…' */
+async function coastSea(bb){
+  const f2=v=>(Math.round(v*100)/100).toFixed(2),b={s:Math.floor(bb.s*100)/100-.02,w:Math.floor(bb.w*100)/100-.02,n:Math.ceil(bb.n*100)/100+.02,e:Math.ceil(bb.e*100)/100+.02};
+  const key='coast:'+[b.s,b.w,b.n,b.e].map(f2).join(',');
+  let ways=null;try{ways=await DB.get('kv',key);}catch(e){errLog(e)}
+  if(!ways){
+    if(netBlocked()||S.dataMode==='never')return null;
+    try{
+      const els=await bkOver(`[out:json][timeout:60];way["natural"="coastline"](${b.s.toFixed(4)},${b.w.toFixed(4)},${b.n.toFixed(4)},${b.e.toFixed(4)});out geom qt;`,60000);
+      ways=els.filter(e=>e.geometry&&e.geometry.length>1).map(e=>e.geometry.map(g=>[+g.lat.toFixed(5),+g.lon.toFixed(5)]));
+      try{await DB.put('kv',key,ways);}catch(e){errLog(e)}
+    }catch(e){errLog(e,'costa (OpenStreetMap)');return null;}
+  }
+  return coastSeaFn(ways);
+}
+/* pura: relieve sin los picos sobre el agua (donde hay costa y es mar, la altura es 0; el fondo del mar queda como estaba) */
+const demSinMar=(f,sea)=>sea?(la,lo)=>{const h=f(la,lo);return isFinite(h)&&h>0&&sea(la,lo)===true?0:h;}:f;
 function bkHorizon(P,prof,sp,hNear,hFar){
   const na=BKH.na,idx=[];
   for(let d=0;d<=P[P.length-1][2]+1;d+=sp){let i=Math.min(P.length-1,Math.round(d/(P[P.length-1][2]||1)*(P.length-1)));idx.push(i);}
@@ -12664,7 +12729,9 @@ async function bkSend(o){
       const dF=await fetchDemList(lF,zF),dN=await fetchDemList(lN,zN);
       const sp=Math.max(200,Math.ceil(R.L/120/50)*50);
       await new Promise(r=>setTimeout(r,30));
-      hz=bkHorizon(R.pts,prof,sp,(a,b)=>{const v=sampleDem(dN,zN,a,b);return isFinite(v)?v:sampleDem(dF,zF,a,b);},(a,b)=>sampleDem(dF,zF,a,b));
+      let sea=null;try{sea=await coastSea(bbN);}catch(e){errLog(e)}   // picos falsos del relieve sobre el agua
+      const dNs=demSinMar((a,b)=>sampleDem(dN,zN,a,b),sea),dFs=demSinMar((a,b)=>sampleDem(dF,zF,a,b),sea);
+      hz=bkHorizon(R.pts,prof,sp,(a,b)=>{const v=dNs(a,b);return isFinite(v)?v:dFs(a,b);},dFs);
       hz.snow=R.pts[0][0]<-50?750:R.pts[0][0]<-40?1500:R.pts[0][0]<-30?4200:4800;
       if(!netBlocked()&&S.dataMode!=='never')peaks=(await bkPeaks(bkPadBB(R.pts,BKH.R*.9))).slice(0,200);
     }
@@ -12816,7 +12883,9 @@ async function kySend(o){
     if(!confirm(`Para las orillas y las montañas hay que bajar ${falta} tesela${falta>1?'s':''} de relieve (unos ${Math.max(1,Math.round(falta*.12))} MB)${cel?', con datos móviles':''}. Quedan guardadas. ¿Seguir?`))return;
   }
   toast('🛶 Armando la ruta para Kayak Indoor: orillas…',30000);
-  const dem=await fetchDemList(list,z),demS=(la,lo)=>sampleDem(dem,z,la,lo);
+  const dem=await fetchDemList(list,z);
+  let sea=null;try{sea=await coastSea(bkPadBB(P,KY.MAX+300));}catch(e){errLog(e)}   // picos falsos del relieve sobre el agua
+  const demS=demSinMar((la,lo)=>sampleDem(dem,z,la,lo),sea);
   const wl=kyWaterLevel(P.map(p=>demS(p[0],p[1])),ds);
   let shoreIdx=null;try{const w=await kayakWG();shoreIdx=w&&w.shore&&w.shore.n?w.shore:null;}catch(e){errLog(e)}
   const sh=kyShores(P,wl,demS,shoreIdx);
@@ -12845,7 +12914,8 @@ async function kySend(o){
       toast('🏔️ Calculando las montañas que se ven desde el agua…',60000);
       const dF=await fetchDemList(lF,zF),sp=Math.max(200,Math.ceil(R.L/120/50)*50);
       await new Promise(r=>setTimeout(r,30));
-      hz=bkHorizon(P,wl,sp,(a,b)=>{const v=demS(a,b);return isFinite(v)?v:sampleDem(dF,zF,a,b);},(a,b)=>sampleDem(dF,zF,a,b));
+      const dFs=demSinMar((a,b)=>sampleDem(dF,zF,a,b),sea);
+      hz=bkHorizon(P,wl,sp,(a,b)=>{const v=demS(a,b);return isFinite(v)?v:dFs(a,b);},dFs);
       hz.snow=P[0][0]<-50?750:P[0][0]<-40?1500:P[0][0]<-30?4200:4800;
       if(!netBlocked()&&S.dataMode!=='never')peaks=(await bkPeaks(bkPadBB(P,BKH.R*.9))).slice(0,200);
     }
@@ -12858,7 +12928,7 @@ async function kySend(o){
   const loop=hav(o.ll[0],o.ll[o.ll.length-1])<60;
   const data=await bkPack({v:1,app:'kayak',name:nm,L:Math.round(R.L),loop,ll,shore:{sp:ds,n:P.length,d:bkB64(U),off:KY.OFF,p:bkB64(PF)},hz,peaks,elems:E.list});
   const nL=sh.filter(r=>r[0].d!=null).length,nR=sh.filter(r=>r[1].d!=null).length;
-  KY.last={name:nm,L:R.L,len:data.length,hz:!!hz,peaks:peaks.length,elems:elCount(E.list),elErr:E.err,shoreL:nL/P.length,shoreR:nR/P.length,src:shoreIdx?'costas':'relieve'};
+  KY.last={name:nm,L:R.L,len:data.length,hz:!!hz,peaks:peaks.length,elems:elCount(E.list),elErr:E.err,shoreL:nL/P.length,shoreR:nR/P.length,src:shoreIdx?'costas':'relieve',mar:!!sea};
   toast(`🛶 Listo: ${dec(R.L/1000,1)} km${hz?' · montañas reales':''}${peaks.length?' con nombres':''} · orillas ${shoreIdx?'de tus costas cargadas':'por el relieve'}${E.list.length?' · '+elResumen(E.list):''}${E.err?' (muelles y puentes: sin OpenStreetMap, solo los marcados a mano)':''}. Se abre Kayak Indoor…`,7000);
   setTimeout(()=>{const a=document.createElement('a');a.href=KY_URL+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
