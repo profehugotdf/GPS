@@ -15,6 +15,7 @@ async def main():
     async with async_playwright() as pw:
         b=await pw.chromium.launch();ctx=await b.new_context(viewport={'width':412,'height':860})
         await ctx.route('https://profehugotdf.github.io/Carrera-virtual/**',lambda r:r.fulfill(status=200,content_type='text/html',body=CORRER))
+        await ctx.route('**/overpass*/**',lambda r:r.fulfill(status=200,content_type='application/json',body='{"elements":[]}'))   # hermético: sin costa real (en CI hay internet)
         pg=await ctx.new_page();pg.on('pageerror',lambda e:errs.append(str(e)))
         await pg.add_init_script("navigator.geolocation.watchPosition=(ok)=>{window.__ok=ok;return 1};navigator.geolocation.clearWatch=()=>{};window.confirm=()=>true;")
         await pg.goto('http://127.0.0.1:8798/index.html');await pg.wait_for_function('!!window.__ok')
