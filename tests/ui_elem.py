@@ -59,6 +59,8 @@ async def main():
         ok(r['s']<=40,'simplifica a 40 puntos como máximo')
         ok(r['r']=='2 puentes, 1 túnel, 1 terraplén','resumen en castellano')
         # lo marcado a mano con Calcar (terraplén con altura propia, y un desmonte)
+        await pg.evaluate("""async()=>{await DB.put('kv','edit:b1',{id:'b1',type:'path',kind:'crucero',name:'Crucero de prueba',pts:[[-54.8440,-68.3200],[-54.8440,-68.3180]],props:{}});
+          await DB.put('kv','edit:b2',{id:'b2',type:'path',kind:'encallado',name:'',pts:[[-54.8470,-68.3000],[-54.8471,-68.2999]],props:{alto:35}});}""")
         await pg.evaluate("""async()=>{await DB.put('kv','edit:t1',{id:'t1',type:'path',kind:'terraplen',name:'Terraplén mío',pts:[[-54.8475,-68.3200],[-54.8475,-68.3150]],props:{alto:6}});
           await DB.put('kv','edit:t2',{id:'t2',type:'path',kind:'muelle',name:'',pts:[[-54.9,-60.0],[-54.9,-60.001]],props:{}});}""")
         await pg.evaluate("""async()=>{const ll=[];for(let i=0;i<=200;i++){const lo=-68.40+i*0.0005;ll.push([-54.85-Math.sin((lo+68.4)*60)*120/111320+75/111320,lo]);}
@@ -66,12 +68,14 @@ async def main():
         await pg.wait_for_function('!!window.__href',timeout=120000)
         last=await pg.evaluate("KY.last");print('   ',last)
         ok(await pg.evaluate("__bkOverCalls")==1,'pide a OpenStreetMap una sola vez')
-        ok(last['elems']=={'muelle':1,'puente':1,'terraplen':2,'tunel':0} or last['elems']=={'muelle':1,'puente':1,'terraplen':2},'manda: muelle, puente OSM y 2 terraplenes (OSM + mano); lo lejano y lo de otro lado quedan afuera: %s'%last['elems'])
+        ok(last['elems']=={'muelle':1,'puente':1,'terraplen':2,'crucero':1,'encallado':1},'manda: muelle, puente OSM, 2 terraplenes y 2 barcos (OSM + mano); lo lejano y lo de otro lado quedan afuera: %s'%last['elems'])
         href=await pg.evaluate("window.__href");await pg.close()
         kp=await b.new_page(viewport={'width':412,'height':860});kp.on('pageerror',lambda e:errs.append('kayak: '+str(e)))
         await kp.goto('http://127.0.0.1:8795/index.html'+href[href.index('#'):]);await kp.wait_for_timeout(1500)
         r=await kp.evaluate("rutaActiva&&{n:rutaActiva.nombre,e:(rutaActiva.elemsRaw||[]).map(e=>e.k+':'+(e.man?'m':'o')+':'+e.a)}");print('   ',r)
-        ok(r and sorted(r['e'])==sorted(['muelle:o:null','puente:o:null','terraplen:o:null','terraplen:m:6']),'Kayak recibe los elementos con su altura y su origen')
+        ok(r and sorted(r['e'])==sorted(['muelle:o:null','puente:o:null','terraplen:o:null','terraplen:m:6','crucero:m:null','encallado:m:35']),'Kayak recibe los elementos con su altura y su origen')
+        bar=await kp.evaluate("rutaActiva.elemsRaw.filter(e=>BARCO_LARGO[e.k]).map(e=>{const m=barcoMundo(e);return [e.k,Math.round(m.L)]})");print('   ',bar)
+        ok(sorted(b[0] for b in bar)==['crucero','encallado'] and 120<dict(bar)['crucero']<135 and dict(bar)['encallado']==35,'Kayak: el crucero toma el largo de sus dos puntos (~128 m), el encallado el que se puso (35 m)')
         t=await kp.inner_text('#cardRuta');ok('puente' in t and 'terrapl' in t,'tarjeta Recorrido los menciona')
         print('ERRORES JS:',errs[:3] or 'ninguno');ok(not errs,'sin errores')
         await b.close()
