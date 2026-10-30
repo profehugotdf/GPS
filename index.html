@@ -618,10 +618,10 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
   <div class="nvb"><button id="pbClr">Ninguno</button><button id="pbOk">✓ Armar el área</button></div>
 </div>
 <div id="nodep" hidden>
-  <div class="caph"><b id="npTtl">🚫 Giros prohibidos y barreras</b><button id="npX" aria-label="Cerrar">✕</button></div>
-  <small id="npHint">Tocá una esquina (para un giro) o un punto de la calle (para una barrera).</small>
+  <div class="caph"><b id="npTtl">🚫 Giros, barreras y semáforos</b><button id="npX" aria-label="Cerrar">✕</button></div>
+  <small id="npHint">Tocá una esquina (para un giro o un semáforo) o un punto de la calle (para una barrera o un semáforo).</small>
   <div id="npBody" hidden>
-    <div class="chips" id="npType"><button data-t="turn">🚫 Giro</button><button data-t="barrier">⛔ Barrera</button></div>
+    <div class="chips" id="npType"><button data-t="turn">🚫 Giro</button><button data-t="barrier">⛔ Barrera</button><button data-t="signal">🚦 Semáforo</button></div>
     <div id="npTurn">
       <div class="caprow"><label>Venís por</label><div class="chips" id="npFrom"></div></div>
       <div class="caprow"><label>Hacia</label><div class="chips" id="npTo"></div></div>
@@ -1024,6 +1024,8 @@ function toGPX(tracks,wpts,esc){
 
 /* ====================== RED DE CALLES Y RUTAS ====================== */
 const MODES=['foot','bike','car'];
+/* 🚦 semáforos: SIG_AVOID = cuántos segundos de rodeo se acepta por esquivar uno (preferencia "Menos semáforos"); SIG_CLUSTER = dos semáforos a menos de tantos m en la ruta son el mismo cruce (OpenStreetMap suele marcar uno por cada acceso) */
+const SIG_AVOID=180,SIG_CLUSTER=40;
 const KIND_TAGS={sendero:{highway:'path'},escalera:{highway:'steps'},peatonal:{highway:'footway'},ciclovia:{highway:'cycleway'},calle:{highway:'residential'},
   camino:{highway:'track'},servicio:{highway:'service'},principal:{highway:'secondary'},ruta:{highway:'primary'},ferry:{route:'ferry'},nivel:{contour:'elevation'},medida:{measure:'yes'},costa:{natural:'coastline'},limite:{boundary:'administrative'},rio:{waterway:'river'},
   muelle:{man_made:'pier'},puente:{man_made:'bridge'},tunel:{man_made:'tunnel'},terraplen:{man_made:'embankment'},desmonte:{man_made:'cutting'},velero:{seamark:'vessel'},carguero:{seamark:'vessel'},crucero:{seamark:'vessel'},lancha:{seamark:'vessel'},encallado:{seamark:'vessel'}};
@@ -1168,7 +1170,7 @@ class Heap{
 }
 
 class Graph{
-  constructor(cfg){this.cfg=cfg;this.lat=[];this.lon=[];this.ids=[];this.adj=[];this.cnt=[];this.E=[];this.W=[];this.idx=new Map();this.grid=new Map();this.grid2=new Map();this.seen=new Set();this.cs=0.0006;this.cs2=0.02;this.names=null;this.z=[];this.hasZ=false;}
+  constructor(cfg){this.cfg=cfg;this.lat=[];this.lon=[];this.ids=[];this.adj=[];this.cnt=[];this.E=[];this.W=[];this.idx=new Map();this.grid=new Map();this.grid2=new Map();this.seen=new Set();this.cs=0.0006;this.cs2=0.02;this.names=null;this.z=[];this.hasZ=false;this.sig=new Set();this.sigKnown=false;}
   node(id,lat,lon){
     let i=this.idx.get(id);
     if(i===undefined){i=this.lat.length;this.idx.set(id,i);this.lat.push(lat);this.lon.push(lon);this.ids.push(id);this.adj.push([]);this.cnt.push(0);this.z.push(NaN);}
@@ -1275,8 +1277,10 @@ class Graph{
   }
   /* costo del tramo según la preferencia: 'fast' tiempo, 'short' distancia, 'flat' tiempo + castigo por subir */
   cost(e,d,mode,pref,v){
-    const c=this.cost0(e,d,mode,pref,v);
-    if(this.pen){const f=this.pen.get(e.i);if(f)return c*f;}      /* para buscar caminos distintos */
+    let c=this.cost0(e,d,mode,pref,v);
+    if(this.pen){const f=this.pen.get(e.i);if(f)c*=f;}      /* para buscar caminos distintos */
+    /* 🚦 al llegar a un semáforo se suma la espera promedio de ese modo; con "Menos semáforos" cada uno cuesta además SIG_AVOID s de rodeo */
+    if(pref!=='short'&&this.sig.size&&this.sig.has(d>0?e.b:e.a))c+=(this.cfg.sig&&this.cfg.sig[mode]||0)+(pref==='nosig'?SIG_AVOID:0);
     return c;
   }
   cost0(e,d,mode,pref,v){
@@ -1375,6 +1379,13 @@ class Graph{
   applyExtras(x){
     x=x||{};
     this.turns=new Map();this.barr=new Map();this.hasTurn={foot:false,bike:false,car:false};
+    /* 🚦 semáforos marcados a mano en Correcciones: se pegan al nodo más cercano, o parten el tramo si caen a mitad de cuadra */
+    for(const sg of x.signals||[]){
+      const h=this.nearestEdge(sg.lat,sg.lon,25,e=>this.W[e.w].hw!=='connector');if(!h)continue;
+      const e=this.E[h.ei];let n;
+      if(h.t<=0.03)n=e.a;else if(h.t>=0.97)n=e.b;else n=this.split(h.ei,h.t,h.lat,h.lon);
+      this.sig.add(n);
+    }
     for(const b of x.barriers||[]){
       const h=this.nearestEdge(b.lat,b.lon,15,e=>this.W[e.w].hw!=='connector');if(!h)continue;
       const e=this.E[h.ei];let n;
@@ -1406,6 +1417,34 @@ class Graph{
       }
     }
   }
+  /* 🚦 semáforos de OpenStreetMap: [id del nodo, lat, lon]; se buscan por el id del nodo (el mismo que usan las calles) */
+  addSignals(list){for(const s of list){const i=this.idx.get(s[0]);if(i!==undefined)this.sig.add(i);}}
+  /* OpenStreetMap suele marcar un semáforo por cada acceso del cruce. Los que quedan a menos de SIG_CLUSTER m por la calle se juntan en uno,
+     puesto en la esquina (el nodo con más calles): así el cruce se cobra una sola vez, y también si la ruta dobla ahí. */
+  clusterSignals(){
+    const sig=this.sig;if(sig.size<2)return;
+    const seen=new Set(),deg=n=>{let k=0;for(const ei of this.adj[n])if(this.E[ei].alive)k++;return k;};
+    for(const s of [...sig].sort((a,b)=>a-b)){
+      if(seen.has(s))continue;
+      const dist=new Map([[s,0]]),q=[s],mem=[s];
+      for(let h=0;h<q.length;h++){
+        const u=q[h],du=dist.get(u);
+        for(const ei of this.adj[u]){
+          const e=this.E[ei];if(!e.alive)continue;
+          const w=e.a===u?e.b:e.a,dw=du+e.len;
+          if(dw>SIG_CLUSTER||(dist.has(w)&&dist.get(w)<=dw))continue;
+          dist.set(w,dw);q.push(w);
+          if(sig.has(w)&&!mem.includes(w))mem.push(w);
+        }
+      }
+      for(const m of mem)seen.add(m);
+      if(mem.length<2)continue;
+      let rep=s,bd=-1,bdist=1e9;
+      for(const [n,dn] of dist){const dg=deg(n);if(dg>=3&&(dg>bd||(dg===bd&&dn<bdist))){rep=n;bd=dg;bdist=dn;}}
+      for(const m of mem)sig.delete(m);
+      sig.add(rep);
+    }
+  }
   blockEdges(key){const out=[];for(let i=0;i<this.E.length;i++){const e=this.E[i];if(e.alive&&e.blk===key)out.push(i);}return out;}
 }
 function buildGraph(nets,paths,ov,cfg,extra){
@@ -1417,7 +1456,10 @@ function buildGraph(nets,paths,ov,cfg,extra){
   g.finish(ov);
   for(const p of paths)g.addUser(p);
   g.hz=[];for(const n of nets)for(const h of (n.hz||[]))g.hz.push(h);
+  for(const n of nets)if(Array.isArray(n.sg)){if(!n.regional)g.sigKnown=true;g.addSignals(n.sg);}
+  g.clusterSignals();
   g.applyExtras(extra);
+  if((extra&&extra.signals||[]).length)g.sigKnown=true;
   return g;
 }
 
@@ -1576,7 +1618,9 @@ function findRoute(G,mode,from,to,pref){
   const legT=o=>o<=500?o/vleg:500/vleg+(o-500)/vfar;          /* los tramos largos hasta la red van por una calle o camino de la zona */
   let timeBack=legT(A.off)+legT(B.off),dist=A.off+B.off,time=legT(A.off)+legT(B.off),stairs=0,up=0,down=0,fDist=0,fTime=0,fNames=[],fUnver=false;
   const coords=[[from.lat,from.lon],[G.lat[A.nd],G.lon[A.nd]]];
-  for(const {ei,d} of r.edges){
+  let sg=0,run=0,lastSg=-1e9;const sgPts=[];
+  for(let k=0;k<r.edges.length;k++){
+    const {ei,d}=r.edges[k];
     const e=G.E[ei],v=G.pass(e,mode,d),g=G.slope(e,d);
     const dt=e.len/(v*slopeFactor(mode,g,v));
     {let vb=G.pass(e,mode,-d);if(!(vb>0))vb=v;timeBack+=e.len/(vb*slopeFactor(mode,-g,vb));}
@@ -1584,6 +1628,9 @@ function findRoute(G,mode,from,to,pref){
     if(G.W[e.w].ferry){fDist+=e.len;fTime+=dt;const fw=G.W[e.w];if(fw.name&&!fNames.includes(fw.name))fNames.push(fw.name);if(fw.tags.motor_vehicle==null)fUnver=true;}
     if(g>0)up+=g*e.len;else down-=g*e.len;
     const nn=d>0?e.b:e.a;coords.push([G.lat[nn],G.lon[nn]]);
+    run+=e.len;
+    /* 🚦 el semáforo del último nodo no se cruza (ahí termina la ruta); los que están a menos de SIG_CLUSTER m son el mismo cruce */
+    if(k<r.edges.length-1&&G.sig.has(nn)&&run-lastSg>=SIG_CLUSTER){sg++;lastSg=run;sgPts.push([G.lat[nn],G.lon[nn]]);}
   }
   coords.push([to.lat,to.lon]);
   const cd=[0];for(let i=1;i<coords.length;i++)cd.push(cd[i-1]+hav(coords[i-1],coords[i]));
@@ -1599,16 +1646,18 @@ function findRoute(G,mode,from,to,pref){
     avgKmh=G.cfg.avg[mode]*3.6;
     time=(dist-fDist)/G.cfg.avg[mode]*(1+(G.cfg.avgStops||0)/100)+fTime;timeBack=time;
   }
-  return {timeBack,mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,offFrom:A.off,offTo:B.off,coords,eids:r.edges.map(x=>x.ei),elen:r.edges.map(x=>G.E[x.ei].len),stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
+  const sw=(G.cfg.sig&&G.cfg.sig[mode]||0)*sg;      /* 🚦 espera en los semáforos, a la ida y a la vuelta */
+  if(sw){time+=sw;timeBack+=sw;}
+  return {sig:sg,sigWait:sw,sigPts:sgPts,sigK:G.sigKnown,timeBack,mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,offFrom:A.off,offTo:B.off,coords,eids:r.edges.map(x=>x.ei),elen:r.edges.map(x=>G.E[x.ei].len),stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
 }
 
 /* ====================== GUÍA PASO A PASO ====================== */
 const NAVP={
-  foot:{off:30,farMin:40,farMax:90,near:12,hz:{lomo:0,pozo:20,peligro:25}},
-  bike:{off:35,farMin:70,farMax:220,near:20,hz:{lomo:50,pozo:50,peligro:60}},
-  car:{off:45,farMin:130,farMax:500,near:30,hz:{lomo:70,pozo:60,peligro:80}}
+  foot:{off:30,farMin:40,farMax:90,near:12,hz:{lomo:0,pozo:20,peligro:25,semaforo:30}},
+  bike:{off:35,farMin:70,farMax:220,near:20,hz:{lomo:50,pozo:50,peligro:60,semaforo:60}},
+  car:{off:45,farMin:130,farMax:500,near:30,hz:{lomo:70,pozo:60,peligro:80,semaforo:90}}
 };
-const HZN={lomo:'Lomo de burro',pozo:'Pozo',peligro:'Precaución, peligro'};
+const HZN={lomo:'Lomo de burro',pozo:'Pozo',peligro:'Precaución, peligro',semaforo:'Semáforo'};
 function speakDist(m){
   if(m<95)return Math.max(10,Math.round(m/10)*10)+' metros';
   if(m<950)return Math.round(m/50)*50+' metros';
@@ -1639,9 +1688,15 @@ function hazardsOnRoute(c,cd,hz,mode,maxD){
   out.sort((a,b)=>a.s-b.s);
   return out.filter((h,i)=>!out.slice(0,i).some(o=>o.k===h.k&&Math.abs(o.s-h.s)<12));
 }
+/* 🚦 los semáforos por los que pasa la ruta (los mismos que suman espera al tiempo), con su posición sobre el recorrido, para avisar antes de llegar */
+function sigOnRoute(route,cd){
+  const c=route.coords,out=[];
+  for(const p of route.sigPts||[]){const q=projectRoute(c,cd,p[0],p[1],0,c.length-1);if(q&&q.d<=25)out.push({s:q.s,d:q.d,k:'semaforo',lat:p[0],lon:p[1]});}
+  return out.sort((a,b)=>a.s-b.s);
+}
 function navInit(route,mode,hz){
   const cd=[0];for(let i=1;i<route.coords.length;i++)cd.push(cd[i-1]+hav(route.coords[i-1],route.coords[i]));
-  return {route,mode,cd,total:cd[cd.length-1],hzs:hazardsOnRoute(route.coords,cd,hz,mode),seg:0,s:0,off:0,said:new Set(),arrived:false};
+  return {route,mode,cd,total:cd[cd.length-1],hzs:hazardsOnRoute(route.coords,cd,hz,mode),sgs:(typeof S!=='undefined'&&S.sigVoice===false)?[]:sigOnRoute(route,cd),seg:0,s:0,off:0,said:new Set(),arrived:false};
 }
 function navTick(N,f){
   const P=NAVP[N.mode],c=N.route.coords,st=N.route.steps,spd=Math.max(0,f.speed||0),say=[];
@@ -1663,6 +1718,10 @@ function navTick(N,f){
     N.hzs.forEach((h,i)=>{
       const ahead=h.s-N.s,lead=Math.min(250,Math.max(P.hz[h.k]||0,(P.hz[h.k]?spd*7:0)));
       if(lead&&ahead>3&&ahead<=lead&&!N.said.has('h'+i)){N.said.add('h'+i);say.push(`${HZN[h.k]||'Precaución'} en ${speakDist(ahead)}`);}
+    });
+    (N.sgs||[]).forEach((h,i)=>{
+      const ahead=h.s-N.s,lead=Math.min(250,Math.max(P.hz.semaforo||0,(P.hz.semaforo?spd*7:0)));
+      if(lead&&ahead>3&&ahead<=lead&&!N.said.has('g'+i)){N.said.add('g'+i);say.push(`${HZN.semaforo} en ${speakDist(ahead)}`);}
     });
   }
   return {off:false,say,s:N.s,rem,next,arrived:N.arrived};
@@ -2110,7 +2169,7 @@ function joinRoutes(a,b,via){
   b.steps.forEach((s,i)=>{const c=Object.assign({},s,{at:s.at+off});if(i===0&&/^Salí por/.test(c.text))c.text=c.text.replace(/^Salí por/,'Seguí por');steps.push(c);});
   const fa=a.ferry,fb=b.ferry;
   const ferry=(fa||fb)?{dist:(fa?fa.dist:0)+(fb?fb.dist:0),time:(fa?fa.time:0)+(fb?fb.time:0),names:[...(fa?fa.names:[]),...(fb?fb.names:[])],unver:!!((fa&&fa.unver)||(fb&&fb.unver))}:null;
-  const o={timeBack:(a.timeBack||a.time)+(b.timeBack||b.time),mode:a.mode,pref:a.pref,dist:a.dist+b.dist,time:a.time+b.time,avgKmh:a.avgKmh,avgStops:a.avgStops,coords:a.coords.concat(b.coords.slice(1)),eids:(a.eids||[]).concat(b.eids||[]),elen:(a.elen||[]).concat(b.elen||[]),stairs:(a.stairs||0)+(b.stairs||0),steps,up:(a.up||0)+(b.up||0),down:(a.down||0)+(b.down||0),hasZ:a.hasZ,ferry,via:true,stayMin:(a.stayMin||0)+(b.stayMin||0)+(via.stay||0),
+  const o={sig:(a.sig||0)+(b.sig||0),sigWait:(a.sigWait||0)+(b.sigWait||0),sigPts:(a.sigPts||[]).concat(b.sigPts||[]),sigK:!!(a.sigK||b.sigK),timeBack:(a.timeBack||a.time)+(b.timeBack||b.time),mode:a.mode,pref:a.pref,dist:a.dist+b.dist,time:a.time+b.time,avgKmh:a.avgKmh,avgStops:a.avgStops,coords:a.coords.concat(b.coords.slice(1)),eids:(a.eids||[]).concat(b.eids||[]),elen:(a.elen||[]).concat(b.elen||[]),stairs:(a.stairs||0)+(b.stairs||0),steps,up:(a.up||0)+(b.up||0),down:(a.down||0)+(b.down||0),hasZ:a.hasZ,ferry,via:true,stayMin:(a.stayMin||0)+(b.stayMin||0)+(via.stay||0),
     offFrom:a.offFrom||0,offTo:b.offTo||0};
   if(a.water!==undefined||b.water!==undefined){                 /* kayak: se suman los tramos de agua, de a pie y de lago */
     for(const k of ['water','portage','lake'])o[k]=(a[k]||0)+(b[k]||0);
@@ -3026,7 +3085,7 @@ const DB=(()=>{
 })();
 
 /* ---------- Ajustes ---------- */
-const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north',fingerRotate:true,navOp:.42,ferryWait:20,smooth:true,dataMode:'allow',contourOn:false,ctrInt:20,frameKm:25,capZ:16,timeMode:'model',avgFoot:5,avgBike:16,avgCar:45,avgStops:10};
+const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north',fingerRotate:true,navOp:.42,ferryWait:20,smooth:true,dataMode:'allow',contourOn:false,ctrInt:20,frameKm:25,capZ:16,timeMode:'model',avgFoot:5,avgBike:16,avgCar:45,avgStops:10,sigFoot:15,sigBike:20,sigCar:25};
 let S=Object.assign({},DEF);
 try{Object.assign(S,JSON.parse(localStorage.getItem('rumbo.set')||'{}'));}catch(e){errLog(e)}
 const saveS=()=>{try{localStorage.setItem('rumbo.set',JSON.stringify(S));}catch(e){errLog(e)}};
@@ -4683,7 +4742,7 @@ const ELEMK=['muelle','puente','tunel','terraplen','desmonte','velero','carguero
 const BARCOK=['velero','carguero','crucero','lancha','encallado'];
 const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',camino:'#8E5B2B',medida:'#F04A1C',costa:'#1F5F8B',limite:'#9B3FA0',rio:'#4A90D9',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E',muelle:'#8B5E34',puente:'#5D6D7E',tunel:'#34495E',terraplen:'#B9770E',desmonte:'#7D6608',velero:'#1F77B4',carguero:'#7B241C',crucero:'#2471A3',lancha:'#E67E22',encallado:'#6E2C00'};
 const routeLayer=L.layerGroup().addTo(map),editLayer=L.layerGroup().addTo(map),pickLayer=L.layerGroup().addTo(map);
-const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente'],['calm','🚲','Por bicisendas']];
+const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente'],['calm','🚲','Por bicisendas'],['nosig','🚦','Menos semáforos']];
 const CALM={cycleway:.7,footway:.75,pedestrian:.75,path:.8,track:.9,bridleway:.9,living_street:.9,steps:1,residential:1,service:1.05,road:1.1,unclassified:1.15,tertiary:1.3,secondary:1.5,primary:1.7,trunk:2,motorway:2.5};   // un rodeo de hasta ~2 veces para evitar una avenida, no más
 const CAND_COL=['#1E6BFF','#F04A1C','#2E7D5B','#9B59B6','#E0A100'];
 const RT={cands:[],selCand:null,from:null,to:null,res:null,sel:null,dep:'',sr:{}};
@@ -4734,7 +4793,7 @@ function ensureGraph(opt){
     await new Promise(r=>setTimeout(r,0));
     const acc={refs:new Set(),names:new Set(),segs:new Set()};
     for(const e of edits)if(e.type==='acc'){if(e.scope==='road'){if(e.ref)acc.refs.add(e.ref);else if(e.name)acc.names.add(e.name);}else acc.segs.add(`${e.way}:${e.n1}:${e.n2}`);}
-    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{acc,vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait,avg:S.timeMode==='avg'?{foot:S.avgFoot/3.6,bike:S.avgBike/3.6,car:S.avgCar/3.6}:null,avgStops:S.avgStops},{turns:edits.filter(e=>e.type==='turn'),barriers:edits.filter(e=>e.type==='barrier'),areas:edits.filter(e=>e.type==='area')});
+    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{acc,vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait,avg:S.timeMode==='avg'?{foot:S.avgFoot/3.6,bike:S.avgBike/3.6,car:S.avgCar/3.6}:null,avgStops:S.avgStops,sig:{foot:Math.max(0,+S.sigFoot||0),bike:Math.max(0,+S.sigBike||0),car:Math.max(0,+S.sigCar||0)}},{turns:edits.filter(e=>e.type==='turn'),barriers:edits.filter(e=>e.type==='barrier'),signals:edits.filter(e=>e.type==='signal'),areas:edits.filter(e=>e.type==='area')});
     G.limited=pk.limited;G.center=center;G.long=longWanted;
     if(longWanted){G.rtFrom=[rt.from.lat,rt.from.lon];G.rtTo=[rt.to.lat,rt.to.lon];G.longInfo=info;}
     if(pk.limited)toast(longWanted?`Ruta larga: por memoria quedaron afuera ${pk.dropped} zonas lejos del recorrido`:`Hay muchas zonas bajadas: por memoria se usan las ${pk.nets.length} más cercanas a donde estás (${pk.dropped} quedaron afuera)`,6000);
@@ -4752,7 +4811,7 @@ async function fetchNet(bb,regional){
   /* zona chica: todas las calles, lomos y ferris. Región grande: solo rutas principales y ferris */
   const q=regional
     ?`[out:json][timeout:300][maxsize:1073741824];(way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]${bx};way["highway"="unclassified"]["ref"]${bx};way["route"="ferry"]${bx};);out geom qt;`
-    :`[out:json][timeout:120];(way["highway"]["highway"!~"^(proposed|construction|abandoned|razed|platform|bus_stop|raceway|elevator|rest_area|services|no)$"]${bx};way["route"="ferry"]${bx};node["traffic_calming"]${bx};);out geom qt;`;
+    :`[out:json][timeout:120];(way["highway"]["highway"!~"^(proposed|construction|abandoned|razed|platform|bus_stop|raceway|elevator|rest_area|services|no)$"]${bx};way["route"="ferry"]${bx};node["traffic_calming"]${bx};node["highway"="traffic_signals"]${bx};);out geom qt;`;
   let last;
   for(const url of OVERPASS){
     try{
@@ -4760,9 +4819,10 @@ async function fetchNet(bb,regional){
       const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});
       clearTimeout(to);
       if(!r.ok)throw new Error('HTTP '+r.status);
-      const j=await r.json(),ways=[],hz=[];
+      const j=await r.json(),ways=[],hz=[],sg=[];
       for(const el of j.elements||[]){
         if(el.type==='node'){
+          if(el.tags&&el.tags.highway==='traffic_signals'&&el.lat!=null){sg.push([el.id,+el.lat.toFixed(6),+el.lon.toFixed(6)]);continue;}
           const tc=el.tags&&el.tags.traffic_calming;
           if(tc&&['bump','hump','table','cushion'].includes(tc)&&el.lat!=null)hz.push({lat:+el.lat.toFixed(6),lon:+el.lon.toFixed(6),k:'lomo'});
           continue;
@@ -4773,7 +4833,7 @@ async function fetchNet(bb,regional){
         ways.push({id:el.id,t,n:el.nodes,p});
       }
       if(!ways.length)throw new Error('no hay calles en esa zona');
-      return {ways,hz};
+      return {ways,hz,sg};
     }catch(e){last=e;}
   }
   throw last||new Error('sin conexión');
@@ -4807,12 +4867,45 @@ async function fetchDem(bb,zz){
   if(!tiles.size)throw new Error('no se pudo bajar');
   return tiles;
 }
+/* 🚦 Solo los semáforos (nodos) de una zona: para las redes que se bajaron antes de que Rumbo los guardara, sin volver a bajar todas las calles */
+async function fetchSignals(bb){
+  const q=`[out:json][timeout:60];node["highway"="traffic_signals"](${bb.s},${bb.w},${bb.n},${bb.e});out qt;`;
+  let last;
+  for(const url of OVERPASS){
+    try{
+      const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),70000);
+      const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});
+      clearTimeout(to);
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      const j=await r.json(),sg=[];
+      for(const el of j.elements||[])if(el.type==='node'&&el.lat!=null)sg.push([el.id,+el.lat.toFixed(6),+el.lon.toFixed(6)]);
+      return sg;
+    }catch(e){last=e;}
+  }
+  throw last||new Error('sin conexión');
+}
+async function dlSignals(say){
+  if(!(await netAllowed('bajar los semáforos')))return null;
+  const falta=(await netIndex()).filter(n=>!n.pending&&!n.regional&&!(n.sg>=0));
+  let ok=0,fail=0,tot=0;
+  for(const x of falta){
+    if(say)say(`Semáforos: zona ${ok+fail+1} de ${falta.length}…`);
+    try{
+      const n=await DB.get('kv','net:'+x.id);if(!n)continue;
+      n.sg=await fetchSignals(n.bb);
+      await DB.put('kv','net:'+n.id,n);await DB.del('kv','netidx:'+n.id);
+      ok++;tot+=n.sg.length;
+    }catch(e){fail++;errLog(e);}
+  }
+  netsChanged();await netIndex();
+  return {zonas:falta.length,ok,fail,tot};
+}
 async function fetchNetFull(bb,say,regional){
   if(regional){
     const g=await fetchNet(bb,true);
     return {ways:compactWays(g.ways,15),hz:[],dem:false,demErr:'',regional:true};
   }
-  const {ways,hz}=await fetchNet(bb);
+  const {ways,hz,sg}=await fetchNet(bb);
   let dem=null,demErr='';
   try{
     if(say)say('Descargando la altura del terreno…');
@@ -4824,7 +4917,7 @@ async function fetchNetFull(bb,say,regional){
       w.z=z;
     }
   }catch(e){demErr=e.message||String(e);dem=null;}
-  return {ways,hz,dem:!!dem,demErr};
+  return {ways,hz,sg,dem:!!dem,demErr};
 }
 async function dlNet(replace,mode,ui){
   if(!(await netAllowed('bajar las calles')))return false;
@@ -4843,11 +4936,11 @@ async function dlNet(replace,mode,ui){
     const f=await fetchNetFull(bb,say,regional);
     if(replace)for(const k of await DB.keys('kv','net:'))await DB.del('kv',k);
     const id=uid();
-    await DB.put('kv','net:'+id,{id,bb,date:Date.now(),ways:f.ways,hz:f.hz,regional:!!f.regional});
+    await DB.put('kv','net:'+id,{id,bb,date:Date.now(),ways:f.ways,hz:f.hz,sg:f.sg,regional:!!f.regional});
     await netIndex();
     netsChanged();
     if(regional){toast(`Red regional descargada: ${f.ways.length} tramos de rutas principales y ferris`,6000);return true;}
-    toast(`Red descargada: ${f.ways.length} calles y senderos, ${f.hz.length} lomos de burro`+(f.dem?' y la altura del terreno':`. Sin altura (${f.demErr}): no va a funcionar "menos pendiente"`),6000);
+    toast(`Red descargada: ${f.ways.length} calles y senderos, ${f.hz.length} lomos de burro, ${(f.sg||[]).length} semáforos`+(f.dem?' y la altura del terreno':`. Sin altura (${f.demErr}): no va a funcionar "menos pendiente"`),6000);
     return true;
   }catch(e){
     say('No se pudo descargar: '+(e.message||e)+'. Revisá la conexión y probá de nuevo.');
@@ -4857,7 +4950,7 @@ async function dlNet(replace,mode,ui){
 }
 function showNetDownload(){
   openSheet('Rutas',`<p>Para calcular rutas, Rumbo necesita la red de calles y senderos de OpenStreetMap de tu zona. Se baja una sola vez, con internet, y queda guardada en el teléfono.</p>
-    <p class="mut">Cada descarga de calles cubre hasta <b>25 × 25 km</b> (con lomos de burro y altura del terreno). Para una zona más grande se arma un mosaico de cuadros de al lado.</p>
+    <p class="mut">Cada descarga de calles cubre hasta <b>25 × 25 km</b> (con lomos de burro, semáforos y altura del terreno). Para una zona más grande se arma un mosaico de cuadros de al lado.</p>
     <button class="btn primary" data-act="cap" style="width:100%">📐 Elegir la zona en el mapa</button>
     <div class="row"><button class="btn" id="netgo" data-act="dl">Bajar 25 × 25 km centrados en el mapa</button></div>
     <p class="mut"><b>Para un viaje largo</b> (por ejemplo cruzando el Estrecho de Magallanes): alejá el mapa hasta ver todo el recorrido y bajá solo las rutas principales y ferris.</p>
@@ -4891,6 +4984,7 @@ function rtPanel(){
   else if(r.hasZ&&m!=='car'&&!isWater(m))bits.push(`↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`);
   if(m==='foot'&&S.footModel!=='tobler'&&(r.up>150||r.down>300))bits.push(`⛰️ subiendo ${S.vUp||400} m/h`);
   if(r.stairs>5)bits.push(`${Math.round(r.stairs)} m de escalera`);
+  if(sigTxt(r))bits.push(sigTxt(r));
   if(r.xc)bits.push('🧭 a campo traviesa'+(r.riverX?', cruza un río':''));
   if(isWater(m)&&r.maxOff!=null)bits.push(`${r.coastal?'🏝️ costera a '+r.coastBuf+' m':'➡️ directa'}, hasta ${fmtD(Math.max(10,Math.round(r.maxOff/10)*10))} de la costa`);
   if(r.ferry)bits.push('⛴️ ferry');
@@ -5030,11 +5124,11 @@ function resultsHtml(){
       continue;
     }
     if(!r||r.err){h+=`<div class="card"><b>${MI[m]} ${MN[m]}</b><br><span class="mut">${errText(r)}</span></div>`;continue;}
-    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(totT(r))}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',DSEP())} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}${r.xc?xcNote(r):offNote(r)}${rodeo(r)>3?`<br><small style="color:#C0392B">⚠️ Da una vuelta: ${Math.round(rodeo(r))} veces la distancia en línea recta</small>`:''}${stagesHtml(r,start)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+totT(r)*1000)}</b></div>`;
+    h+=`<div class="card ${RT.sel===m?'on':''}" data-act="selm" data-m="${m}"><b class="big">${fmtDur(totT(r))}</b> ${MI[m]} ${MN[m]}<br>${fmtD(r.dist)}${sigTxt(r)?' · '+sigTxt(r):''}${r.stairs>5?` · ${Math.round(r.stairs)} m de escalera`:''}${r.hasZ&&m!=='car'?` · ↑${Math.round(r.up)} m ↓${Math.round(r.down)} m`:''}${r.avgKmh?`<br><small class="mut">Tiempo con tu velocidad promedio: ${r.avgKmh.toFixed(1).replace('.',DSEP())} km/h${r.avgStops?` + ${r.avgStops} % de paradas`:''}</small>`:''}${r.ferry?`<br>⛴️ Incluye ferry${r.ferry.names.length?' ('+esc(r.ferry.names.join(', '))+')':''}: unos ${fmtDur(r.ferry.time)} con la espera. Sin horarios${r.ferry.unver?'; verificá que lleve vehículos':''}.`:''}${r.xc?xcNote(r):offNote(r)}${rodeo(r)>3?`<br><small style="color:#C0392B">⚠️ Da una vuelta: ${Math.round(rodeo(r))} veces la distancia en línea recta</small>`:''}${stagesHtml(r,start)}<br>${RT.dep?'Salís':'Si salís ahora'} ${hhmm(start)} · llegás <b>${arrLabel(start,start+totT(r)*1000)}</b></div>`;
   }
   const cmp=RT.alt?`<h3>Comparar para ${MI[RT.sel]}</h3><div class="row">`+PREFS.filter(([k])=>!(RT.sel==='car'&&(k==='flat'||k==='calm'))).map(([k,e])=>{
     const a=RT.alt[k];if(!a||a.err)return '';
-    return `<button class="btn sm ${k===S.pref?'primary':''}" data-act="pref" data-p="${k}">${e} ${fmtDur(a.time)} · ${fmtD(a.dist)}${a.hasZ&&RT.sel!=='car'?' · ↑'+Math.round(a.up)+' m':''}</button>`;
+    return `<button class="btn sm ${k===S.pref?'primary':''}" data-act="pref" data-p="${k}">${e} ${fmtDur(a.time)} · ${fmtD(a.dist)}${a.hasZ&&RT.sel!=='car'?' · ↑'+Math.round(a.up)+' m':''}${a.sig>0||(a.sigK&&a.sig===0)?' · 🚦'+a.sig:''}</button>`;
   }).join('')+'</div>':'';
   h+=cmp;
   h+=candsHtml(start);
@@ -5169,6 +5263,7 @@ async function showRoutes(){
     <label for="dep">Salida (vacío = ahora)</label><input class="in" id="dep" type="time" value="${esc(RT.dep)}">
     <label>Preferencia</label>
     <div class="chips">${PREFS.map(([k,e,n])=>`<button data-act="pref" data-p="${k}" class="${k===S.pref?'on':''}">${e} ${n}</button>`).join('')}</div>
+    ${g&&!g.sigKnown&&(S.sigFoot||S.sigBike||S.sigCar)?'<p class="mut">🚦 Las calles que bajaste todavía no traen los semáforos, así que la ruta no los cuenta: en Más → Correcciones tocá "Traer los semáforos de lo que ya bajé".</p>':''}
     ${!g||g.hasZ?'':'<p class="mut">Para "menos pendiente" hace falta la altura del terreno: en Más → Correcciones tocá "Reemplazar por esta zona", con internet.</p>'}
     <div class="row" style="margin-top:10px"><button class="btn primary" data-act="calc">Calcular ruta</button><button class="btn" data-act="swap">⇅ Invertir A y B</button>${RT.from||RT.to?'<button class="btn" data-act="rclear">🧹 Limpiar</button>':''}</div>
     <div id="rres">${RT.res?resultsHtml():''}</div>`;
@@ -5265,6 +5360,7 @@ const editTitle=e=>e.type==='path'?`${KIND_UI[e.kind][0]} ${esc(e.name||KIND_UI[
   :e.type==='area'?`${AREA_UI[e.kind]?AREA_UI[e.kind][0]:'⬛'} ${esc(e.name||(AREA_UI[e.kind]?AREA_UI[e.kind][1]:'Área'))} · área`
   :e.type==='turn'?`🚫 Giro ${e.kind==='only'?'obligatorio':'prohibido'}: ${esc(e.name||'')}`
   :e.type==='barrier'?`⛔ ${esc(e.name||'Barrera')}`
+  :e.type==='signal'?`🚦 ${esc(e.name||'Semáforo')}`
   :e.type==='acc'?`🚶🚴 ${esc(e.scope==='road'?(e.ref||e.name||'Ruta'):(e.name||'Tramo'))} · a pie y en bici por la banquina${e.scope==='road'?' (toda la ruta)':' (un tramo)'}`
   :`↔️ ${esc(e.name||'Calle')} · ${dirLabel({dir:e.dir,all:e.all})}`;
 const blockGeom=(g,key)=>g.blockEdges(key).map(ei=>{const x=g.E[ei];return [g.lat[x.a],g.lon[x.a],g.lat[x.b],g.lon[x.b]];});
@@ -5333,8 +5429,8 @@ async function drawEdits(){
     }).addTo(editLayer);
     EDLOD.push({line:pg,strip:st2,pts:e.pts,closed:true,lod:false,dash:'6 4'});
   }
-  for(const e of edits)if(e.type==='turn'||e.type==='barrier')
-    L.marker([e.lat,e.lon],{interactive:false,icon:L.divIcon({html:`<div class="nodem">${e.type==='turn'?'🚫':'⛔'}</div>`,className:'',iconSize:[26,26],iconAnchor:[13,13]})}).addTo(editLayer);
+  for(const e of edits)if(e.type==='turn'||e.type==='barrier'||e.type==='signal')
+    L.marker([e.lat,e.lon],{interactive:false,icon:L.divIcon({html:`<div class="nodem">${e.type==='turn'?'🚫':e.type==='signal'?'🚦':'⛔'}</div>`,className:'',iconSize:[26,26],iconAnchor:[13,13]})}).addTo(editLayer);
   /* los tramos corregidos se dibujan con la geometría guardada; solo los viejos (sin ella) necesitan el grafo, una única vez */
   const old=edits.filter(e=>e.type==='ov'&&!e.geom);
   if(old.length){
@@ -5353,16 +5449,17 @@ async function showFix(){
   const nW=nets.reduce((a,n)=>a+n.ways,0);
   let h=`<p class="mut">Red de calles: ${nets.length?`${nW} tramos en ${nets.length} zona${nets.length>1?'s':''}`:'todavía no descargaste ninguna'}.</p>
     <div class="row"><button class="btn primary" data-act="cap">📐 Elegir la zona en el mapa</button></div>
-    <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar 25 × 25 km centrados':'Bajar 25 × 25 km centrados'}</button>${nets.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button><button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div><p id="netmsg" class="mut"></p>`;
+    <div class="row"><button class="btn" id="netgo" data-act="dl">${nets.length?'Agregar 25 × 25 km centrados':'Bajar 25 × 25 km centrados'}</button>${nets.length?'<button class="btn" data-act="dlr">Reemplazar por esta zona</button><button class="btn danger sm" data-act="netdel">Borrar red</button>':''}</div>
+    ${nets.some(n=>!n.regional&&!(n.sg>=0))?'<div class="row"><button class="btn" id="sgdl" data-act="sgdl">🚦 Traer los semáforos de lo que ya bajé</button></div><p class="mut">Las calles que bajaste antes no guardaron los semáforos. Esto trae solo los semáforos de esas zonas (es rápido) y las rutas pasan a contarlos.</p>':''}<p id="netmsg" class="mut"></p>`;
   h+=`<h3>Dibujo vectorial (costas, límites, ríos…)</h3>
     <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="newpath">✍️<br>Calcar o dibujar</button><button class="btn big" data-act="geoimp">📥<br>Importar GeoJSON</button><button class="btn big" data-act="osmcl">🌊<br>Costas y límites de OpenStreetMap</button><button class="btn big" data-act="meas">📏<br>Medir</button><button class="btn big" data-act="perim">⬛<br>Armar un área con tramos</button><button class="btn big" data-act="osmw">🏞️<br>Ríos y lagos de OpenStreetMap</button><button class="btn big" data-act="rdup">🧹<br>Ríos repetidos</button><button class="btn big" data-act="dsel">☑️<br>Elegir trazos y borrar varios</button></div>`;
   if(nets.length)h+=`<h3>Corregir las calles</h3>
-    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="pickway">↔️<br>Sentido, cierre o paso a pie y en bici</button><button class="btn big" data-act="nodes">🚫<br>Giros prohibidos y barreras</button></div>`;
+    <div class="grid3" style="grid-template-columns:1fr 1fr"><button class="btn big" data-act="pickway">↔️<br>Sentido, cierre o paso a pie y en bici</button><button class="btn big" data-act="nodes">🚫<br>Giros, barreras y semáforos</button></div>`;
   const gs=groupsOf(edits),singles=edits.filter(e=>!e.group);
   if(gs.length)h+=`<h3>Importado</h3>`+groupHtml(gs);
   if(singles.length)h+=`<h3>Tus correcciones (${singles.length})</h3>`+singles.map(e=>{
     const t=editTitle(e);
-    return `<div class="item"><div><b>${t}</b><br><small class="mut">${fmtDate(e.created)}${e.type==='path'?propsLine(e):e.type==='area'?areaLine(e):e.type==='turn'?` · ${e.kind==='only'?'solo hacia ahí':'prohibido'} · ${e.modes.car?'autos':''}${e.modes.car&&e.modes.bike?' y ':''}${e.modes.bike?'bicis':''}`:e.type==='barrier'?` · corta ${['foot','bike','car'].filter(m=>e.modes[m]).map(m=>({foot:'peatones',bike:'bicis',car:'autos'})[m]).join(', ')}`:''}</small></div><div class="row"><button class="btn sm" data-act="eview" data-id="${e.id}">Ver</button>${e.type==='path'||e.type==='area'?`<button class="btn sm" data-act="${e.type==='path'?'etr':'ear'}" data-id="${e.id}">Datos</button><button class="btn sm" data-act="evx" data-id="${e.id}">Puntos</button>`:''}<button class="btn sm danger" data-act="edel" data-id="${e.id}">Quitar</button></div></div>`;
+    return `<div class="item"><div><b>${t}</b><br><small class="mut">${fmtDate(e.created)}${e.type==='path'?propsLine(e):e.type==='area'?areaLine(e):e.type==='turn'?` · ${e.kind==='only'?'solo hacia ahí':'prohibido'} · ${e.modes.car?'autos':''}${e.modes.car&&e.modes.bike?' y ':''}${e.modes.bike?'bicis':''}`:e.type==='barrier'?` · corta ${['foot','bike','car'].filter(m=>e.modes[m]).map(m=>({foot:'peatones',bike:'bicis',car:'autos'})[m]).join(', ')}`:e.type==='signal'?' · suma una espera en cada ruta que pase':''}</small></div><div class="row"><button class="btn sm" data-act="eview" data-id="${e.id}">Ver</button>${e.type==='path'||e.type==='area'?`<button class="btn sm" data-act="${e.type==='path'?'etr':'ear'}" data-id="${e.id}">Datos</button><button class="btn sm" data-act="evx" data-id="${e.id}">Puntos</button>`:''}<button class="btn sm danger" data-act="edel" data-id="${e.id}">Quitar</button></div></div>`;
   }).join('');
   if(edits.some(x=>x.type==='path'||x.type==='area'||x.type==='turn'||x.type==='barrier'))h+=`<h3>Exportar lo calcado</h3><p class="mut">Para usarlo en otros programas (OsmAnd, QGIS, JOSM…).</p><div class="row"><button class="btn" data-act="expg">GeoJSON</button><button class="btn" data-act="expx">GPX</button></div>`;
   openSheet('Correcciones',h,async(a,d,el)=>{
@@ -5370,6 +5467,14 @@ async function showFix(){
     else if(a==='dl'){if(await dlNet())showFix();}
     else if(a==='dlr'){if(await dlNet(true))showFix();}
     else if(a==='netdel'){if(armed(el)){for(const n of nets)await DB.del('kv','net:'+n.id);netsChanged();toast('Red borrada');showFix();}}
+    else if(a==='sgdl'){
+      const b=$('#sgdl');if(b)b.disabled=true;
+      const say=t=>{const m=$('#netmsg');if(m)m.textContent=t;};
+      const r=await dlSignals(say);
+      if(!r){if(b)b.disabled=false;return;}
+      toast(r.fail?`Semáforos: ${r.tot} en ${r.ok} zona${r.ok===1?'':'s'}; ${r.fail} no se pudo${r.fail>1?'ieron':''} bajar, probá de nuevo`:`Listo: ${r.tot} semáforos en ${r.ok} zona${r.ok===1?'':'s'}`,6000);
+      showFix();
+    }
     else if(a==='newpath')openTrace();
     else if(a==='etr')showEditPath(d.id);
     else if(a==='ear')showEditArea(d.id);
@@ -5391,7 +5496,7 @@ async function showFix(){
     else if(a==='eview'){
       const e=edits.find(x=>x.id===d.id);
       if(e.type==='path'||e.type==='area'){closeSheet();map.fitBounds(L.latLngBounds(e.pts),{padding:[50,50]});}
-      else if(e.type==='turn'||e.type==='barrier'){closeSheet();map.setView([e.lat,e.lon],18);}
+      else if(e.type==='turn'||e.type==='barrier'||e.type==='signal'){closeSheet();map.setView([e.lat,e.lon],18);}
       else if(e.geom&&e.geom.length){closeSheet();map.setView([e.geom[0][0],e.geom[0][1]],18);}
     }
   });
@@ -5491,7 +5596,7 @@ async function collectHz(g){
 }
 function hzSummary(hzs){
   const c={};hzs.forEach(h=>c[h.k]=(c[h.k]||0)+1);
-  const nm={lomo:['lomo de burro','lomos de burro'],pozo:['pozo','pozos'],peligro:['punto peligroso','puntos peligrosos']};
+  const nm={lomo:['lomo de burro','lomos de burro'],pozo:['pozo','pozos'],peligro:['punto peligroso','puntos peligrosos'],semaforo:['semáforo','semáforos']};
   return Object.entries(c).map(([k,n])=>`${n} ${nm[k][n>1?1:0]}`).join(', ');
 }
 function navSay(t){if(!S.voice)return;beep(880,.12);say(t);}
@@ -5510,8 +5615,8 @@ async function startNav(){
   }
   keepAwake(true);
   $('#nav').hidden=false;updNavTop();
-  const h=NAV.N.hzs.length;
-  navSay(r.steps[0].text+'.'+(h?` Hay ${h} aviso${h>1?'s':''} en el camino.`:''));
+  const h=NAV.N.hzs.length,sg=NAV.N.sgs.length;
+  navSay(r.steps[0].text+'.'+(h?` Hay ${h} aviso${h>1?'s':''} en el camino.`:'')+(sg?` Pasás por ${sg} semáforo${sg>1?'s':''}.`:''));
   const s1=r.steps[1]||r.steps[0];
   updNav({next:{step:s1,dist:s1.at},rem:NAV.N.total});
 }
@@ -5737,7 +5842,7 @@ async function netIndex(){
   for(const id of keys)if(!idx.some(x=>x.id===id&&!x.pending)){
     idx=idx.filter(x=>x.id!==id);
     const n=await DB.get('kv','net:'+id);if(!n)continue;
-    const x={id,bb:n.bb,date:n.date,ways:n.ways.length,hz:(n.hz||[]).length,z:n.ways.some(w=>w.z&&w.z.some(v=>v!=null)),regional:!!n.regional};
+    const x={id,bb:n.bb,date:n.date,ways:n.ways.length,hz:(n.hz||[]).length,sg:Array.isArray(n.sg)?n.sg.length:-1,z:n.ways.some(w=>w.z&&w.z.some(v=>v!=null)),regional:!!n.regional};
     await DB.put('kv','netidx:'+id,x);idx.push(x);
   }
   return idx;
@@ -5756,7 +5861,7 @@ function netGroups(list){
   for(const n of a){const g=gs[gs.length-1];if(g&&n.date-g.t1<=900000){g.items.push(n);g.t1=n.date;}else gs.push({t0:n.date,t1:n.date,items:[n]});}
   for(const g of gs){
     g.bb={s:Math.min(...g.items.map(n=>n.bb.s)),w:Math.min(...g.items.map(n=>n.bb.w)),n:Math.max(...g.items.map(n=>n.bb.n)),e:Math.max(...g.items.map(n=>n.bb.e))};
-    g.ways=g.items.reduce((t,n)=>t+n.ways,0);g.hz=g.items.reduce((t,n)=>t+n.hz,0);
+    g.ways=g.items.reduce((t,n)=>t+n.ways,0);g.hz=g.items.reduce((t,n)=>t+n.hz,0);g.sgK=g.items.every(n=>n.sg>=0);g.sg=g.items.reduce((t,n)=>t+Math.max(0,n.sg||0),0);
     g.z=g.items.every(n=>n.z);g.zSome=g.items.some(n=>n.z);
     g.ids=g.items.map(n=>n.id);
   }
@@ -5786,7 +5891,7 @@ async function mergeGroup(g,say){
   let before=0,after=0,made=0;
   for(const b of bundles){
     if(b.list.length<2)continue;
-    const ways=new Map(),hz=new Map();
+    const ways=new Map(),hz=new Map(),sgs=new Map();
     for(const n of b.list){
       before+=n.ways.length;
       for(const w of n.ways){
@@ -5794,8 +5899,9 @@ async function mergeGroup(g,say){
         if(!o||w.p.length>o.p.length||(w.p.length===o.p.length&&!o.z&&w.z))ways.set(w.id,w);
       }
       for(const h of (n.hz||[]))hz.set(h.lat+','+h.lon+','+h.k,h);
+      for(const q of (n.sg||[]))sgs.set(q[0],q);
     }
-    const out={id:uid(),bb:b.bb,date:Math.max(...b.list.map(n=>n.date)),ways:[...ways.values()],hz:[...hz.values()],regional:false};
+    const out={id:uid(),bb:b.bb,date:Math.max(...b.list.map(n=>n.date)),ways:[...ways.values()],hz:[...hz.values()],sg:b.list.every(n=>Array.isArray(n.sg))?[...sgs.values()]:undefined,regional:false};
     after+=out.ways.length;
     await DB.put('kv','net:'+out.id,out);
     for(const n of b.list){await DB.del('kv','net:'+n.id);await DB.del('kv','netidx:'+n.id);}
@@ -6095,9 +6201,9 @@ async function showMapMgr(){
   h+='<h3>Calles y rutas</h3>';
   const one=n=>`<div class="item"><div><b>${fmtDate(n.date)}</b><br><small class="mut">${fmtN(n.ways)} calles · ${n.hz} lomos${n.z?' · con altura':''}</small></div><div class="row"><button class="btn sm" data-act="nview" data-id="${n.id}">Ver</button><button class="btn sm danger" data-act="ndel" data-id="${n.id}">Borrar</button></div></div>`;
   const grs=netGroups(idx),regs=idx.filter(n=>n.regional);
-  h+=NSEL?netSelHtml(idx,NSEL):idx.length?grs.map(g=>g.items.length<2?`<div class="card"><b>${fmtDate(g.t0)}</b><br><small class="mut">${fmtN(g.ways)} calles y senderos · ${g.hz} lomos de burro · ${g.z?'con altura del terreno':'sin altura del terreno'}</small>
+  h+=NSEL?netSelHtml(idx,NSEL):idx.length?grs.map(g=>g.items.length<2?`<div class="card"><b>${fmtDate(g.t0)}</b><br><small class="mut">${fmtN(g.ways)} calles y senderos · ${g.hz} lomos de burro · ${g.sgK?g.sg+' semáforos':'sin semáforos'} · ${g.z?'con altura del terreno':'sin altura del terreno'}</small>
       <div class="row" style="margin-top:6px"><button class="btn sm" data-act="nview" data-id="${g.ids[0]}">Ver zona</button><button class="btn sm danger" data-act="ndel" data-id="${g.ids[0]}">Borrar</button></div></div>`
-    :`<div class="card"><b>${groupTitle(g)}</b> <span class="tag">${g.items.length} mosaicos</span><br><small class="mut">${fmtN(g.ways)} calles y senderos · ${g.hz} lomos de burro · ${g.z?'con altura del terreno':g.zSome?'altura en algunos':'sin altura del terreno'}</small>
+    :`<div class="card"><b>${groupTitle(g)}</b> <span class="tag">${g.items.length} mosaicos</span><br><small class="mut">${fmtN(g.ways)} calles y senderos · ${g.hz} lomos de burro · ${g.sgK?g.sg+' semáforos':'sin semáforos'} · ${g.z?'con altura del terreno':g.zSome?'altura en algunos':'sin altura del terreno'}</small>
       <div class="row" style="margin-top:6px"><button class="btn sm" data-act="gview" data-ids="${g.ids.join(',')}">Ver zona</button><button class="btn sm" data-act="gmerge" data-ids="${g.ids.join(',')}">🧩 Unir todo</button><button class="btn sm" data-act="gpick" data-ids="${g.ids.join(',')}">☑️ Elegir</button><button class="btn sm danger" data-act="gdel" data-ids="${g.ids.join(',')}">Borrar todo</button></div>
       <details style="margin-top:6px"><summary class="mut">Ver los ${g.items.length} mosaicos</summary>${g.items.slice().sort((a,b)=>b.date-a.date).map(one).join('')}</details></div>`).join('')
     +regs.map(n=>`<div class="card"><b>${fmtDate(n.date)}</b> <span class="tag">regional</span><br><small class="mut">${fmtN(n.ways)} tramos de rutas principales y ferris</small><div class="row" style="margin-top:6px"><button class="btn sm" data-act="nview" data-id="${n.id}">Ver zona</button><button class="btn sm danger" data-act="ndel" data-id="${n.id}">Borrar</button></div></div>`).join(''):'<p class="mut">No hay red de calles descargada.</p>';
@@ -6900,7 +7006,7 @@ async function recoverAll(){
     i++;msg(`Calles ${i} de ${total}: bajando…`);
     try{
       const f=await fetchNetFull(n.bb,msg,n.regional);
-      await DB.put('kv','net:'+n.id,{id:n.id,bb:n.bb,date:Date.now(),ways:f.ways,hz:f.hz,regional:!!n.regional});
+      await DB.put('kv','net:'+n.id,{id:n.id,bb:n.bb,date:Date.now(),ways:f.ways,hz:f.hz,sg:f.sg,regional:!!n.regional});
       await DB.del('kv','netidx:'+n.id);
     }catch(e){toast('No se pudo bajar una red de calles: '+(e.message||e),5000);}
   }
@@ -7287,6 +7393,7 @@ function updNodeUi(){
       NP.kind==='no'?`Quien venga por ${LETTERS[NP.from]} (${a.name}) no podrá girar hacia ${LETTERS[NP.to]} (${b.name}).`:
       `Quien venga por ${LETTERS[NP.from]} (${a.name}) solo podrá seguir hacia ${LETTERS[NP.to]} (${b.name}).`;
   }else if(NP.type==='barrier')$('#npInfo').textContent='La barrera corta el paso de lo que marques, justo en este punto.';
+  else if(NP.type==='signal')$('#npInfo').textContent='Cada vez que una ruta pase por acá, suma la espera de un semáforo (se configura por modo en Más → Ajustes). Sirve para los que falten en OpenStreetMap.';
   $('#npOk').disabled=NP.type==='turn'&&NP.from===NP.to;
 }
 async function openNodeTool(){
@@ -7322,13 +7429,15 @@ async function nodeSave(){
     const a=NP.items[NP.from],b=NP.items[NP.to];
     e=Object.assign(base,{type:'turn',fromBrg:Math.round(a.brg),toBrg:Math.round(b.brg),kind:NP.kind,modes:{car:NP.car,bike:NP.bike},name:name||`${a.name} → ${b.name}`});
     if(!NP.car&&!NP.bike){toast('Marcá al menos autos o bicis');return;}
+  }else if(NP.type==='signal'){
+    e=Object.assign(base,{type:'signal',name:name||'Semáforo'});
   }else{
     if(!(NP.bar.foot||NP.bar.bike||NP.bar.car)){toast('Marcá qué corta la barrera');return;}
     e=Object.assign(base,{type:'barrier',modes:Object.assign({},NP.bar),name:name||'Barrera'});
   }
   await DB.put('kv','edit:'+e.id,e);
   dropGraph();await drawEdits();
-  toast(e.type==='turn'?'Restricción de giro guardada':'Barrera guardada',3000);
+  toast(e.type==='turn'?'Restricción de giro guardada':e.type==='signal'?'Semáforo guardado':'Barrera guardada',3000);
   $('#npName').value='';NP.pt=null;drawNodeTool();
 }
 document.querySelectorAll('#npType button').forEach(b=>b.onclick=()=>{NP.type=b.dataset.t;drawNodeTool();});
@@ -8440,6 +8549,8 @@ const STOP_KINDS={camp:['⛺','Acampe',600],regroup:['🚩','Reagrupamiento',15]
 const STOP_OF={camp:'camp',regroup:'regroup',embark:'embark',agua:'agua',comida:'comida',refugio:'camp',playa:'regroup'};
 const stopsList=()=>{RT.stops=RT.stops||[];return RT.stops;};
 const totT=r=>r.time+(r.stayMin||0)*60;
+/* 🚦 "3 semáforos (+1 min)"; si las calles traen semáforos y la ruta no pasa por ninguno, lo dice; sin datos de semáforos no muestra nada */
+const sigTxt=r=>!r?'':r.sig>0?`🚦 ${r.sig} semáforo${r.sig>1?'s':''}${r.sigWait>=30?` (+${fmtDur(r.sigWait)})`:''}`:r.sigK?'🚦 sin semáforos':'';
 function stopsHtml(){
   const L=stopsList();
   return `<h3>Paradas y puntos de paso</h3>`+
@@ -9195,15 +9306,15 @@ $('#trX').onclick=()=>{closeTrace();showFix();};
 
 /* Lista de lo calcado: editar propiedades (en sec_props) y exportar */
 async function exportTraced(fmt){
-  const all=await DB.all('kv','edit:'),eds=all.filter(e=>e.type==='path'),areas=all.filter(e=>e.type==='area'),nodes=all.filter(e=>e.type==='turn'||e.type==='barrier');
+  const all=await DB.all('kv','edit:'),eds=all.filter(e=>e.type==='path'),areas=all.filter(e=>e.type==='area'),nodes=all.filter(e=>e.type==='turn'||e.type==='barrier'||e.type==='signal');
   if(!eds.length&&!areas.length&&!nodes.length){toast('Todavía no calcaste nada');return;}
   if(fmt==='geojson'){
     const f=[];
     for(const e of eds)f.push({type:'Feature',properties:Object.assign({kind:e.kind,nota:(e.props&&e.props.note)||''},e.kind==='nivel'?{contour:'elevation',ele:(e.props&&e.props.ele)||''}:{},userTags(e)),geometry:{type:'LineString',coordinates:e.pts.map(p=>[p[1],p[0]])}});
     for(const e of areas){const ring=e.pts.map(p=>[p[1],p[0]]);ring.push(ring[0]);f.push({type:'Feature',properties:Object.assign({kind:e.kind,area:AREA_UI[e.kind]?AREA_UI[e.kind][1]:e.kind,name:e.name||'',nota:(e.props&&e.props.note)||'',prohibido:(e.props&&e.props.restrict)||{}},Object.fromEntries(parseTagLines(e.props&&e.props.tags))),geometry:{type:'Polygon',coordinates:[ring]}});}
-    for(const e of nodes)f.push({type:'Feature',properties:e.type==='turn'?{restriction:e.kind==='only'?'only_straight_on':'no_turn',name:e.name,de:e.fromBrg,hacia:e.toBrg,modos:e.modes}:{barrier:'yes',name:e.name,bloquea:e.modes},geometry:{type:'Point',coordinates:[e.lon,e.lat]}});
+    for(const e of nodes)f.push({type:'Feature',properties:e.type==='turn'?{restriction:e.kind==='only'?'only_straight_on':'no_turn',name:e.name,de:e.fromBrg,hacia:e.toBrg,modos:e.modes}:e.type==='signal'?{highway:'traffic_signals',name:e.name}:{barrier:'yes',name:e.name,bloquea:e.modes},geometry:{type:'Point',coordinates:[e.lon,e.lat]}});
     shareFile('rumbo-calcado.geojson',JSON.stringify({type:'FeatureCollection',features:f}),'application/geo+json');
-  }else shareFile('rumbo-calcado.gpx',toGPX(eds.map(e=>({name:e.name||KIND_UI[e.kind][1],pts:e.pts.map(p=>[p[0],p[1],0,0,null,0]),desc:Object.entries(userTags(e)).map(([k,v])=>k+'='+v).join('; ')+(e.props&&e.props.note?' | '+e.props.note:'')})).concat(areas.map(e=>({name:(AREA_UI[e.kind]?AREA_UI[e.kind][1]:e.kind)+(e.name?' '+e.name:''),pts:e.pts.concat([e.pts[0]]).map(p=>[p[0],p[1],0,0,null,0]),desc:'área'}))),nodes.map(e=>({lat:e.lat,lon:e.lon,t:e.created,name:e.name,type:e.type==='turn'?'restriccion de giro':'barrera'})),esc),'application/gpx+xml');
+  }else shareFile('rumbo-calcado.gpx',toGPX(eds.map(e=>({name:e.name||KIND_UI[e.kind][1],pts:e.pts.map(p=>[p[0],p[1],0,0,null,0]),desc:Object.entries(userTags(e)).map(([k,v])=>k+'='+v).join('; ')+(e.props&&e.props.note?' | '+e.props.note:'')})).concat(areas.map(e=>({name:(AREA_UI[e.kind]?AREA_UI[e.kind][1]:e.kind)+(e.name?' '+e.name:''),pts:e.pts.concat([e.pts[0]]).map(p=>[p[0],p[1],0,0,null,0]),desc:'área'}))),nodes.map(e=>({lat:e.lat,lon:e.lon,t:e.created,name:e.name,type:e.type==='turn'?'restriccion de giro':e.type==='signal'?'semaforo':'barrera'})),esc),'application/gpx+xml');
 }
 
 
@@ -13786,6 +13897,12 @@ function showMore(){
     <select class="in" id="s8"><option value="0.6">Pesado (60 % de la velocidad legal)</option><option value="0.8">Normal (80 %)</option><option value="1">Fluido (100 %)</option></select>
     <label for="s10">Espera para embarcar en un ferry (min)</label><input class="in" id="s10" type="number" min="0" max="240" value="${S.ferryWait}">
     <p class="mut">Se suma al tiempo del cruce. Los horarios reales no están en el mapa: conviene confirmarlos.</p>
+    <h3>🚦 Semáforos</h3>
+    <label for="s20">Espera promedio en cada semáforo, a pie (segundos)</label><input class="in" id="s20" type="number" step="1" min="0" max="180" value="${S.sigFoot}">
+    <label for="s21">Espera promedio en cada semáforo, en bici (segundos)</label><input class="in" id="s21" type="number" step="1" min="0" max="180" value="${S.sigBike}">
+    <label for="s22">Espera promedio en cada semáforo, en auto (segundos)</label><input class="in" id="s22" type="number" step="1" min="0" max="180" value="${S.sigCar}">
+    <p class="mut">Cada semáforo por el que pasa la ruta suma esta espera al tiempo (0 = no contarlos). Salen de OpenStreetMap al bajar las calles, y los que falten los marcás en Más → Correcciones. Con "Por mi velocidad promedio" las paradas ya van en el porcentaje de arriba: si lo usás, bajá ese % o poné 0 acá, para no contar la espera dos veces.</p>
+    <label class="chk"><input type="checkbox" id="s23" ${S.sigVoice!==false?'checked':''}> 🚦 Avisar los semáforos al guiarme (por voz, antes de llegar)</label>
     <label for="s9">Ruta que se muestra primero</label>
     <select class="in" id="s9"><option value="foot">A pie</option><option value="bike">En bici</option><option value="car">En auto</option></select>
     <h3>Copia de seguridad</h3>
@@ -13854,6 +13971,8 @@ function showMore(){
       else if(t.id==='s13'){S.avgCar=Math.max(10,Math.min(120,+t.value||45));dropGraph();}
       else if(t.id==='s14'){S.avgStops=Math.max(0,Math.min(60,+t.value||0));dropGraph();}
       else if(t.id==='s10'){S.ferryWait=Math.max(0,Math.min(240,+t.value||0));dropGraph();}
+      else if(t.id==='s20'||t.id==='s21'||t.id==='s22'){S[{s20:'sigFoot',s21:'sigBike',s22:'sigCar'}[t.id]]=Math.max(0,Math.min(180,Math.round(+t.value)||0));dropGraph();}
+      else if(t.id==='s23')S.sigVoice=t.checked;
       saveS();
     });
   updNetPill();
