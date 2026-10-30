@@ -1157,7 +1157,7 @@ function wayProfile(t,c){
     else if(/^(unpaved|gravel|dirt|ground|earth|compacted|fine_gravel|grass)$/.test(t.surface||''))kmh=Math.min(kmh*.85,55);
     if(ms>0&&ms<=130&&!/mph/.test(t.maxspeed||''))kmh=ms;
     if(hw.endsWith('_link'))kmh=Math.min(kmh,40);
-    out.car={ok:true,ow,v:Math.max(5,kmh*c.carF)/3.6};
+    out.car={ok:true,ow,v:(c.vl&&c.vl[b])?Math.max(1.5,c.vl[b]):Math.max(5,kmh*c.carF)/3.6};
   }
   return out;
 }
@@ -2036,6 +2036,97 @@ function avgSpeeds(tracks){
   all.sort((x,y)=>x-y);
   out.stops=all.length?Math.round(all[Math.floor(all.length/2)]):null;
   return out;
+}
+
+
+/* ====================== VELOCIDADES APRENDIDAS DE MIS SALIDAS (AUTO) ====================== */
+/* Cada salida en auto se cruza una sola vez con las calles guardadas y se suma, por tipo de calle, pendiente y franja horaria, cuántos metros
+   se hicieron y en cuántos segundos EN MOVIMIENTO (las paradas no cuentan: la espera en semáforos ya se suma aparte). Queda solo ese resumen
+   (kv `vel:car`, unos pocos KB), así que después se pueden borrar los tracks. `done` guarda qué salidas ya entraron, para no contarlas dos veces.
+   bins: { 'tipo de calle|pendiente|franja': [metros, segundos, tramos] }; pendiente b=bajada l=llano s=subida x=sin altura; franja 0..3 = VL_FR. */
+const VL_KEY='vel:car',VL_FR=['madrugada','mañana','tarde','noche'],VL_MIN={m:1000,n:30};
+const vlFranja=ms=>{const h=new Date(ms).getHours();return h<6?0:h<12?1:h<18?2:3;};
+const vlSlope=g=>g<-0.03?'b':g>0.03?'s':'l';
+const VL_HW={motorway:'Autopista',trunk:'Ruta troncal',primary:'Ruta o avenida principal',secondary:'Avenida secundaria',tertiary:'Calle colectora',unclassified:'Camino local',residential:'Calle residencial',living_street:'Calle compartida',service:'Calle de servicio',track:'Camino de tierra',road:'Calle sin clasificar'};
+/* Cruza los puntos de un track [lat,lon,t,acc,alt,seg] con las calles del grafo g. */
+async function vlMatch(g,pts){
+  const bins={};let tot=0,mat=0,matM=0;
+  const ok=e=>g.W[e.w].hw!=='connector'&&!g.W[e.w].ferry&&(g.pass(e,'car',1)>0||g.pass(e,'car',-1)>0);
+  for(let i=1;i<pts.length;i++){
+    if(i%1500===0)await new Promise(r=>setTimeout(r,0));
+    const a=pts[i-1],b=pts[i];
+    if(a[5]!==b[5]||(a[3]!=null&&a[3]>40)||(b[3]!=null&&b[3]>40))continue;      /* otro tramo de grabación (hubo una pausa) o mala señal */
+    const dt=(b[2]-a[2])/1000,d=hav(a,b);
+    if(!(dt>=0.5&&dt<=30)||d<4)continue;
+    const v=d/dt;if(v<1||v>60)continue;                                          /* parado, o un salto del GPS */
+    tot++;
+    const h=g.nearestEdge((a[0]+b[0])/2,(a[1]+b[1])/2,20,ok);if(!h)continue;
+    const e=g.E[h.ei],pd=angDiff(bearingTo(a,b),bearingTo([g.lat[e.a],g.lon[e.a]],[g.lat[e.b],g.lon[e.b]]));
+    if(pd>35&&pd<145)continue;                                                   /* cruzando una esquina: no dice nada de la velocidad de esa calle */
+    const hw=(g.W[e.w].hw||'').replace('_link','');if(!hw)continue;
+    const k=hw+'|'+(g.hasZ?vlSlope(g.slope(e,pd<90?1:-1)):'x')+'|'+vlFranja(a[2]);
+    const o=bins[k]||(bins[k]=[0,0,0]);o[0]+=d;o[1]+=dt;o[2]++;mat++;matM+=d;
+  }
+  return {bins,tot,mat,matM};
+}
+/* Procesa las salidas en auto que todavía no entraron. No borra nada. */
+async function vlLearn(say){
+  const vl=(await DB.get('kv',VL_KEY))||{v:1,done:{},bins:{}},keys=await DB.keys('kv','track:'),r={nuevas:0,pocas:0,sinRed:0,km:0};
+  let i=0;
+  for(const k of keys){
+    i++;const id=k.slice(6);
+    if(vl.done[id])continue;
+    const tr=await DB.get('kv',k);
+    if(!tr||tr.act!=='car'||!tr.pts||tr.pts.length<20)continue;
+    if(say)say(`Salida ${i} de ${keys.length}: ${tr.name||id}…`);
+    const mid=tr.pts[tr.pts.length>>1];
+    let g=null;try{g=await ensureGraph({center:[mid[0],mid[1]]});}catch(e){errLog(e)}
+    if(!g){r.sinRed++;continue;}
+    const m=await vlMatch(g,tr.pts);
+    if(m.tot<20||m.mat<m.tot*0.4){r.pocas++;continue;}                         /* no hay calles de esa zona: se deja pendiente, no se cuenta */
+    for(const [kk,o] of Object.entries(m.bins)){const t=vl.bins[kk]||(vl.bins[kk]=[0,0,0]);t[0]+=o[0];t[1]+=o[1];t[2]+=o[2];}
+    vl.done[id]={t:Date.now(),km:Math.round(m.matM/100)/10,p:Math.round(m.mat/m.tot*100)};
+    r.nuevas++;r.km+=m.matM/1000;
+    await DB.put('kv',VL_KEY,vl);
+  }
+  return {vl,r};
+}
+/* Velocidad (m/s) por tipo de calle para una franja: la de esa franja si tiene datos suficientes, si no la de todo el día; si tampoco, no hay (se usa el modelo).
+   La pendiente se junta: en auto no cambia la velocidad del modelo (slopeFactor = 1). */
+function vlSpeeds(vl,fr){
+  const A={},F={};
+  for(const [k,o] of Object.entries((vl&&vl.bins)||{})){
+    const q=k.split('|'),a=A[q[0]]||(A[q[0]]=[0,0,0]);
+    for(let j=0;j<3;j++)a[j]+=o[j];
+    if(+q[2]===fr){const b=F[q[0]]||(F[q[0]]=[0,0,0]);for(let j=0;j<3;j++)b[j]+=o[j];}
+  }
+  const enough=o=>o&&o[0]>=VL_MIN.m&&o[2]>=VL_MIN.n&&o[1]>0,out={};
+  for(const hw of Object.keys(A)){const o=enough(F[hw])?F[hw]:enough(A[hw])?A[hw]:null;if(o)out[hw]=o[0]/o[1];}
+  return out;
+}
+/* Borra SOLO los tracks de auto que ya entraron al resumen (los demás no se tocan). Devuelve cuántos. */
+async function vlDeleteDone(){
+  const vl=await DB.get('kv',VL_KEY);if(!vl)return 0;
+  let n=0;
+  for(const id of Object.keys(vl.done)){
+    const tr=await DB.get('kv','track:'+id);
+    if(!tr||tr.act!=='car')continue;
+    await removeRunsOfTrack(id);await DB.del('kv','track:'+id);await DB.del('kv','prx:'+id).catch(errLog);n++;
+  }
+  return n;
+}
+/* Lo aprendido, en Ajustes */
+async function vlRender(){
+  const el=$('#vltab');if(!el)return;
+  const vl=await DB.get('kv',VL_KEY),ids=vl?Object.keys(vl.done):[];
+  if(!ids.length){el.innerHTML='<p class="mut">Todavía no aprendió nada de tus salidas.</p>';return;}
+  let quedan=0,km=0;for(const id of ids){km+=vl.done[id].km||0;if(await DB.has('kv','track:'+id))quedan++;}
+  const rows={};
+  for(const [k,o] of Object.entries(vl.bins)){const q=k.split('|'),r=rows[q[0]]||(rows[q[0]]={all:[0,0,0],f:[0,1,2,3].map(()=>[0,0,0])});for(let j=0;j<3;j++){r.all[j]+=o[j];r.f[+q[2]][j]+=o[j];}}
+  const ok=o=>o[0]>=VL_MIN.m&&o[2]>=VL_MIN.n&&o[1]>0,kmh=o=>Math.round(o[0]/o[1]*3.6);
+  el.innerHTML=`<p class="mut">${ids.length} salida${ids.length===1?'':'s'} procesada${ids.length===1?'':'s'} (${fmtD(km*1000)}).</p>`
+    +Object.entries(rows).sort((a,b)=>b[1].all[0]-a[1].all[0]).map(([hw,r])=>`<div class="item"><div><b>${esc(VL_HW[hw]||hw)}</b> · ${ok(r.all)?kmh(r.all)+' km/h':'pocos datos'}<br><small class="mut">${fmtD(r.all[0])} · ${r.all[2]} tramos${VL_FR.map((n,j)=>ok(r.f[j])?` · ${n} ${kmh(r.f[j])}`:'').join('')}</small></div></div>`).join('')
+    +`<div class="row">${quedan?`<button class="btn danger sm" data-act="vldel">🗑️ Borrar los ${quedan} track${quedan===1?'':'s'} de auto ya procesado${quedan===1?'':'s'}</button>`:''}<button class="btn danger sm" data-act="vlclr">Olvidar lo aprendido</button></div>`;
 }
 
 
@@ -3085,7 +3176,7 @@ const DB=(()=>{
 })();
 
 /* ---------- Ajustes ---------- */
-const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north',fingerRotate:true,navOp:.42,ferryWait:20,smooth:true,dataMode:'allow',contourOn:false,ctrInt:20,frameKm:25,capZ:16,timeMode:'model',avgFoot:5,avgBike:16,avgCar:45,avgStops:10,sigFoot:15,sigBike:20,sigCar:25};
+const DEF={maxAcc:30,minDist:3,dlZoom:3,gateW:30,speedMode:'kmh',voice:true,keepAwake:false,layer:'sat',act:'bike',vFoot:5,vBike:16,carF:.8,routeMode:'foot',pref:'fast',cov:true,night:'auto',orient:'north',fingerRotate:true,navOp:.42,ferryWait:20,smooth:true,dataMode:'allow',contourOn:false,ctrInt:20,frameKm:25,capZ:16,timeMode:'model',avgFoot:5,avgBike:16,avgCar:45,avgStops:10,sigFoot:15,sigBike:20,sigCar:25,vlOn:false};
 let S=Object.assign({},DEF);
 try{Object.assign(S,JSON.parse(localStorage.getItem('rumbo.set')||'{}'));}catch(e){errLog(e)}
 const saveS=()=>{try{localStorage.setItem('rumbo.set',JSON.stringify(S));}catch(e){errLog(e)}};
@@ -4763,6 +4854,7 @@ function netBudget(){const m=performance&&performance.memory,lim=m&&m.jsHeapSize
 /* opt.center: dónde se va a trabajar · opt.route {from,to}: si el viaje es de más de 100 km se arma la red en dos niveles */
 function ensureGraph(opt){
   const c=opt&&opt.center,rt=opt&&opt.route&&opt.route.from&&opt.route.to?opt.route:null;
+  if(G&&S.vlOn&&G.vlFr!=null&&G.vlFr!==vlFranja(depMs()))dropGraph();      /* cambió la franja horaria de la salida: las velocidades aprendidas son otras */
   const longWanted=!!(rt&&hav([rt.from.lat,rt.from.lon],[rt.to.lat,rt.to.lon])>100000);
   if(G){
     if(longWanted){
@@ -4788,13 +4880,14 @@ function ensureGraph(opt){
     }else pk=pickNets(nets,center,netBudget());
     nets=pk.nets;
     const edits=await DB.all('kv','edit:');
+    const vlFr=vlFranja(depMs()),vlD=S.vlOn?await DB.get('kv',VL_KEY).catch(e=>{errLog(e);return null;}):null,vlSp=vlD?vlSpeeds(vlD,vlFr):null;
     const ov=new Map();
     edits.filter(e=>e.type==='ov').forEach(e=>ov.set(`${e.way}:${e.n1}:${e.n2}`,{dir:e.dir,all:!!e.all}));
     await new Promise(r=>setTimeout(r,0));
     const acc={refs:new Set(),names:new Set(),segs:new Set()};
     for(const e of edits)if(e.type==='acc'){if(e.scope==='road'){if(e.ref)acc.refs.add(e.ref);else if(e.name)acc.names.add(e.name);}else acc.segs.add(`${e.way}:${e.n1}:${e.n2}`);}
-    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{acc,vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait,avg:S.timeMode==='avg'?{foot:S.avgFoot/3.6,bike:S.avgBike/3.6,car:S.avgCar/3.6}:null,avgStops:S.avgStops,sig:{foot:Math.max(0,+S.sigFoot||0),bike:Math.max(0,+S.sigBike||0),car:Math.max(0,+S.sigCar||0)}},{turns:edits.filter(e=>e.type==='turn'),barriers:edits.filter(e=>e.type==='barrier'),signals:edits.filter(e=>e.type==='signal'),areas:edits.filter(e=>e.type==='area')});
-    G.limited=pk.limited;G.center=center;G.long=longWanted;
+    G=buildGraph(nets,edits.filter(e=>e.type==='path'),ov,{acc,vFoot:S.vFoot,vBike:S.vBike,carF:S.carF,ferryWait:S.ferryWait,avg:S.timeMode==='avg'?{foot:S.avgFoot/3.6,bike:S.avgBike/3.6,car:S.avgCar/3.6}:null,avgStops:S.avgStops,sig:{foot:Math.max(0,+S.sigFoot||0),bike:Math.max(0,+S.sigBike||0),car:Math.max(0,+S.sigCar||0)},vl:vlSp},{turns:edits.filter(e=>e.type==='turn'),barriers:edits.filter(e=>e.type==='barrier'),signals:edits.filter(e=>e.type==='signal'),areas:edits.filter(e=>e.type==='area')});
+    G.limited=pk.limited;G.center=center;G.long=longWanted;G.vlFr=vlSp?vlFr:undefined;
     if(longWanted){G.rtFrom=[rt.from.lat,rt.from.lon];G.rtTo=[rt.to.lat,rt.to.lon];G.longInfo=info;}
     if(pk.limited)toast(longWanted?`Ruta larga: por memoria quedaron afuera ${pk.dropped} zonas lejos del recorrido`:`Hay muchas zonas bajadas: por memoria se usan las ${pk.nets.length} más cercanas a donde estás (${pk.dropped} quedaron afuera)`,6000);
     GP=null;return G;
@@ -13903,13 +13996,18 @@ function showMore(){
     <label for="s22">Espera promedio en cada semáforo, en auto (segundos)</label><input class="in" id="s22" type="number" step="1" min="0" max="180" value="${S.sigCar}">
     <p class="mut">Cada semáforo por el que pasa la ruta suma esta espera al tiempo (0 = no contarlos). Salen de OpenStreetMap al bajar las calles, y los que falten los marcás en Más → Correcciones. Con "Por mi velocidad promedio" las paradas ya van en el porcentaje de arriba: si lo usás, bajá ese % o poné 0 acá, para no contar la espera dos veces.</p>
     <label class="chk"><input type="checkbox" id="s23" ${S.sigVoice!==false?'checked':''}> 🚦 Avisar los semáforos al guiarme (por voz, antes de llegar)</label>
+    <h3>📚 Velocidades aprendidas (auto)</h3>
+    <p class="mut">Rumbo cruza tus salidas grabadas en auto con las calles guardadas y aprende a qué velocidad andás en cada tipo de calle y en cada franja del día (madrugada, mañana, tarde, noche), sin contar las paradas. Guarda solo ese resumen, así después podés borrar los tracks de auto. No borra nada solo.</p>
+    <button class="btn" id="vlgo" data-act="vlgo">📚 Aprender de mis salidas en auto</button><p id="vlmsg" class="mut"></p>
+    <div id="vltab"></div>
+    <label class="chk"><input type="checkbox" id="s24" ${S.vlOn?'checked':''}> Usar estas velocidades al calcular rutas en auto (reemplazan a "Tráfico en auto" en los tipos de calle con datos; la franja es la de la hora de salida)</label>
     <label for="s9">Ruta que se muestra primero</label>
     <select class="in" id="s9"><option value="foot">A pie</option><option value="bike">En bici</option><option value="car">En auto</option></select>
     <h3>Copia de seguridad</h3>
     <p class="mut">Guarda tracks, marcas, puntos, circuitos, correcciones, fotos de dron y la lista de mapas descargados. Los mapas en sí no entran (pesan mucho): al importar la copia, la app los vuelve a bajar con un toque. Hacela antes de reinstalar.</p>
     <div class="row"><button class="btn" data-act="bk">Exportar copia completa</button><button class="btn" data-act="imp">Importar copia o GPX</button></div>
     <p class="mut" style="margin-top:16px">Rumbo <span id="ver"></span> · Mapas: Esri, OpenStreetMap, OpenTopoMap, Sentinel-2 · Calles: © colaboradores de OpenStreetMap (ODbL)</p>`,
-    async(a,d)=>{
+    async(a,d,el)=>{
       if(a==='bk')exportFull();
       else if(a==='imp')importFile();
       else if(a==='tv'){
@@ -13931,6 +14029,19 @@ function showMore(){
         saveS();dropGraph();
         $('#calmsg').textContent=got.length?'Listo. '+got.join(' · ')+(r.stops!=null?` · Paradas: ${r.stops} %`:'')+'. Ahora elegí "Por mi velocidad promedio" arriba.':'Todavía no hay suficientes salidas grabadas (hacen falta al menos 3 km por tipo de actividad: caminata, bici o auto).';
       }
+      else if(a==='vlgo'){
+        const b=$('#vlgo');if(b)b.disabled=true;
+        const say=t=>{const m=$('#vlmsg');if(m)m.textContent=t;};
+        try{
+          const {r}=await vlLearn(say);
+          say(r.nuevas+r.pocas+r.sinRed===0?'No hay salidas en auto sin procesar.':`Listo: ${r.nuevas} salida${r.nuevas===1?'':'s'} nueva${r.nuevas===1?'':'s'} (${Math.round(r.km)} km)`+(r.pocas?` · ${r.pocas} no se pudo${r.pocas>1?'ieron':''} cruzar con las calles guardadas: bajá las calles de esa zona y probá de nuevo`:'')+(r.sinRed?' · no hay calles guardadas':''));
+          if(r.nuevas&&S.vlOn)dropGraph();
+        }catch(e){errLog(e,'vlLearn');say('No se pudo: '+(e.message||e));}
+        if(b)b.disabled=false;
+        vlRender();
+      }
+      else if(a==='vldel'){if(armed(el)){const n=await vlDeleteDone();toast(`${n} track${n===1?'':'s'} de auto borrado${n===1?'':'s'}. Lo aprendido queda guardado.`,5000);vlRender();}}
+      else if(a==='vlclr'){if(armed(el)){await DB.del('kv',VL_KEY);if(S.vlOn)dropGraph();vlRender();toast('Olvidé lo aprendido');}}
       else if(a==='diag')showDiag();
       else if(a==='dm'){S.dataMode=d.k;saveS();updNetPill();sBody.querySelectorAll('[data-act=dm]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
       else if(a==='swm'){S.swimShoreM=+d.k;saveS();kayakDrop&&RT.res&&(RT.res.swim=null);sBody.querySelectorAll('[data-act=swm]').forEach(b=>b.classList.toggle('on',b.dataset.k===d.k));}
@@ -13973,10 +14084,11 @@ function showMore(){
       else if(t.id==='s10'){S.ferryWait=Math.max(0,Math.min(240,+t.value||0));dropGraph();}
       else if(t.id==='s20'||t.id==='s21'||t.id==='s22'){S[{s20:'sigFoot',s21:'sigBike',s22:'sigCar'}[t.id]]=Math.max(0,Math.min(180,Math.round(+t.value)||0));dropGraph();}
       else if(t.id==='s23')S.sigVoice=t.checked;
+      else if(t.id==='s24'){S.vlOn=t.checked;dropGraph();}
       saveS();
     });
   updNetPill();
-  $('#s3').value=S.speedMode;$('#s8').value=String(S.carF);$('#s9').value=S.routeMode;
+  $('#s3').value=S.speedMode;$('#s8').value=String(S.carF);$('#s9').value=S.routeMode;vlRender();
   if(isNative())try{plugin('App').getInfo().then(i=>{const e=$('#ver');if(e)e.textContent='v'+i.version+' (build '+i.build+')';}).catch(errLog);}catch(e){errLog(e)}
 }
 
