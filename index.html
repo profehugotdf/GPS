@@ -12815,6 +12815,53 @@ async function elCollect(P,bb,r){
 }
 const elCount=l=>{const c={};for(const e of l)c[e.k]=(c[e.k]||0)+1;return c;};
 const elResumen=l=>Object.entries(elCount(l)).map(([k,n])=>`${n} ${KIND_UI[k][1].toLowerCase()}${n>1?(k==='tunel'?'es':'s'):''}`).join(', ');
+/* ---------- 🏘️ Edificios de la costa para Kayak ----------
+   Hugo: "¿se puede representar las zonas urbanas de la costa?". De OpenStreetMap (way[building]) se traen los edificios hasta EDIF_R m
+   de la ruta y cada uno se resume en un rectángulo orientado: [altura m, 1 si la altura es real (height o building:levels) o 0 si es
+   típica del tipo, lat, lon del centro, ancho m, fondo m, ángulo °]. Viaja en el paquete de Kayak como `edif` (los más cercanos, hasta EDIF_MAX). */
+const EDIF_R=1500,EDIF_MAX=900;
+const EDIF_H={house:6,detached:6,residential:7,semidetached_house:6,terrace:7,apartments:13,dormitory:12,hotel:14,commercial:9,retail:7,office:12,industrial:9,warehouse:8,hangar:10,church:12,cathedral:18,school:8,hospital:14,civic:9,public:9,government:9,garage:4,garages:4,shed:3,hut:3,cabin:4,roof:4,service:5,yes:6};
+function edifQ(line,r){
+  const ln=line.map(p=>p[0].toFixed(5)+','+p[1].toFixed(5)).join(',');
+  return `[out:json][timeout:60];way["building"](around:${r},${ln});out geom qt;`;
+}
+/* pura: puntos [[la,lo],…] → {lat,lon,w,d,ang} del rectángulo orientado de menor área (ang = rumbo del lado largo, grados desde el norte, 0-179) */
+function edifRect(pts){
+  const la0=pts[0][0],kc=Math.cos(la0*rad),K=111320,q=pts.map(p=>[(p[1]-pts[0][1])*kc*K,(p[0]-la0)*K]);
+  let best=null;
+  for(let a=0;a<90;a+=3){const c=Math.cos(a*rad),s2=Math.sin(a*rad);let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+    for(const [x,y] of q){const u=x*c+y*s2,v=-x*s2+y*c;x0=Math.min(x0,u);x1=Math.max(x1,u);y0=Math.min(y0,v);y1=Math.max(y1,v);}
+    const A=(x1-x0)*(y1-y0);if(!best||A<best.A)best={A,a,x0,x1,y0,y1};}
+  const c=Math.cos(best.a*rad),s2=Math.sin(best.a*rad),cu=(best.x0+best.x1)/2,cv=(best.y0+best.y1)/2,cx=cu*c-cv*s2,cy=cu*s2+cv*c;
+  let w=best.x1-best.x0,d=best.y1-best.y0,dir=best.a;   // w sobre la dirección dir (desde el eje este, antihorario)
+  if(d>w){const t=w;w=d;d=t;dir+=90;}
+  const ang=((90-dir)%180+180)%180;   // lado largo: de "desde el este" a "desde el norte"
+  return {lat:la0+cy/K,lon:pts[0][1]+cx/(kc*K),w,d,ang};
+}
+/* pura: respuesta de Overpass → [[h,real,lat,lon,w,d,ang],…] (sin los de menos de 20 m²) */
+function edifFromOsm(els){
+  const out=[];
+  for(const e of els||[]){
+    if(e.type!=='way'||!e.geometry||e.geometry.length<4)continue;
+    const t=e.tags||{},pts=e.geometry.map(g=>[g.lat,g.lon]),r=edifRect(pts);
+    if(r.w*r.d<20)continue;
+    let h=parseFloat(String(t.height||'').replace(',','.')),real=1;
+    if(!(h>0)){const nv=parseFloat(t['building:levels']);if(nv>0)h=nv*3+1;else{h=EDIF_H[t.building]||6;real=0;}}
+    out.push([Math.round(Math.min(120,h)*10)/10,real,+r.lat.toFixed(5),+r.lon.toFixed(5),Math.round(r.w*2)/2,Math.round(r.d*2)/2,Math.round(r.ang)]);
+  }
+  return out;
+}
+/* P: puntos de la ruta [[la,lo,d],…] → {list, err, real} */
+async function edifCollect(P){
+  if(netBlocked()||S.dataMode==='never')return {list:[],err:'sin internet',real:0};
+  try{
+    const els=await Promise.race([bkOver(edifQ(bkLine(P),EDIF_R),50000),new Promise((_,no)=>setTimeout(()=>no(new Error('tardó demasiado')),55000))]);
+    const line=bkLine(P),all=edifFromOsm(els).map(b=>({b,d:elDistRuta([[b[2],b[3]]],line)})).filter(x=>x.d<=EDIF_R);
+    all.sort((a,b)=>a.d-b.d);
+    const list=all.slice(0,EDIF_MAX).map(x=>x.b);
+    return {list,err:'',real:list.filter(b=>b[1]).length};
+  }catch(e){errLog(e,'edificios de la costa (OpenStreetMap)');return {list:[],err:e.message||String(e),real:0};}
+}
 const KY={last:null,SP:25,MAX:2000,OFF:[0,25,60,120,220,400,700]};
 /* color promedio de la foto satelital en grupos de puntos: groups = [[[lat,lon],…],…] → [[r,g,b]|null,…] */
 async function satAvg(groups,z){
@@ -12923,13 +12970,15 @@ async function kySend(o){
   /* muelles, puentes, túneles, terraplenes y desmontes: lo marcado a mano y lo de OpenStreetMap, hasta 900 m de la ruta */
   let E={list:[],err:'',nMan:0,nOsm:0};
   try{toast('🪵 Buscando muelles, puentes y terraplenes…',30000);E=await elCollect(P,bkPadBB(P,900),900);}catch(e){errLog(e,'muelles y puentes');}
+  let ED={list:[],err:'',real:0};
+  try{toast('🏘️ Buscando los edificios de la costa…',30000);ED=await edifCollect(P);}catch(e){errLog(e,'edificios');}
   const nm=(o.name||'Ruta de Rumbo').replace(/[<>&"]/g,'').slice(0,60);
   const ll=P.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]);
   const loop=hav(o.ll[0],o.ll[o.ll.length-1])<60;
-  const data=await bkPack({v:1,app:'kayak',name:nm,L:Math.round(R.L),loop,ll,shore:{sp:ds,n:P.length,d:bkB64(U),off:KY.OFF,p:bkB64(PF)},hz,peaks,elems:E.list,mar:sea?1:0});
+  const data=await bkPack({v:1,app:'kayak',name:nm,L:Math.round(R.L),loop,ll,shore:{sp:ds,n:P.length,d:bkB64(U),off:KY.OFF,p:bkB64(PF)},hz,peaks,elems:E.list,edif:ED.list.length?ED.list:undefined,mar:sea?1:0});
   const nL=sh.filter(r=>r[0].d!=null).length,nR=sh.filter(r=>r[1].d!=null).length;
-  KY.last={name:nm,L:R.L,len:data.length,hz:!!hz,peaks:peaks.length,elems:elCount(E.list),elErr:E.err,shoreL:nL/P.length,shoreR:nR/P.length,src:shoreIdx?'costas':'relieve',mar:!!sea};
-  toast(`🛶 Listo: ${dec(R.L/1000,1)} km${hz?' · montañas reales':''}${peaks.length?' con nombres':''} · orillas ${shoreIdx?'de tus costas cargadas':'por el relieve'}${E.list.length?' · '+elResumen(E.list):''}${E.err?' (muelles y puentes: sin OpenStreetMap, solo los marcados a mano)':''}. Se abre Kayak Indoor…`,7000);
+  KY.last={name:nm,L:R.L,len:data.length,hz:!!hz,peaks:peaks.length,elems:elCount(E.list),elErr:E.err,shoreL:nL/P.length,shoreR:nR/P.length,src:shoreIdx?'costas':'relieve',mar:!!sea,edif:ED.list.length,edifReal:ED.real,edifErr:ED.err};
+  toast(`🛶 Listo: ${dec(R.L/1000,1)} km${hz?' · montañas reales':''}${peaks.length?' con nombres':''} · orillas ${shoreIdx?'de tus costas cargadas':'por el relieve'}${E.list.length?' · '+elResumen(E.list):''}${ED.list.length?` · ${ED.list.length} edificios (${ED.real} con altura real)`:''}${E.err?' (muelles y puentes: sin OpenStreetMap, solo los marcados a mano)':''}. Se abre Kayak Indoor…`,7000);
   setTimeout(()=>{const a=document.createElement('a');a.href=KY_URL+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 
