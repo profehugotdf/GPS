@@ -12683,6 +12683,44 @@ async function bkPack(o){
   return 'j'+u8(new TextEncoder().encode(str));
 }
 /* o: {name, ll:[[lat,lon],…], grade} */
+/* ---------- 🌉 Infraestructura sobre el camino para Bici y Correr ----------
+   Puentes, túneles, terraplenes y desmontes (`elems`: lo marcado a mano con Calcar y lo de OpenStreetMap) pasados a TRAMOS DEL RECORRIDO,
+   que es lo que dibujan Bici y Correr (miran por el camino): `infra` = [[tipo, desde m, hasta m, lado, altura m|null],…] con la distancia
+   recorrida; lado 0 = el elemento va por el propio camino (a ≤ 10 m del eje: ahí las dos veras), 1 = a la izquierda de la marcha, −1 = a la derecha. */
+const INFRA_K=['puente','tunel','terraplen','desmonte'];
+/* pura: P = [[lat,lon,d],…] (el recorrido); list = elementos {k,a,p:[[lat,lon],…]} → [[k,d0,d1,lado,a],…] */
+function infraDeElems(P,list){
+  if(!P||P.length<2)return [];
+  const la0=P[0][0],kc=Math.cos(la0*rad),K=111320,xy=P.map(p=>[(p[1]-P[0][1])*kc*K,(p[0]-la0)*K]),out=[];
+  for(const e of list||[]){
+    if(!INFRA_K.includes(e.k)||!e.p||e.p.length<2)continue;
+    const pts=e.p.map(q=>[(q[1]-P[0][1])*kc*K,(q[0]-la0)*K]),S=[];
+    for(let i=0;i+1<pts.length;i++){const a=pts[i],b=pts[i+1],n=Math.max(1,Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/10));for(let k=0;k<=n;k++)S.push([a[0]+(b[0]-a[0])*k/n,a[1]+(b[1]-a[1])*k/n]);}
+    const hits=[];
+    for(const q of S){let best=1e18,bd=0,bl=0;
+      for(let i=0;i+1<xy.length;i++){const a=xy[i],b=xy[i+1],dx=b[0]-a[0],dy=b[1]-a[1],l2=dx*dx+dy*dy||1e-9;let t=((q[0]-a[0])*dx+(q[1]-a[1])*dy)/l2;t=Math.max(0,Math.min(1,t));
+        const px=a[0]+dx*t,py=a[1]+dy*t,vx=q[0]-px,vy=q[1]-py,dd=vx*vx+vy*vy;
+        if(dd<best){best=dd;bd=P[i][2]+(P[i+1][2]-P[i][2])*t;bl=(dx*vy-dy*vx)/Math.sqrt(l2);}}   // bl > 0: a la izquierda de la marcha
+      if(best<=60*60)hits.push({d:bd,l:bl});}
+    if(!hits.length)continue;
+    hits.sort((a,b)=>a.d-b.d);
+    const runs=[];let cur=[hits[0]];for(let i=1;i<hits.length;i++){if(hits[i].d-hits[i-1].d>80){runs.push(cur);cur=[];}cur.push(hits[i]);}runs.push(cur);
+    for(const r of runs){
+      const d0=r[0].d,d1=r[r.length-1].d,min=e.k==='puente'||e.k==='tunel'?8:15;if(d1-d0<min)continue;
+      const ls=r.map(h=>h.l).sort((a,b)=>a-b),m=ls[ls.length>>1];
+      out.push([e.k,Math.round(d0),Math.round(d1),Math.abs(m)<=10?0:(m>0?1:-1),e.a>0?e.a:null]);
+    }
+  }
+  out.sort((a,b)=>a[1]-b[1]);
+  return out;
+}
+/* Rumbo → Bici/Correr: busca los elementos a ≤ 150 m del camino (no frena el envío más de 40 s) */
+async function infraCollect(P){
+  try{
+    const E=await Promise.race([elCollect(P,bkPadBB(P,150),150),new Promise((_,no)=>setTimeout(()=>no(new Error('tardó demasiado')),40000))]);
+    return {list:infraDeElems(P,E.list),err:E.err};
+  }catch(e){errLog(e,'puentes, túneles y terraplenes del camino');return {list:[],err:e.message||String(e)};}
+}
 async function bkSend(o){
   /* o.app='correr' → la misma ruta con su paisaje para Correr (recorrido virtual en la cinta o donde sea) */
   const CR=o.app==='correr',APP=CR?{ico:'🏃',nom:'Correr',url:CR_URL}:{ico:'🚴',nom:'Bici Indoor',url:BK_URL};
@@ -12737,12 +12775,14 @@ async function bkSend(o){
     }
   }catch(e){hz=null;}
   try{toast('🎨 Mirando el color del suelo en la foto satelital…',30000);ground=await bkGround(R.pts,R.L>40000?14:15);}catch(e){ground=null;}
+  let INF={list:[],err:''};
+  try{toast(`${APP.ico} Buscando puentes, túneles y terraplenes del camino…`,30000);INF=await infraCollect(R.pts);}catch(e){errLog(e)}
   const nm=(o.name||'Ruta de Rumbo').replace(/[<>&"]/g,'').slice(0,60);
   const gpx=`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Rumbo"><trk><name>${nm}</name><trkseg>`+R.pts.map((p,i)=>`<trkpt lat="${p[0].toFixed(6)}" lon="${p[1].toFixed(6)}"><ele>${prof[i].toFixed(1)}</ele></trkpt>`).join('')+'</trkseg></trk></gpx>';
-  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground,land,osm:scErr?('sin respuesta: '+scErr).slice(0,120):(BK.osmNivel||'')});
+  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground,land,infra:INF.list.length?INF.list:undefined,osm:scErr?('sin respuesta: '+scErr).slice(0,120):(BK.osmNivel||'')});
   const resum=`${dec(R.L/1000,1)} km · ↑ ${Math.round(up)} m · pendiente máx ${Math.round(gm*100)} %`+(scenes?` · escenario de ${scenes.length} tramo${scenes.length>1?'s':''}`:'')+(hz?' · montañas reales':'')+(ground?' · colores del suelo':'')+(land&&land.st.bld?` · ${land.st.bld} casas y edificios`:'')+(land&&land.st.via?' · tipo de calle':'');
   toast(`${APP.ico} Listo: ${resum}${scErr?' (sin datos de OpenStreetMap: escenario solo por altura)':BK.osmNivel&&BK.osmNivel!=='completo'?` (OpenStreetMap respondió solo lo ${BK.osmNivel==='sin casas'?'de las calles, sin casas':'básico'})`:''}. Se abre ${APP.nom}…`,7000);
-  BK.last={osm:scErr?'sin datos':BK.osmNivel,name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground,land:land&&land.st};
+  BK.last={infra:INF.list.length,infraErr:INF.err,osm:scErr?'sin datos':BK.osmNivel,name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground,land:land&&land.st};
   setTimeout(()=>{const a=document.createElement('a');a.href=APP.url+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 const BK={last:null};
