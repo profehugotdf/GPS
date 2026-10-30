@@ -57,19 +57,30 @@ async def main():
         ok(await pg.evaluate("!!document.querySelector('#trKind button[data-k=rotonda]')"), 'el tipo 🔄 Rotonda aparece en Calcar')
         ok(await pg.evaluate("document.querySelector('#trOw').hidden"), 'no se elige sentido (lo pone la app)')
         await pg.evaluate("traceTap({latlng:{lat:T.C[0],lng:T.C[1]}})")
-        ok('centro' in await pg.evaluate("document.querySelector('#trInfo').textContent") or 'borde' in await pg.evaluate("document.querySelector('#trInfo').textContent"), 'después del centro pide el borde')
+        ok('extremo' in await pg.evaluate("document.querySelector('#trInfo').textContent"), 'después del centro pide el extremo del lado largo')
         await pg.evaluate("traceTap({latlng:{lat:T.edge[0],lng:T.edge[1]}})")   # a 25 m del centro
+        ok(len(await pg.evaluate("async()=>(await DB.all('kv','edit:')).filter(e=>e.kind==='rotonda')")) == 0, 'todavía no se guardó: se puede ajustar')
+        await pg.evaluate("traceSave()")
         await pg.wait_for_timeout(600)
         eds = await pg.evaluate("async()=>(await DB.all('kv','edit:')).filter(e=>e.kind==='rotonda')")
         ok(len(eds) == 1, 'se guardó una rotonda')
         e = eds[0]
         print('   ', len(e['pts']), 'puntos, oneway', e['oneway'])
-        ok(e['oneway'] == 1 and len(e['pts']) == 29 and e['pts'][0] == e['pts'][-1], 'círculo cerrado de 28 tramos, un solo sentido')
+        ok(e['oneway'] == 1 and len(e['pts']) == 33 and e['pts'][0] == e['pts'][-1], 'círculo cerrado de 32 tramos, un solo sentido')
         ccw = await pg.evaluate("(p)=>ringArea(p)>0", e['pts'])
         ok(ccw, 'gira al revés de las agujas del reloj (tránsito por la derecha)')
         rad = await pg.evaluate("(e)=>Math.round(hav(T.C,e.pts[0]))", e)
         ok(24 <= rad <= 26, 'el radio sale del borde tocado (%d m)' % rad)
         await pg.evaluate("async()=>{await DB.del('kv','edit:'+(await DB.all('kv','edit:')).find(e=>e.kind==='rotonda').id);dropGraph();}")
+
+        print('2b) Óvalo: centro, extremo del lado largo (40 m) y ancho (15 m)')
+        await pg.evaluate("async()=>{await openTrace();TR.kind='rotonda';renderTraceKinds();const k=111320*Math.cos(T.la*Math.PI/180);traceTap({latlng:{lat:T.C[0],lng:T.C[1]}});traceTap({latlng:{lat:T.C[0],lng:T.C[1]+40/k}});traceTap({latlng:{lat:T.C[0]+15/110540,lng:T.C[1]+10/k}});await traceSave();}")
+        ov = (await pg.evaluate("async()=>(await DB.all('kv','edit:')).filter(e=>e.kind==='rotonda')"))[0]
+        dims = await pg.evaluate("(e)=>{const ds=e.pts.map(p=>hav(T.C,p));const ew=e.pts.map(p=>Math.abs(p[1]-T.C[1])*111320*Math.cos(T.la*Math.PI/180)),ns=e.pts.map(p=>Math.abs(p[0]-T.C[0])*110540);return {mx:Math.max(...ew),my:Math.max(...ns)}}", ov)
+        print('   ', dims)
+        ok(38 <= dims['mx'] <= 41 and 14 <= dims['my'] <= 16, 'óvalo de 40 m de semieje largo (este-oeste) y 15 m de corto')
+        ok(await pg.evaluate("(p)=>ringArea(p)>0", ov['pts']) and ov['oneway'] == 1, 'también gira en el sentido del tránsito')
+        await pg.evaluate("async()=>{for(const e of await DB.all('kv','edit:'))await DB.del('kv','edit:'+e.id);dropGraph();}")
 
         print('3) Radio chico (15 m) para que las calles lleguen al anillo; dibujada en sentido horario se da vuelta')
         await pg.evaluate("""async()=>{
