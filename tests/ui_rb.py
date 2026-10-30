@@ -106,6 +106,19 @@ async def main():
         ok(base[('W', 'N')] - base[('W', 'S')] > 40, 'es de un solo sentido: Oeste→Norte da la vuelta larga (%d vs %d m)' % (base[('W', 'N')], base[('W', 'S')]))
 
 
+        print('6) Tramo común (calle) cerrado y marcado "Es una rotonda" en Propiedades: mismo resultado')
+        await pg.evaluate("""async()=>{
+          for(const e of await DB.all('kv','edit:'))await DB.del('kv','edit:'+e.id);
+          const id=uid();await DB.put('kv','edit:'+id,{type:'path',id,kind:'calle',name:'',oneway:0,pts:rbRing(T.C,15,28).reverse(),props:{rotonda:true},created:Date.now()});
+          dropGraph();
+        }""")
+        t6 = await pg.evaluate("async()=>{const g=await ensureGraph(),w=g.W.find(x=>x.user);return {rb:w.tags.junction,closed:w.nodes[0]===w.nodes[w.nodes.length-1]}}")
+        ok(t6['rb'] == 'roundabout' and t6['closed'], 'la calle marcada queda como rotonda cerrada')
+        for a, bb, n, ord_ in cases[:3]:
+            r = await pg.evaluate("async([a,b])=>R(T[a],T[b])", [a, bb])
+            txt = [x for x in r['steps'] if 'rotonda' in x]
+            ok(len(txt) == 1 and ord_ in txt[0], '%s → %s: %s salida aunque se dibujó al revés' % (a, bb, ord_))
+
     ok(not errs, 'sin errores de página %s' % errs)
     print('OK')
 

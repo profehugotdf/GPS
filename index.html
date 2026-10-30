@@ -1059,6 +1059,7 @@ function userTags(p){
   if(q.bikeBoth)t['oneway:bicycle']='no';
   if(q.surface)t.surface=q.surface;
   if(q.bridge)t.bridge='yes';
+  if(q.rotonda)t.junction='roundabout';   /* 🔄 de un solo sentido, en el sentido del tránsito (addUser lo da vuelta si hace falta) */
   if(q.tunnel)t.tunnel='yes';
   if(q.toll)t.toll='yes';
   for(const [k,v] of parseTagLines(q.tags))t[k]=v;
@@ -1248,6 +1249,7 @@ class Graph{
   addUser(p){
     const tags=userTags(p);
     const last0=p.pts.length-1,closed=last0>=3&&Math.abs(p.pts[0][0]-p.pts[last0][0])<5e-6&&Math.abs(p.pts[0][1]-p.pts[last0][1])<5e-6;   /* contorno cerrado (rotonda, manzana): el último punto ES el primero */
+    if(closed&&tags.junction==='roundabout'&&(ringArea(p.pts)>0)===DRIVE_LEFT)p=Object.assign({},p,{pts:p.pts.slice().reverse()});   /* rotonda cerrada dibujada al revés del tránsito */
     const id='u:'+p.id,wi=this.addWay(id,tags,p.pts.map((_,i)=>id+':'+(closed&&i===last0?0:i)),p.pts);
     if(wi<0)return;
     this.W[wi].user=true;this.link(wi);
@@ -9478,6 +9480,7 @@ function propsLine(e){
   const no=[ac.foot===false&&'peatones',ac.bike===false&&'bicis',ac.car===false&&'autos'].filter(Boolean);
   if(no.length)a.push('sin '+no.join(', '));
   if(e.oneway)a.push('un sentido');
+  if(q.rotonda)a.push('rotonda');
   if(q.status==='closed')a.push('cerrado');
   if(q.toll)a.push('peaje');
   return a.length?'<br>'+esc(a.join(' · ')):'';
@@ -9502,7 +9505,7 @@ function propsForm(st,title,onSave,onBack){
     <select class="in" id="ps">${SURFACES.map(([k,n])=>`<option value="${k}" ${k===(q.surface||'')?'selected':''}>${n}</option>`).join('')}</select>
     <label for="pst">Estado</label>
     <select class="in" id="pst"><option value="ok" ${q.status!=='closed'?'selected':''}>Habilitado</option><option value="closed" ${q.status==='closed'?'selected':''}>Cerrado (no pasa nadie)</option></select>
-    ${chk('pbr',q.bridge,'🌉 Puente')}${chk('ptu',q.tunnel,'🚇 Túnel')}${chk('pto',q.toll,'💲 Peaje')}`}
+    ${chk('prb',q.rotonda,'🔄 Es una rotonda (un solo sentido, como el tránsito)')}${chk('pbr',q.bridge,'🌉 Puente')}${chk('ptu',q.tunnel,'🚇 Túnel')}${chk('pto',q.toll,'💲 Peaje')}`}
     <label for="pz">Se ve en el mapa de calles desde el zoom (vacío = automático)</label><input class="in" id="pz" type="number" min="5" max="19" value="${q.minz||''}">
     <label for="pnote">Notas</label><textarea class="in" id="pnote" rows="2">${esc(q.note||'')}</textarea>
     <label for="ptags">Otras etiquetas (una por línea, clave=valor)</label><textarea class="in" id="ptags" rows="2" placeholder="lit=yes">${esc(q.tags||'')}</textarea>
@@ -9518,7 +9521,7 @@ function propsForm(st,title,onSave,onBack){
         const o=cleanProps(st.props);
         if(!o.maxspeed)delete o.maxspeed;if(!o.minz)delete o.minz;if(!o.surface)delete o.surface;if(!o.ref)delete o.ref;
         if(o.status!=='closed')delete o.status;
-        for(const k of ['bikeBoth','bridge','tunnel','toll'])if(!o[k])delete o[k];
+        for(const k of ['bikeBoth','bridge','tunnel','toll','rotonda'])if(!o[k])delete o[k];
         if(!o.ele)delete o.ele;if(!o.alto)delete o.alto;if(!o.duration)delete o.duration;if(!o.note)delete o.note;if(!o.tags)delete o.tags;
         st.props=o;onSave(st);
       }
@@ -9538,6 +9541,7 @@ function propsForm(st,title,onSave,onBack){
       else if(t.id==='ac')ac.car=t.checked;
       else if(t.id==='ps')q.surface=t.value;
       else if(t.id==='pst')q.status=t.value;
+      else if(t.id==='prb')q.rotonda=t.checked;
       else if(t.id==='pbr')q.bridge=t.checked;
       else if(t.id==='ptu')q.tunnel=t.checked;
       else if(t.id==='pto')q.toll=t.checked;
