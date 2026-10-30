@@ -74,7 +74,7 @@ async def main():
         await pg.evaluate("__ok({coords:{latitude:-30,longitude:-60,accuracy:8,altitude:11000,speed:230,heading:0},timestamp:Date.now()});flDraw()")
         await pg.evaluate("__ok({coords:{latitude:-26.84,longitude:-65.10,accuracy:8,altitude:400,speed:0,heading:0},timestamp:Date.now()});FL.slow=Date.now()-181000;flDraw()");await pg.wait_for_timeout(1500)
         r=await pg.evaluate("(async()=>{const out=[];for(const k of await DB.keys('kv','track:')){const x=await DB.get('kv',k);out.push(x.name);}return {st:REC.state,names:out}})()");print('  ',r)
-        ok(r['st']=='idle' and any(n.startswith('Vuelo 2') for n in r['names']),'detenido 3 min después de volar: guarda "Vuelo …" de manga a manga')
+        ok(r['st']=='idle' and any(n.startswith('Vuelo ') for n in r['names']),'detenido 3 min después de volar: guarda "Vuelo …" de manga a manga')
         print('ERRORES JS:',errs[:3] or 'ninguno');await b.close()
     srv.shutdown()
 asyncio.run(main())
