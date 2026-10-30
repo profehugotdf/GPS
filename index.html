@@ -1026,7 +1026,7 @@ function toGPX(tracks,wpts,esc){
 const MODES=['foot','bike','car'];
 /* 🚦 semáforos: SIG_AVOID = cuántos segundos de rodeo se acepta por esquivar uno (preferencia "Menos semáforos"); SIG_CLUSTER = dos semáforos a menos de tantos m en la ruta son el mismo cruce (OpenStreetMap suele marcar uno por cada acceso) */
 const SIG_AVOID=180,SIG_CLUSTER=40;
-const KIND_TAGS={sendero:{highway:'path'},escalera:{highway:'steps'},peatonal:{highway:'footway'},ciclovia:{highway:'cycleway'},calle:{highway:'residential'},
+const KIND_TAGS={sendero:{highway:'path'},escalera:{highway:'steps'},peatonal:{highway:'footway'},ciclovia:{highway:'cycleway'},calle:{highway:'residential'},rotonda:{highway:'tertiary',junction:'roundabout'},
   camino:{highway:'track'},servicio:{highway:'service'},principal:{highway:'secondary'},ruta:{highway:'primary'},ferry:{route:'ferry'},nivel:{contour:'elevation'},medida:{measure:'yes'},costa:{natural:'coastline'},limite:{boundary:'administrative'},rio:{waterway:'river'},
   muelle:{man_made:'pier'},puente:{man_made:'bridge'},tunel:{man_made:'tunnel'},terraplen:{man_made:'embankment'},desmonte:{man_made:'cutting'},velero:{seamark:'vessel'},carguero:{seamark:'vessel'},crucero:{seamark:'vessel'},lancha:{seamark:'vessel'},encallado:{seamark:'vessel'}};
 /* "clave=valor" por línea -> pares válidos */
@@ -1247,11 +1247,12 @@ class Graph{
   }
   addUser(p){
     const tags=userTags(p);
-    const id='u:'+p.id,wi=this.addWay(id,tags,p.pts.map((_,i)=>id+':'+i),p.pts);
+    const last0=p.pts.length-1,closed=last0>=3&&Math.abs(p.pts[0][0]-p.pts[last0][0])<5e-6&&Math.abs(p.pts[0][1]-p.pts[last0][1])<5e-6;   /* contorno cerrado (rotonda, manzana): el último punto ES el primero */
+    const id='u:'+p.id,wi=this.addWay(id,tags,p.pts.map((_,i)=>id+':'+(closed&&i===last0?0:i)),p.pts);
     if(wi<0)return;
     this.W[wi].user=true;this.link(wi);
     const w=this.W[wi],last=p.pts.length-1;
-    for(let k=0;k<=last;k++)this.connect(w.nodes[k],(k===0||k===last)?(p.kind==='ferry'?150:25):6,wi);
+    for(let k=0;k<=(closed?last-1:last);k++)this.connect(w.nodes[k],(k===0||k===last)?(p.kind==='ferry'?150:25):6,wi);
     this.fillZ(w.nodes);
   }
   fillZ(ns){
@@ -1575,10 +1576,24 @@ function makeSteps(G,edges,mode){
     if(s.ferry){
       text=`Tomá el ferry${s.name?' '+s.name:''} (cruce de ${fmtDur(s.ferryDur||0)}, más la espera)`;ico='⛴️';
     }else if(s.rb){
-      let n=0;
+      let n=0,lastK=null;
+      /* una calle calcada se pega al anillo en varios nudos seguidos: todos juntos son una sola salida */
+      const exitKey=nd=>{
+        for(const ei of G.adj[nd]){
+          const e2=G.E[ei];if(!e2.alive||isRbWay(G.W[e2.w]))continue;
+          if(G.pass(e2,mode,e2.a===nd?1:-1)<=0)continue;
+          const w2=G.W[e2.w];if(w2.hw!=='connector')return w2.id;
+          const o=e2.a===nd?e2.b:e2.a,st=G.adj[o].map(x=>G.E[x]).find(x=>x.alive&&G.W[x.w].hw!=='connector'&&!isRbWay(G.W[x.w]));
+          return st?G.W[st.w].id:'c'+e2.w;
+        }
+        return null;
+      };
       for(let q=1;q<s.nodes.length;q++){
-        const nd=s.nodes[q];
-        if(q===s.nodes.length-1||G.adj[nd].some(ei=>{const e2=G.E[ei];if(!e2.alive||isRbWay(G.W[e2.w]))return false;return G.pass(e2,mode,e2.a===nd?1:-1)>0;}))n++;
+        const k=exitKey(s.nodes[q]);
+        if(q===s.nodes.length-1){n++;continue;}
+        if(k==null){lastK=null;continue;}
+        if(k!==lastK)n++;
+        lastK=k;
       }
       text=`En la rotonda, tomá la ${ORD[n-1]||n+'.ª'} salida`;ico='🔄';
     }else if(i===0){text=s.stairs?'Tomá la escalera':`Salí por ${via}`;ico=s.stairs?'🪜':'⬆️';}
@@ -4826,12 +4841,12 @@ const isWater=m=>m==='kayak'||m==='swim';
 /* cuántas veces más larga que la línea recta es la ruta (para detectar vueltas enormes, como ir en auto a una isla) */
 const rodeo=r=>{const f=RT.calcFrom,t=RT.to;if(!r||r.err||!f||!t)return 0;const d=hav([f.lat,f.lon],[t.lat,t.lon]);return d>300?r.dist/d:0;};
 const RMODES=['foot','bike','car','kayak','swim'];
-const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],calle:['🏘️','Calle'],ciclovia:['🚲','Ciclovía'],peatonal:['🚶','Paso peatonal'],camino:['🛤️','Camino de ripio o tierra'],medida:['📏','Medición'],costa:['🌊','Costa'],limite:['🚩','Límite'],rio:['🏞️','Río o arroyo'],servicio:['🅿️','Calle de servicio'],principal:['🚗','Calle principal'],ruta:['🛣️','Ruta'],ferry:['⛴️','Ferry'],nivel:['〰️','Curva de nivel'],muelle:['🪵','Muelle'],puente:['🌉','Puente'],tunel:['🚇','Túnel'],terraplen:['📐','Terraplén'],desmonte:['⛏️','Desmonte'],velero:['⛵','Velero'],carguero:['🚢','Carguero'],crucero:['🛳️','Crucero'],lancha:['🚤','Lancha'],encallado:['⚓','Barco encallado']};
+const KIND_UI={sendero:['🥾','Sendero'],escalera:['🪜','Escalera'],calle:['🏘️','Calle'],rotonda:['🔄','Rotonda'],ciclovia:['🚲','Ciclovía'],peatonal:['🚶','Paso peatonal'],camino:['🛤️','Camino de ripio o tierra'],medida:['📏','Medición'],costa:['🌊','Costa'],limite:['🚩','Límite'],rio:['🏞️','Río o arroyo'],servicio:['🅿️','Calle de servicio'],principal:['🚗','Calle principal'],ruta:['🛣️','Ruta'],ferry:['⛴️','Ferry'],nivel:['〰️','Curva de nivel'],muelle:['🪵','Muelle'],puente:['🌉','Puente'],tunel:['🚇','Túnel'],terraplen:['📐','Terraplén'],desmonte:['⛏️','Desmonte'],velero:['⛵','Velero'],carguero:['🚢','Carguero'],crucero:['🛳️','Crucero'],lancha:['🚤','Lancha'],encallado:['⚓','Barco encallado']};
 /* 🧱 elementos del camino y de la costa: no se rutean; viajan a Kayak (y después a Bici y Correr) con su posición real */
 const ELEMK=['muelle','puente','tunel','terraplen','desmonte','velero','carguero','crucero','lancha','encallado'];
 /* barcos: se marcan como una línea de popa a proa; "Altura" pasa a ser el largo (m) */
 const BARCOK=['velero','carguero','crucero','lancha','encallado'];
-const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',camino:'#8E5B2B',medida:'#F04A1C',costa:'#1F5F8B',limite:'#9B3FA0',rio:'#4A90D9',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E',muelle:'#8B5E34',puente:'#5D6D7E',tunel:'#34495E',terraplen:'#B9770E',desmonte:'#7D6608',velero:'#1F77B4',carguero:'#7B241C',crucero:'#2471A3',lancha:'#E67E22',encallado:'#6E2C00'};
+const KCOL={sendero:'#B0157A',escalera:'#7A3FA0',peatonal:'#B0157A',ciclovia:'#2E7D5B',calle:'#0E2A36',rotonda:'#0E2A36',camino:'#8E5B2B',medida:'#F04A1C',costa:'#1F5F8B',limite:'#9B3FA0',rio:'#4A90D9',servicio:'#566B74',principal:'#D68910',ruta:'#C0392B',ferry:'#1E6BFF',nivel:'#B38B5E',muelle:'#8B5E34',puente:'#5D6D7E',tunel:'#34495E',terraplen:'#B9770E',desmonte:'#7D6608',velero:'#1F77B4',carguero:'#7B241C',crucero:'#2471A3',lancha:'#E67E22',encallado:'#6E2C00'};
 const routeLayer=L.layerGroup().addTo(map),editLayer=L.layerGroup().addTo(map),pickLayer=L.layerGroup().addTo(map);
 const PREFS=[['fast','⚡','Más rápida'],['short','📏','Más corta'],['flat','⛰️','Menos pendiente'],['calm','🚲','Por bicisendas'],['nosig','🚦','Menos semáforos']];
 const CALM={cycleway:.7,footway:.75,pedestrian:.75,path:.8,track:.9,bridleway:.9,living_street:.9,steps:1,residential:1,service:1.05,road:1.1,unclassified:1.15,tertiary:1.3,secondary:1.5,primary:1.7,trunk:2,motorway:2.5};   // un rodeo de hasta ~2 veces para evitar una avenida, no más
@@ -9221,9 +9236,9 @@ map.on('moveend',()=>{if(EV.on)evDraw();try{const c=map.getCenter();S.view=[+c.l
 /* ---------- Calcar: dibujar senderos, calles y escaleras sobre la imagen (quedan en el mapa y son ruteables) ---------- */
 const TR={on:false,pts:[],snapped:[],strokes:[],mode:'taps',shape:'line',kind:'sendero',akind:'bosque',oneway:0,props:{},aprops:{},snap:true,saved:0,drawing:false,pid:null};
 const NOROUTE=new Set(['nivel','medida','costa','limite','rio',...ELEMK]);
-const LINE_QUICK=['sendero','escalera','calle','camino','costa','limite','rio','nivel',...ELEMK],AREA_QUICK=['bosque','agua','parque','cerrada','edificio','otro'];
+const LINE_QUICK=['sendero','escalera','calle','rotonda','camino','costa','limite','rio','nivel',...ELEMK],AREA_QUICK=['bosque','agua','parque','cerrada','edificio','otro'];
 const traceLayer=L.layerGroup().addTo(map);
-const VKIND={costa:'coast',limite:'border',rio:'river',medida:'measure',sendero:'path',escalera:'steps',peatonal:'footway',ciclovia:'cycleway',calle:'residential',camino:'track',servicio:'service',principal:'secondary',ruta:'primary',ferry:'ferry',nivel:'contour_minor'};
+const VKIND={costa:'coast',limite:'border',rio:'river',medida:'measure',sendero:'path',escalera:'steps',peatonal:'footway',ciclovia:'cycleway',calle:'residential',rotonda:'tertiary',camino:'track',servicio:'service',principal:'secondary',ruta:'primary',ferry:'ferry',nivel:'contour_minor'};
 const mppNow=()=>40075016.686*Math.cos(map.getCenter().lat*rad)/(256*Math.pow(2,map.getZoom()));
 /* Imán: pega el punto a la calle o sendero más cercano (a ~14 px), así el trazo queda conectado */
 function traceSnap(ll){
@@ -9267,10 +9282,11 @@ function updTrace(){
   document.querySelectorAll('#trOw button').forEach(b=>b.classList.toggle('on',+b.dataset.v===TR.oneway));
   document.querySelectorAll('#trMode button[data-m]').forEach(b=>b.classList.toggle('on',b.dataset.m===TR.mode));
   $('#trSnap').classList.toggle('on',TR.snap);
-  $('#trOw').hidden=area||NOROUTE.has(TR.kind);$('#trSnap').hidden=area||NOROUTE.has(TR.kind);
+  $('#trOw').hidden=area||NOROUTE.has(TR.kind)||TR.kind==='rotonda';$('#trSnap').hidden=area||NOROUTE.has(TR.kind);
   $('#trTtl').textContent='✍️ Calcar · '+(area?AREA_UI[TR.akind][1]:KIND_UI[TR.kind][1]);
   const conn=TR.snapped.filter(Boolean).length;
-  $('#trInfo').textContent=(TR.mode==='taps'?'Tocá puntos sobre la imagen, uno tras otro.':'Pasá el dedo siguiendo el contorno (con dos dedos movés o acercás el mapa).')+
+  const rbm=!area&&TR.kind==='rotonda';
+  $('#trInfo').textContent=(rbm?(TR.mode==='taps'?(TR.pts.length?'Ahora tocá un punto del borde: define el tamaño.':'Tocá el centro de la rotonda.'):'Dibujá el círculo con el dedo (se cierra solo).'):TR.mode==='taps'?'Tocá puntos sobre la imagen, uno tras otro.':'Pasá el dedo siguiendo el contorno (con dos dedos movés o acercás el mapa).')+
     ` · ${TR.pts.length} punto${TR.pts.length===1?'':'s'} · ${area?'perímetro':''} ${Math.round(traceLen())} m${conn?` · ${conn} pegado${conn>1?'s':''} a una calle`:''}${TR.saved?` · ${TR.saved} guardado${TR.saved>1?'s':''}`:''}`;
   $('#trOk').disabled=TR.pts.length<(area?3:2);
   $('#trOk').textContent=area?'✓ Cerrar área':'✓ Terminar trazo';
@@ -9290,9 +9306,22 @@ function closeTrace(){
   TR.on=false;TR.pts=[];TR.snapped=[];TR.strokes=[];$('#trace').hidden=true;traceLayer.clearLayers();
   endFree();
 }
+/* 🔄 rotonda: se toca el centro y después un punto del borde; sale un círculo de 28 puntos, en el sentido del tránsito */
+const DRIVE_LEFT=false;   /* tránsito por la derecha: las rotondas giran al revés de las agujas del reloj */
+function ringArea(p){let a=0;for(let i=0;i<p.length-1;i++)a+=p[i][1]*p[i+1][0]-p[i+1][1]*p[i][0];return a/2;}   /* >0 = antihorario */
+function rbRing(c,r,n){
+  const k=111320*Math.cos(c[0]*rad),pts=[];
+  for(let i=0;i<n;i++){const a=(DRIVE_LEFT?-1:1)*i*2*Math.PI/n;pts.push([c[0]+r*Math.sin(a)/110540,c[1]+r*Math.cos(a)/k]);}
+  pts.push(pts[0].slice());return pts;
+}
 function traceTap(e){
   if(!TR.on||TR.mode!=='taps')return;
   const raw=[e.latlng.lat,e.latlng.lng];
+  if(TR.shape==='line'&&TR.kind==='rotonda'){
+    if(!TR.pts.length){TR.pts=[raw];TR.snapped=[false];TR.strokes=[1];drawTrace();return;}
+    const r=Math.max(6,Math.min(80,hav(TR.pts[0],raw)));
+    TR.pts=rbRing(TR.pts[0],r,28);TR.snapped=TR.pts.map(()=>false);TR.strokes=[TR.pts.length];drawTrace();traceSave();return;
+  }
   /* línea: tocar sobre el primer punto cierra el contorno (queda unido: al editarlo, el punto de cierre se mueve junto) */
   if(TR.shape!=='area'&&TR.pts.length>=3){
     const a=map.latLngToContainerPoint(TR.pts[0]),b=map.latLngToContainerPoint(e.latlng);
@@ -9312,9 +9341,14 @@ async function traceSave(){
   const pts=TR.pts.map(p=>[+p[0].toFixed(7),+p[1].toFixed(7)]);
   /* línea que termina casi donde empezó: se une exacto (contorno cerrado) */
   if(!area&&pts.length>=4&&hav(pts[0],pts[pts.length-1])<=Math.max(25,mppNow()*24))pts[pts.length-1]=pts[0].slice();
+  const rb=!area&&TR.kind==='rotonda';
+  if(rb){
+    if(pts.length<4||hav(pts[0],pts[pts.length-1])>1){toast('La rotonda tiene que ser un círculo cerrado: tocá el centro y después un punto del borde',6000);return;}
+    if((ringArea(pts)>0)===DRIVE_LEFT)pts.reverse();   /* dibujada al revés: se da vuelta para que gire como el tránsito */
+  }
   const e=area
     ?{type:'area',id:uid(),kind:TR.akind,name:$('#trName').value.trim(),pts,props:JSON.parse(JSON.stringify(TR.aprops||{})),created:Date.now()}
-    :{type:'path',id:uid(),kind:TR.kind,name:$('#trName').value.trim(),oneway:TR.oneway,pts,props:JSON.parse(JSON.stringify(TR.props||{})),created:Date.now()};
+    :{type:'path',id:uid(),kind:TR.kind,name:$('#trName').value.trim(),oneway:rb?1:TR.oneway,pts,props:JSON.parse(JSON.stringify(TR.props||{})),created:Date.now()};
   await DB.put('kv','edit:'+e.id,e);
   dropGraph();vecInvalidate();try{kayakDrop();}catch(er){errLog(er)}
   let msg='Guardado';
