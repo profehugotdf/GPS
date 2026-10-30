@@ -12862,6 +12862,39 @@ async function edifCollect(P){
     return {list,err:'',real:list.filter(b=>b[1]).length};
   }catch(e){errLog(e,'edificios de la costa (OpenStreetMap)');return {list:[],err:e.message||String(e),real:0};}
 }
+/* ---------- 🛣️ Calles y costanera para Kayak ----------
+   Hugo: "¿sumar costanera, calles y acantilados donde hubiera?". De OpenStreetMap (way[highway]) se traen las calles hasta CALLES_R m de la ruta
+   y viajan en el paquete como `calles`: [clase, [[lat,lon],…]] con clase 1 = ruta o avenida (la costanera suele ser esta), 2 = calle,
+   3 = servicio o huella, 4 = peatonal, sendero o ciclovía. Se simplifican a 2,5 m de tolerancia; los más cercanos hasta CALLES_MAX
+   tramos y CALLES_PTS puntos. Los acantilados no viajan: Kayak los saca de la pendiente del perfil de orillas. */
+const CALLES_R=1500,CALLES_MAX=500,CALLES_PTS=7000;
+function callesQ(line,r){
+  const ln=line.map(p=>p[0].toFixed(5)+','+p[1].toFixed(5)).join(',');
+  return `[out:json][timeout:60];way["highway"]["highway"!~"^(steps|proposed|construction|raceway|corridor|elevator|bus_guideway|platform)$"](around:${r},${ln});out geom qt;`;
+}
+const CALLE_CLASE={motorway:1,motorway_link:1,trunk:1,trunk_link:1,primary:1,primary_link:1,secondary:1,secondary_link:1,tertiary:1,tertiary_link:1,
+  residential:2,unclassified:2,living_street:2,road:2,service:3,track:3,pedestrian:4,footway:4,path:4,cycleway:4,bridleway:4};
+/* pura: respuesta de Overpass → [[clase,[[la,lo],…]],…] (los puntos ya simplificados) */
+function callesFromOsm(els){
+  const out=[];
+  for(const e of els||[]){
+    if(e.type!=='way'||!e.geometry||e.geometry.length<2)continue;
+    const t=e.tags||{},c=CALLE_CLASE[t.highway];if(!c)continue;
+    const pts=simplifyDP(e.geometry.map(g=>[g.lat,g.lon]),2.5);
+    if(pts.length>=2)out.push([c,pts.map(q=>[+q[0].toFixed(5),+q[1].toFixed(5)])]);
+  }
+  return out;
+}
+async function callesCollect(P){
+  if(netBlocked()||S.dataMode==='never')return {list:[],err:'sin internet',pts:0};
+  try{
+    const line=bkLine(P),els=await Promise.race([bkOver(callesQ(line,CALLES_R),50000),new Promise((_,no)=>setTimeout(()=>no(new Error('tardó demasiado')),55000))]);
+    const all=callesFromOsm(els).map(c=>({c,d:elDistRuta(c[1],line)})).filter(x=>x.d<=CALLES_R);
+    all.sort((a,b)=>a.d-b.d);
+    const list=[];let n=0;for(const x of all){if(list.length>=CALLES_MAX||n+x.c[1].length>CALLES_PTS)break;list.push(x.c);n+=x.c[1].length;}
+    return {list,err:'',pts:n};
+  }catch(e){errLog(e,'calles de la costa (OpenStreetMap)');return {list:[],err:e.message||String(e),pts:0};}
+}
 const KY={last:null,SP:25,MAX:2000,OFF:[0,25,60,120,220,400,700]};
 /* color promedio de la foto satelital en grupos de puntos: groups = [[[lat,lon],…],…] → [[r,g,b]|null,…] */
 async function satAvg(groups,z){
@@ -12970,15 +13003,15 @@ async function kySend(o){
   /* muelles, puentes, túneles, terraplenes y desmontes: lo marcado a mano y lo de OpenStreetMap, hasta 900 m de la ruta */
   let E={list:[],err:'',nMan:0,nOsm:0};
   try{toast('🪵 Buscando muelles, puentes y terraplenes…',30000);E=await elCollect(P,bkPadBB(P,900),900);}catch(e){errLog(e,'muelles y puentes');}
-  let ED={list:[],err:'',real:0};
-  try{toast('🏘️ Buscando los edificios de la costa…',30000);ED=await edifCollect(P);}catch(e){errLog(e,'edificios');}
+  let ED={list:[],err:'',real:0},CA={list:[],err:'',pts:0};
+  try{toast('🏘️ Buscando los edificios y las calles de la costa…',30000);[ED,CA]=await Promise.all([edifCollect(P),callesCollect(P)]);}catch(e){errLog(e,'edificios y calles');}
   const nm=(o.name||'Ruta de Rumbo').replace(/[<>&"]/g,'').slice(0,60);
   const ll=P.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]);
   const loop=hav(o.ll[0],o.ll[o.ll.length-1])<60;
-  const data=await bkPack({v:1,app:'kayak',name:nm,L:Math.round(R.L),loop,ll,shore:{sp:ds,n:P.length,d:bkB64(U),off:KY.OFF,p:bkB64(PF)},hz,peaks,elems:E.list,edif:ED.list.length?ED.list:undefined,mar:sea?1:0});
+  const data=await bkPack({v:1,app:'kayak',name:nm,L:Math.round(R.L),loop,ll,shore:{sp:ds,n:P.length,d:bkB64(U),off:KY.OFF,p:bkB64(PF)},hz,peaks,elems:E.list,edif:ED.list.length?ED.list:undefined,calles:CA.list.length?CA.list:undefined,mar:sea?1:0});
   const nL=sh.filter(r=>r[0].d!=null).length,nR=sh.filter(r=>r[1].d!=null).length;
-  KY.last={name:nm,L:R.L,len:data.length,hz:!!hz,peaks:peaks.length,elems:elCount(E.list),elErr:E.err,shoreL:nL/P.length,shoreR:nR/P.length,src:shoreIdx?'costas':'relieve',mar:!!sea,edif:ED.list.length,edifReal:ED.real,edifErr:ED.err};
-  toast(`🛶 Listo: ${dec(R.L/1000,1)} km${hz?' · montañas reales':''}${peaks.length?' con nombres':''} · orillas ${shoreIdx?'de tus costas cargadas':'por el relieve'}${E.list.length?' · '+elResumen(E.list):''}${ED.list.length?` · ${ED.list.length} edificios (${ED.real} con altura real)`:''}${E.err?' (muelles y puentes: sin OpenStreetMap, solo los marcados a mano)':''}. Se abre Kayak Indoor…`,7000);
+  KY.last={name:nm,L:R.L,len:data.length,hz:!!hz,peaks:peaks.length,elems:elCount(E.list),elErr:E.err,shoreL:nL/P.length,shoreR:nR/P.length,src:shoreIdx?'costas':'relieve',mar:!!sea,edif:ED.list.length,edifReal:ED.real,edifErr:ED.err,calles:CA.list.length,callesErr:CA.err};
+  toast(`🛶 Listo: ${dec(R.L/1000,1)} km${hz?' · montañas reales':''}${peaks.length?' con nombres':''} · orillas ${shoreIdx?'de tus costas cargadas':'por el relieve'}${E.list.length?' · '+elResumen(E.list):''}${ED.list.length?` · ${ED.list.length} edificios (${ED.real} con altura real)`:''}${CA.list.length?` · ${CA.list.length} calles`:''}${E.err?' (muelles y puentes: sin OpenStreetMap, solo los marcados a mano)':''}. Se abre Kayak Indoor…`,7000);
   setTimeout(()=>{const a=document.createElement('a');a.href=KY_URL+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 

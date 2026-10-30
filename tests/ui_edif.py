@@ -37,6 +37,22 @@ async def main():
         rc=r['rect'];ok(abs(rc['w']-20)<.6 and abs(rc['d']-8)<.6,'rectángulo orientado 20 × 8 m: %.1f × %.1f'%(rc['w'],rc['d']))
         ok(abs(rc['ang']-30)<=3,'el lado largo está a 30° del norte: %s'%rc['ang'])
         ok(r['q'] and r['c']['n']==2 and r['c']['real']==2 and not r['c']['err'],'edifCollect: arma la consulta y devuelve los 2 de la zona: %s'%r['c'])
+        c=await pg.evaluate("""async()=>{
+          const g=(a)=>a.map(q=>({lat:q[0],lon:q[1]}));
+          const rect=[[-54.8,-68.3],[-54.8,-68.29],[-54.8,-68.28],[-54.8,-68.27]];
+          const els=[{type:'way',geometry:g(rect),tags:{highway:'primary',name:'Av. Costanera'}},
+            {type:'way',geometry:g([[-54.81,-68.3],[-54.81,-68.29]]),tags:{highway:'residential'}},
+            {type:'way',geometry:g([[-54.82,-68.3],[-54.82,-68.29]]),tags:{highway:'footway'}},
+            {type:'way',geometry:g([[-54.83,-68.3],[-54.83,-68.29]]),tags:{highway:'steps'}},
+            {type:'way',geometry:g([[-54.84,-68.3]]),tags:{highway:'primary'}}];
+          const out=callesFromOsm(els);
+          let q=null;bkOver=async(s)=>{q=s;return els;};
+          const r=await callesCollect([[-54.8,-68.28,0],[-54.8,-68.281,100]]);
+          return {clases:out.map(x=>x[0]),rectaPts:out[0][1].length,q:q&&q.includes('way["highway"]'),n:r.list.length,err:r.err};}""")
+        print('   ',c)
+        ok(c['clases']==[1,2,4],'calles: avenida=1, calle=2, peatonal=4 (escaleras y ways sueltos no entran): %s'%c['clases'])
+        ok(c['rectaPts']==2,'un tramo recto se simplifica a 2 puntos')
+        ok(c['q'] and c['n']==2 and not c['err'],'callesCollect arma la consulta y deja afuera lo que está a más de 1,5 km: %s'%c)
         ok(not errs,'sin errores JS: %s'%errs[:2])
         await b.close()
     s1.shutdown()

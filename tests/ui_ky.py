@@ -20,7 +20,7 @@ fetchDemList=async(list,z)=>{const m=new Map(),n=2**z;for(const t of list){const
   for(let py=0;py<256;py++){const yy=(t.y+(py+.5)/256)/n,la=Math.atan(Math.sinh(Math.PI*(1-2*yy)))*180/Math.PI;for(let px=0;px<256;px++){const lo=(t.x+(px+.5)/256)/n*360-180;a[py*256+px]=__terr(la,lo);}}
   m.set(t.x+'/'+t.y,a);}return m;};
 demMissing=async()=>0;
-coastSea=async()=>null;edifCollect=async()=>({list:[],err:'',real:0});   // sin red: la costa real de OpenStreetMap no combina con este canal inventado (en CI hay internet)
+coastSea=async()=>null;edifCollect=async()=>({list:[],err:'',real:0});callesCollect=async()=>({list:[],err:'',pts:0});   // sin red: la costa real de OpenStreetMap no combina con este canal inventado (en CI hay internet)
 bkPeaks=async()=>[{n:'Cerro Uno',e:1100,la:-54.80,lo:-68.36},{n:'Monte Tres',e:1300,la:-54.76,lo:-68.25}];
 satAvg=async(groups)=>groups.map((g,i)=>[60+(i%3)*5,95,55]);
 window.confirm=()=>true;
