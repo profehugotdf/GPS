@@ -2,6 +2,12 @@
 #t3[hidden]{display:none}
 #t3c{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
 #t3 .t3bar{position:absolute;left:8px;right:8px;top:calc(var(--top) + 8px);display:flex;align-items:center;gap:10px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
+#t3 #t3nav{position:absolute;left:8px;top:calc(var(--top) + 56px);max-width:min(78vw,430px);display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:rgba(14,42,54,.84);color:#fff;border-radius:16px;padding:8px 12px;pointer-events:none}
+#t3 #t3nav[hidden]{display:none}
+#t3 #t3nIco{font-size:32px;line-height:1}
+#t3 #t3nav b{display:block;font-size:15px;line-height:1.2}
+#t3 #t3nDist{font:800 20px system-ui}
+#t3 #t3nav small{flex-basis:100%;font-size:12.5px}
 #t3 .t3bar b{font:800 18px system-ui}#t3 .t3bar span{font:600 13px system-ui;flex:1}
 #t3 button{pointer-events:auto;border:0;border-radius:22px;background:rgba(14,42,54,.82);color:#fff;font:700 16px system-ui;min-width:44px;height:44px;padding:0 12px;box-shadow:0 1px 6px rgba(0,0,0,.35)}
 #t3 button.on{background:#F2A900;color:#111}
@@ -29,6 +35,7 @@
   <div class="t3bar"><button data-t3="x" aria-label="Cerrar 3D">✕</button><b>🏔️ 3D</b><span id="t3msg"></span></div>
   <div class="t3r"><button data-t3="n" aria-label="Norte arriba y vista de arriba"><span id="t3cmp">🧭</span></button><button data-t3="in" aria-label="Acercar">+</button><button data-t3="out" aria-label="Alejar">−</button><button id="t3fp" data-t3="fpv" aria-label="Vista a ras del suelo">👁️</button></div>
   <div class="t3b"><div id="t3tl" hidden><button id="t3pp" data-t3="pp" aria-label="Pausa o seguir">⏸</button><button id="t3cm" data-t3="cm" aria-label="Cámara automática o mi vista">🎥</button><div class="tlw"><input type="range" id="t3sb" min="0" max="1000" step="1" value="0" aria-label="Línea de tiempo"><div id="t3tk"></div></div><span id="t3tt">0:00</span></div><span>Relieve</span><button data-t3="ex" data-ex="1">×1</button><button data-t3="ex" data-ex="1.5">×1,5</button><button data-t3="ex" data-ex="2">×2</button><button id="t3fly" data-t3="fly">▶ Sobrevolar</button><button id="t3rv" data-t3="rv" hidden>🎬 Revivir</button><button id="t3vid" data-t3="vid" hidden>⏺ Video</button></div>
+  <div id="t3nav" hidden><span id="t3nIco">⬆️</span><div><b id="t3nTxt"></b><span id="t3nDist"></span></div><small id="t3nRem"></small></div>
   <div id="t3rel" hidden></div><div id="t3mk" hidden></div>
   <div class="t3h">Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar</div><script>
 const rad=Math.PI/180,R_EARTH=6371008.8,$=q=>document.querySelector(q),pad2=n=>String(n).padStart(2,'0'),esc=x=>String(x);
@@ -86,6 +93,8 @@ function tileXY(lat,lon,z){
 const bbPad=(b,km)=>{const dl=km/110.54,dn=km/(111.32*Math.cos((b.n+b.s)/2*rad));return {n:b.n+dl,s:b.s-dl,e:b.e+dn,w:b.w-dn};};
 function sensStats(arr){const v=(arr||[]).filter(x=>x!=null&&x>0);if(!v.length)return null;return {avg:Math.round(v.reduce((a,b)=>a+b,0)/v.length),max:Math.round(Math.max(...v))};}
 const MI={foot:'🚶',bike:'🚴',car:'🚗',kayak:'🛶',swim:'🏊'};
+/* 3D en vivo: lo mínimo de la guía (NAV, rumbo, tarjeta) */
+const NAV={on:true,mode:'car',lastRes:null,N:{route:{coords:[],steps:[]},total:1000}};let POS={hdg:0};const updNav=()=>{};
 let shownTrack=null;
 const DSEP=()=>',';
 /*@@SLICE@@*/const trBeg=t=>t.pts[0][2],trEnd=t=>t.pts[t.pts.length-1][2];

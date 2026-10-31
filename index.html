@@ -17,7 +17,7 @@
   --ink:#0E2A36; --paper:#F3F6F2; --foam:#fff; --buoy:#F04A1C; --kelp:#2E7D5B;
   --violet:#6B3FA0; --sand:#D8CBA6; --line:#C6D1CA; --mut:#566B74;
   --num:"Roboto Condensed","sans-serif-condensed","Arial Narrow",system-ui,sans-serif;
-  --top:max(env(safe-area-inset-top),0px); --bot:max(env(safe-area-inset-bottom),0px);
+  --top:max(env(safe-area-inset-top),0px); --bot:max(env(safe-area-inset-bottom),0px); --o104:104px; --o84:84px; --o74:74px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--ink);color:var(--ink);
@@ -26,8 +26,8 @@ input,select{-webkit-user-select:text;user-select:text}
 #map{position:fixed;inset:0;background:#cfd8d3}
 .leaflet-control-attribution{font-size:10px!important;margin-bottom:0!important}
 [hidden]{display:none!important}
-.leaflet-bottom.leaflet-right{bottom:calc(var(--bot) + 74px)}
-.leaflet-bottom.leaflet-left{bottom:calc(var(--bot) + 74px)}
+.leaflet-bottom.leaflet-right{bottom:calc(var(--bot) + var(--o74))}
+.leaflet-bottom.leaflet-left{bottom:calc(var(--bot) + var(--o74))}
 
 /* HUD */
 #hud{position:fixed;left:0;right:0;top:0;z-index:1000;background:var(--paper);
@@ -54,7 +54,7 @@ input,select{-webkit-user-select:text;user-select:text}
 #banner[hidden]{display:none}
 
 /* Botones flotantes */
-#fabs{position:fixed;right:10px;bottom:calc(var(--bot) + 104px);z-index:900;display:flex;flex-direction:column;gap:7px}
+#fabs{position:fixed;right:10px;bottom:calc(var(--bot) + var(--o104));z-index:900;display:flex;flex-direction:column;gap:7px}
 #fabs button{width:48px;height:48px;border-radius:14px;border:0;background:var(--paper);color:var(--ink);font-size:24px;
   box-shadow:0 1px 6px rgba(0,0,0,.3)}
 #fabs button.on{background:var(--ink);color:#fff}
@@ -142,7 +142,7 @@ input[type=range]{width:100%;height:36px}
 #banner .btn{margin:0}
 #fabs button{font-size:22px}
 
-#nav{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:950;background:var(--ink);color:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 2px 10px rgba(0,0,0,.4)}
+#nav{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + var(--o104));z-index:950;background:var(--ink);color:#fff;border-radius:16px;padding:10px 12px;box-shadow:0 2px 10px rgba(0,0,0,.4)}
 #nav[hidden]{display:none}
 .nvm{display:flex;gap:10px;align-items:center}
 #nvIco{font-size:40px;line-height:1}
@@ -154,7 +154,7 @@ input[type=range]{width:100%;height:36px}
 .nvb button{flex:1;min-height:44px;border-radius:12px;border:0;font:600 13px system-ui;background:#264b5c;color:#fff}
 .nvb #nvEnd{background:var(--buoy)}
 
-#pin{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:950;background:var(--paper);color:var(--ink);border-radius:16px;padding:10px 12px;box-shadow:0 2px 10px rgba(0,0,0,.4)}
+#pin{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + var(--o104));z-index:950;background:var(--paper);color:var(--ink);border-radius:16px;padding:10px 12px;box-shadow:0 2px 10px rgba(0,0,0,.4)}
 #pin[hidden]{display:none}
 #pin b{display:block;font-size:17px}
 #pin small{color:#566B74}
@@ -188,7 +188,7 @@ body.night .leaflet-ovl-pane img{filter:brightness(.7)}
 body.night .leaflet-control-attribution{background:rgba(15,30,39,.75)!important;color:#93A9B2}
 body.night .leaflet-control-attribution a{color:#9fc4d6}
 
-#cap{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:960;background:var(--paper);color:var(--ink);border-radius:16px;padding:10px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
+#cap{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + var(--o84));z-index:960;background:var(--paper);color:var(--ink);border-radius:16px;padding:10px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
 #cap[hidden]{display:none}
 .caph{display:flex;justify-content:space-between;align-items:center}
 .caph b{font-size:16px}
@@ -208,7 +208,7 @@ body.night #cap .nvb button{background:#E4EDEF;color:#0E2A36}
 .gicon .gar{position:absolute;inset:0;pointer-events:none}
 .gicon .gar i{position:absolute;left:23px;top:-2px;font-style:normal;font-size:15px;line-height:1;color:#F04A1C;text-shadow:0 0 3px #fff,0 0 3px #fff}
 .gicon .gar i.b{top:auto;bottom:-2px;transform:rotate(180deg)}
-#gate{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:965;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:62vh;overflow:auto}
+#gate{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + var(--o84));z-index:965;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:62vh;overflow:auto}
 #gate[hidden]{display:none}
 #gate .chips{margin-top:6px}
 #gate .chips button{min-height:36px;padding:3px 10px;font-size:13px}
@@ -239,7 +239,7 @@ body.night #nav{background:rgba(9,20,27,var(--navA,.42))}
 
 body.night.vec .leaflet-tile-pane{filter:none}
 
-#trace{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:962;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
+#trace{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + var(--o84));z-index:962;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
 #trace[hidden]{display:none}
 #trace .chips{margin-top:6px}
 #trace .chips button{min-height:36px;padding:3px 10px;font-size:13px}
@@ -250,7 +250,7 @@ body.night.vec .leaflet-tile-pane{filter:none}
 body.night #trace .nvb button{background:#E4EDEF;color:#0E2A36}
 
 .nodem{font-size:22px;text-shadow:0 0 3px #fff,0 0 3px #fff;line-height:1}
-#nodep{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:62vh;overflow:auto}
+#nodep{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + var(--o84));z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:62vh;overflow:auto}
 #nodep[hidden]{display:none}
 #nodep .chips{margin-top:6px}
 #nodep .chips button{min-height:36px;padding:3px 10px;font-size:13px;text-align:left}
@@ -306,6 +306,12 @@ body.flOn #hud,body.flOn #pill{display:none}
 #t3 .t3bar b{font:800 18px system-ui}#t3 .t3bar span{font:600 13px system-ui;flex:1}
 #t3 button{pointer-events:auto;border:0;border-radius:22px;background:rgba(14,42,54,.82);color:#fff;font:700 16px system-ui;min-width:44px;height:44px;padding:0 12px;box-shadow:0 1px 6px rgba(0,0,0,.35)}
 #t3 button.on{background:#F2A900;color:#111}
+#t3 #t3nav{position:absolute;left:8px;top:calc(var(--top) + 56px);max-width:min(78vw,430px);display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:rgba(14,42,54,.84);color:#fff;border-radius:16px;padding:8px 12px;box-shadow:0 1px 6px rgba(0,0,0,.35);pointer-events:none}
+#t3 #t3nav[hidden]{display:none}
+#t3 #t3nIco{font-size:32px;line-height:1}
+#t3 #t3nav b{display:block;font-size:15px;line-height:1.2}
+#t3 #t3nDist{font:800 20px var(--num)}
+#t3 #t3nav small{flex-basis:100%;opacity:.85;font-size:12.5px}
 #t3 .t3r{position:absolute;right:10px;top:calc(var(--top) + 70px);display:flex;flex-direction:column;gap:8px}
 #t3 #t3cmp{display:inline-block;transition:transform .15s}
 #t3 #t3tl{flex-basis:100%;display:flex;align-items:center;gap:8px;background:rgba(14,42,54,.72);border-radius:22px;padding:4px 10px 4px 4px}
@@ -330,7 +336,7 @@ body.flOn #hud,body.flOn #pill{display:none}
 #t3 .t3h{position:absolute;left:0;right:0;bottom:calc(var(--bot) + 10px);text-align:center;color:#fff;font:600 11.5px system-ui;text-shadow:0 1px 3px rgba(0,0,0,.8);pointer-events:none}
 #appbn{position:fixed;left:10px;right:10px;top:calc(var(--top) + 8px);z-index:3100;display:flex;align-items:center;gap:8px;background:#0E2A36;color:#fff;border-radius:16px;padding:8px 10px;box-shadow:0 3px 12px rgba(0,0,0,.4);font:600 14px system-ui}
 #appbn span{flex:1}#appbn a{background:#F04A1C;color:#fff;text-decoration:none;border-radius:12px;padding:9px 12px;font-weight:800}#appbn button{border:0;background:none;color:#fff;font-size:18px;width:34px;height:34px}
-#grp{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:906;background:rgba(14,42,54,.72);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:6px 8px 8px 10px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45);max-height:42vh;overflow:auto}
+#grp{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + var(--o104));z-index:906;background:rgba(14,42,54,.72);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:6px 8px 8px 10px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45);max-height:42vh;overflow:auto}
 #grp[hidden]{display:none}
 #grp .gh{display:flex;align-items:baseline;gap:8px;padding:4px 0}#grp .gh small{opacity:.8;flex:1}#grp .gh span{opacity:.8}
 #grp .gr{display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid rgba(255,255,255,.15)}
@@ -396,7 +402,7 @@ body.flOn #hud,body.flOn #pill{display:none}
 #fol .f1 .good{color:#7CF0A8}#fol .f1 .bad{color:#FFB09C}
 #fol .f1s i.y{color:#222}#fol .f1s i.run{box-shadow:inset 0 0 0 2px #fff}
 #shpill[hidden],#fol[hidden]{display:none}
-#fol{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:906;display:flex;gap:8px;align-items:center;background:rgba(40,20,80,.62);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:8px 8px 8px 12px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45)}
+#fol{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + var(--o104));z-index:906;display:flex;gap:8px;align-items:center;background:rgba(40,20,80,.62);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:8px 8px 8px 12px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45)}
 #fol .fb{flex:1;min-width:0}
 #fol .t{font:800 16px system-ui}
 #fol .t small{font-weight:600;opacity:.85;margin-left:6px}
@@ -412,7 +418,7 @@ body.flOn #hud,body.flOn #pill{display:none}
 .folmk b{position:absolute;left:24px;background:rgba(255,255,255,.92);color:#2a1660;border-radius:8px;padding:1px 6px;font:800 12px system-ui}
 @keyframes folp{0%,100%{box-shadow:0 0 0 4px rgba(122,63,224,.35),0 1px 4px rgba(0,0,0,.5)}50%{box-shadow:0 0 0 12px rgba(122,63,224,.08),0 1px 4px rgba(0,0,0,.5)}}
 
-#meas{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
+#meas{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + var(--o84));z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
 #meas[hidden]{display:none}
 #meas .chips{margin-top:4px}
 #msOut{margin:6px 0 2px}
@@ -427,7 +433,7 @@ body.night #meas .nvb button{background:#E4EDEF;color:#0E2A36}
 .mpt.first{background:#F04A1C;border-color:#fff}
 .mlab{position:absolute;transform:translate(-50%,-50%);background:rgba(255,255,255,.92);color:#0E2A36;border-radius:9px;padding:1px 6px;font:700 12px system-ui;white-space:nowrap;box-shadow:0 0 3px rgba(0,0,0,.4);pointer-events:none}
 
-#rplan{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:62vh;overflow:auto}
+#rplan{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + var(--o84));z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:62vh;overflow:auto}
 #rplan[hidden]{display:none}
 #rplan .chips{margin-top:4px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}#rplan .chips button{flex:0 0 auto}#rplan #plLm{flex-wrap:wrap;overflow:visible}#rplan #plLm button{font-size:13.5px}
 #rplan .caph span{display:inline-flex;gap:6px}
@@ -470,7 +476,7 @@ body.night .wxal.warn{background:#4A3B10;color:#FFE08A}body.night .wxal.danger{b
 
 #tgt{position:fixed;left:12px;top:calc(var(--top) + 56px);z-index:906;display:flex;align-items:center;gap:10px;max-width:calc(100% - 24px);background:rgba(14,42,54,.88);color:#fff;border-radius:18px;padding:6px 14px 6px 8px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
 #tgt[hidden]{display:none}
-#rtp{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + 104px);z-index:905;display:flex;gap:8px;align-items:center;background:rgba(14,42,54,.55);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:8px 8px 8px 12px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45)}
+#rtp{position:fixed;left:8px;right:66px;bottom:calc(var(--bot) + var(--o104));z-index:905;display:flex;gap:8px;align-items:center;background:rgba(14,42,54,.55);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#fff;border-radius:16px;padding:8px 8px 8px 12px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-shadow:0 1px 2px rgba(0,0,0,.45)}
 #rtp[hidden]{display:none}
 #rtpBody{flex:1;min-width:0}
 #rtp .t{font:800 20px system-ui;line-height:1.15;font-variant-numeric:tabular-nums}
@@ -500,7 +506,7 @@ body.night .wxal.warn{background:#4A3B10;color:#FFE08A}body.night .wxal.danger{b
 #tgtD{font-variant-numeric:tabular-nums}
 .tgtm{font-size:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
 
-#vedit{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
+#vedit{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + var(--o84));z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
 #vedit[hidden]{display:none}
 #evInfo{font:700 15px system-ui;margin-top:4px}
 #evHint{display:block;color:var(--mut);font-size:12.5px;margin-top:2px}
@@ -544,9 +550,9 @@ body.night .gnq{background:#173326}body.night .gnq.mid{background:#3A3010}body.n
 table.dg td{padding:5px 4px;border-bottom:1px solid rgba(128,128,128,.25);vertical-align:top}
 table.dg td:first-child{font-weight:700;width:42%}
 
-#perim{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:52vh;overflow:auto}
+#perim{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + var(--o84));z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45);max-height:52vh;overflow:auto}
 #perim[hidden]{display:none}
-#dsel{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + 84px);z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
+#dsel{position:fixed;left:8px;right:8px;bottom:calc(var(--bot) + var(--o84));z-index:963;background:var(--paper);color:var(--ink);border-radius:16px;padding:8px 12px;box-shadow:0 2px 12px rgba(0,0,0,.45)}
 #dsel[hidden]{display:none}
 #dsInfo{font:600 14px system-ui;margin-top:4px}
 #dsel .chips button.on{background:#F04A1C;color:#fff}
@@ -561,6 +567,32 @@ table.dg td:first-child{font-weight:700;width:42%}
 #perim .nvb button[disabled]{opacity:.4}
 #perim .nvb #pbOk{background:#2E7D5B}
 body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
+
+/* 📱↔️ Horizontal (teléfono acostado): poca altura. Dock más finito, paneles flotantes en una columna angosta a la izquierda
+   (el mapa queda a la vista) y botones de mapa en columnas. Hugo: "quisiera tener mejor panorama en el modo apaisado". */
+@media (orientation:landscape) and (max-height:520px){
+  :root{--o104:66px;--o84:52px;--o74:46px}
+  #dock{padding:2px 4px calc(var(--bot) + 2px);grid-template-columns:1fr 1fr 74px 1fr 1fr}
+  #dock button{flex-direction:row;justify-content:center;align-items:center;gap:6px;min-height:38px;font-size:13px}
+  #dock .ico{font-size:20px}
+  #recbtn{width:58px;height:58px;margin:-22px auto 0;border-width:4px!important;font-size:14px!important}
+  #fabs{flex-wrap:wrap-reverse;flex-direction:column;gap:6px;max-height:calc(100vh - var(--top) - var(--bot) - var(--o104) - 8px);align-content:flex-end}
+  #fabs button{width:42px;height:42px;font-size:21px}
+  #fNorth{right:62px;bottom:calc(var(--bot) + var(--o104));width:42px;height:42px}
+  #rtp,#pin,#grp{right:auto;width:min(60vw,520px);max-width:calc(100vw - 130px)}
+  #rtp .rb{display:grid;grid-template-columns:repeat(3,38px);gap:5px}
+  #rtp .rb button{width:38px;height:32px}
+  #rtp.exp{max-height:calc(100vh - var(--top) - var(--bot) - var(--o104) - 12px)}
+  #rtp.exp #rtpBody{max-height:calc(100vh - var(--top) - var(--bot) - var(--o104) - 28px)}
+  #nav{right:auto;width:min(54vw,430px);padding:6px 10px}
+  #nvIco{font-size:30px}
+  .nvt b{font-size:15px}.nvt span{font-size:19px}
+  .nvr{margin:3px 0}
+  .nvb button{min-height:34px}
+  #trace,#cap,#gate,#nodep,#rplan,#perim{right:auto;width:min(60vw,520px);max-width:calc(100vw - 130px);max-height:calc(100vh - var(--top) - var(--bot) - var(--o84) - 8px);overflow:auto}
+  #meas{max-height:calc(100vh - var(--top) - var(--bot) - var(--o84) - 8px)}
+  #sheet{right:auto;width:min(62vw,600px);max-height:calc(100vh - var(--top) - 6px);border-radius:0 18px 0 0}   /* las hojas (Rutas, Ajustes…) ocupan la izquierda: el mapa se sigue viendo a la derecha */
+}
 </style>
 </head>
 <body>
@@ -579,7 +611,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="nav" hidden>
   <div class="nvm"><span id="nvIco">⬆️</span><div class="nvt"><b id="nvTxt"></b><span id="nvDist"></span></div></div>
   <div class="nvr"><span id="nvEta"></span><span id="nvRem"></span></div>
-  <div class="nvb"><button id="nvMute">🔊</button><button id="nvPozo">🕳️ Pozo</button><button id="nvLomo">🚧 Lomo</button><button id="nvEnd">Terminar</button></div>
+  <div class="nvb"><button id="nvMute">🔊</button><button id="nvPozo">🕳️ Pozo</button><button id="nvLomo">🚧 Lomo</button><button id="nv3d">🏔️ 3D</button><button id="nvEnd">Terminar</button></div>
 </div>
 <div id="rvbar" hidden><b>🌧️ Radar</b> <span id="rvT"></span><button id="rvPrev" aria-label="Antes">◀</button><button id="rvNext" aria-label="Después">▶</button><button id="rvCov" title="Cobertura del radar">🗺️</button><button id="rvX" aria-label="Quitar">✕</button></div>
 <div id="meas" hidden>
@@ -691,6 +723,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
   <div class="t3bar"><button data-t3="x" aria-label="Cerrar 3D">✕</button><b>🏔️ 3D</b><span id="t3msg"></span></div>
   <div class="t3r"><button data-t3="n" aria-label="Norte arriba y vista de arriba"><span id="t3cmp">🧭</span></button><button data-t3="in" aria-label="Acercar">+</button><button data-t3="out" aria-label="Alejar">−</button><button id="t3fp" data-t3="fpv" aria-label="Vista a ras del suelo">👁️</button></div>
   <div class="t3b"><div id="t3tl" hidden><button id="t3pp" data-t3="pp" aria-label="Pausa o seguir">⏸</button><button id="t3cm" data-t3="cm" aria-label="Cámara automática o mi vista">🎥</button><div class="tlw"><input type="range" id="t3sb" min="0" max="1000" step="1" value="0" aria-label="Línea de tiempo"><div id="t3tk"></div></div><span id="t3tt">0:00</span></div><span>Relieve</span><button data-t3="ex" data-ex="1">×1</button><button data-t3="ex" data-ex="1.5">×1,5</button><button data-t3="ex" data-ex="2">×2</button><button id="t3fly" data-t3="fly">▶ Sobrevolar</button><button id="t3rv" data-t3="rv" hidden>🎬 Revivir</button><button id="t3vid" data-t3="vid" hidden>⏺ Video</button></div>
+  <div id="t3nav" hidden><span id="t3nIco">⬆️</span><div><b id="t3nTxt"></b><span id="t3nDist"></span></div><small id="t3nRem"></small></div>
   <div id="t3rel" hidden></div><div id="t3mk" hidden></div>
   <div class="t3h">Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar</div>
 </div>
@@ -3416,6 +3449,7 @@ function onFix(f){
   else if(S.autoRec&&REC.state==='idle')autoRecCheck(f).catch(errLog);
   try{waPump();}catch(e){errLog(e)}
   if(NAV.on)navOnFix(f);
+  if(T3.on&&T3.live)t3LiveFix(f);
   if(SH.on)try{shTick(f);}catch(e){errLog(e)}
   try{gdOnFix(f);}catch(e){errLog(e)}
   if(FL.on)try{flOnFix(f);}catch(e){errLog(e)}
@@ -5738,6 +5772,8 @@ function updNav(res){
   $('#nvEta').textContent='Llegás a las '+hhmm(Date.now()+left*1000);
   $('#nvRem').textContent=fmtD(res.rem)+' · '+fmtDur(left);
   $('#nvMute').textContent=S.voice?'🔊':'🔇';
+  NAV.lastRes=res;
+  if(T3.live){$('#t3nIco').textContent=st.ico;$('#t3nTxt').textContent=st.text;$('#t3nDist').textContent=st.kind==='end'?fmtD(res.rem):'en '+fmtD(res.next.dist);$('#t3nRem').textContent=fmtD(res.rem)+' · '+fmtDur(left)+' · llegás a las '+hhmm(Date.now()+left*1000);}
 }
 function navOnFix(f){
   if(!NAV.on||!NAV.N||f.acc>60)return;
@@ -5764,6 +5800,7 @@ async function navRecalc(f){
       r.hzs=[];RT.res=RT.res||{};RT.res[NAV.mode]=r;RT.sel=NAV.mode;
       NAV.N=navInit(r,NAV.mode,await collectHz(g));r.hzs=NAV.N.hzs;
       drawRoute(false);navSay(r.steps[0].text);
+      if(T3.live)setTimeout(()=>navLive3D(),0);   /* el 3D en vivo toma la ruta nueva */
     }
   }catch(e){errLog(e)}
   NAV.busy=false;
@@ -5776,6 +5813,7 @@ function updNavTop(){
 setInterval(()=>{if(NAV.on)updNavTop();},700);
 function endNav(){
   if(!NAV.on)return;
+  if(T3.live)close3D();
   NAV.on=false;NAV.N=null;clearTimeout(NAV.endT);NAV.endT=null;rtPanel();
   $('#nav').hidden=true;
   keepAwake(REC.state!=='idle'&&S.keepAwake);
@@ -5790,6 +5828,7 @@ async function markHere(k){
 }
 $('#nvMute').onclick=()=>{S.voice=!S.voice;saveS();$('#nvMute').textContent=S.voice?'🔊':'🔇';};
 $('#nvPozo').onclick=()=>markHere('pozo');
+$('#nv3d').onclick=()=>navLive3D();
 $('#nvLomo').onclick=()=>markHere('lomo');
 $('#nvEnd').onclick=endNav;
 
@@ -11462,16 +11501,17 @@ async function open3D(o){
   if(T3.on)close3D();
   let runs=null;
   if(o.track&&o.track.pts&&o.track.pts.length>1){const tp=t3TrackPts(o.track);o.line=tp.pts.map(p=>[p[0],p[1]]);runs=tp.runs;}
-  const line=t3Line(o);
+  const line=o.live?(o.line&&o.line.length>1?o.line:null):t3Line(o);
   /* zona: la de la línea (si se pidió) o la que se ve en el mapa */
   let bb;
-  if(line&&(o.line||o.route)){bb={n:-90,s:90,e:-180,w:180};for(const p of line){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}bb=bbPad(bb,1.2);}
+  if(o.bb)bb=o.bb;
+  else if(line&&(o.line||o.route)){bb={n:-90,s:90,e:-180,w:180};for(const p of line){bb.n=Math.max(bb.n,p[0]);bb.s=Math.min(bb.s,p[0]);bb.e=Math.max(bb.e,p[1]);bb.w=Math.min(bb.w,p[1]);}bb=bbPad(bb,1.2);}
   else{const b=map.getBounds();bb={n:b.getNorth(),s:b.getSouth(),e:b.getEast(),w:b.getWest()};}
   const N=4,c=[(bb.n+bb.s)/2,(bb.e+bb.w)/2];
   let zd=13;
   for(;zd>8;zd--){const a=tileXY(bb.n,bb.w,zd),b=tileXY(bb.s,bb.e,zd);if(b.x-a.x<=N-0.4&&b.y-a.y<=N-0.4)break;}
   const ct=tileXY(c[0],c[1],zd);
-  Object.assign(T3,{exag:S.exag3d||1.5,on:true,N,zd,x0:Math.round(ct.x-N/2),y0:Math.round(ct.y-N/2),lat0:c[0],line,gen:T3.gen+1,fly:null,loaded:0,dirty:true});
+  Object.assign(T3,{exag:S.exag3d||1.5,on:true,N,zd,x0:Math.round(ct.x-N/2),y0:Math.round(ct.y-N/2),lat0:c[0],line,gen:T3.gen+1,fly:null,loaded:0,dirty:true,noDot:!!o.live});
   T3.mpp=40075016.686*Math.cos(c[0]*rad)/(256*2**zd);T3.half=N*128;
   const el=$('#t3');el.hidden=false;
   $('#t3msg').textContent='Armando el relieve…';
@@ -11492,13 +11532,13 @@ async function open3D(o){
   T3.air=!!(o.track&&o.track.act==='plane');T3.airY=null;
   if(line&&T3.air){t3AirRoad(line,o.track);}
   else if(line){const tr=o.track,rk=!tr&&!o.line&&RT.res&&RT.res[RT.sel]&&!RT.res[RT.sel].err?RT.sel:null;
-    t3Carve(line,runs||(rk&&T3_WATER_RT[rk]?[{a:0,b:line.length-1,water:true}]:null),T3_GRADE[tr?(tr.legs?'bike':tr.act):rk]||.45);}
+    t3Carve(line,runs||(rk&&T3_WATER_RT[rk]?[{a:0,b:line.length-1,water:true}]:null),T3_GRADE[tr?(tr.legs?'bike':tr.act):(o.live?NAV.mode:rk)]||.45);}
   const cam=T3.cam,[cx,cz]=t3XZ(c[0],c[1]),span=N*256*T3.mpp;
   Object.assign(cam,{tx:cx,tz:cz,az:map.getBearing?-map.getBearing():0,tilt:58,dist:Math.min(span*.55,Math.max(800,hav([bb.n,bb.w],[bb.s,bb.e])*.75))});
   if(!dem.size)$('#t3msg').textContent='No hay altura del terreno guardada para esta zona (y no se pudo bajar): se ve plano.';
   else $('#t3msg').textContent='';
   T3.rel=o.track?t3RelPrep(o.track):null;T3.km=0;
-  $('#t3fly').hidden=!line||!!T3.rel;t3RelBtn();t3TlShow();
+  $('#t3fly').hidden=!line||!!T3.rel||!!o.live;t3RelBtn();t3TlShow();
   t3Overlay();t3Loop();
   t3Sat(my);
   if(T3.rel&&!o.relive){const hs=[T3.rel.hrS&&'❤️ pulso',T3.rel.pwS&&'⚡ potencia',T3.rel.cadS&&'cadencia'].filter(Boolean);toast(`Tocá 🎬 Revivir para ver el recorrido con velocidad, altura${hs.length?', '+hs.join(', '):''} en cada momento`,6000);}
@@ -11507,6 +11547,7 @@ async function open3D(o){
 function close3D(){
   if(T3.recr&&T3.recr.state==='recording'){T3.vc=null;try{T3.recr.ondataavailable=null;T3.recr.onstop=null;T3.recr.stop();}catch(e){errLog(e)}T3.recr=null;}
   if(T3.rel){T3.rel.go=false;T3.rel=null;}T3.km=0;{const tl=$('#t3tl');if(tl)tl.hidden=true;const h=$('#t3 .t3h');if(h)h.hidden=false;}$('#t3rel').hidden=true;$('#t3mk').hidden=true;
+  T3.live=null;T3.liveBusy=false;{const nv=$('#t3nav');if(nv)nv.hidden=true;}
   T3.on=false;T3.gen++;T3.fly=null;T3.flyPos=null;T3.flyK=0;T3.fpvP=null;T3.fpvY=null;T3.road=null;if(T3.gl&&T3.rvao){T3.gl.deleteVertexArray(T3.rvao);T3.rvao=null;}cancelAnimationFrame(T3.raf);T3.raf=0;
   const gl=T3.gl;if(gl){for(const t of [T3.tex,T3.otex])if(t)gl.deleteTexture(t);T3.tex=T3.otex=null;}
   $('#t3').hidden=true;
@@ -11609,12 +11650,12 @@ function t3Overlay(noLine){
   const S2=Math.min(4096,T3.maxTex),c=T3.ov||(T3.ov=document.createElement('canvas'));if(c.width!==S2){c.width=c.height=S2;}
   const x=c.getContext('2d'),k=S2/(T3.N*256),P=(lat,lon)=>{const p=tileXY(lat,lon,T3.zd);return [((p.x-T3.x0)*256)*k,((p.y-T3.y0)*256)*k];};
   x.clearRect(0,0,S2,S2);x.lineJoin=x.lineCap='round';
-  const w=Math.max(6,Math.min(10,6*S2/4096*(14-Math.min(13,T3.zd)+1)))*(T3.fpv?.4:1);   // a ras del suelo, la línea más fina (si no parece una autopista)
+  const w=Math.max(6,Math.min(10,6*S2/4096*(14-Math.min(13,T3.zd)+1)))*(T3.fpv?.4:1)*(T3.noDot?.6:1);   // a ras del suelo, la línea más fina (si no parece una autopista)
   const stroke=(pts,col,wd)=>{if(!pts||pts.length<2)return;x.beginPath();pts.forEach((p,i)=>{const q=P(p[0],p[1]);i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1]);});x.strokeStyle='rgba(255,255,255,.95)';x.lineWidth=wd+(T3.fpv?1.5:4);x.stroke();x.strokeStyle=col;x.lineWidth=wd;x.stroke();};
   const dot=(p,col,r)=>{const q=P(p[0],p[1]);x.beginPath();x.arc(q[0],q[1],r+3,0,7);x.fillStyle='#fff';x.fill();x.beginPath();x.arc(q[0],q[1],r,0,7);x.fillStyle=col;x.fill();};
   if(T3.line&&!noLine){stroke(T3.line,'#F04A1C',w);dot(T3.line[0],'#2E7D5B',w*1.3);dot(T3.line[T3.line.length-1],'#F04A1C',w*1.3);}
   if(REC.state!=='idle'&&REC.pts.length>1)stroke(REC.pts,'#E91E63',w*.8);
-  if(lastFix)dot([lastFix.lat,lastFix.lon],'#1E6BFF',w*1.2);
+  if(lastFix&&!T3.noDot)dot([lastFix.lat,lastFix.lon],'#1E6BFF',w*1.2);
   if(!T3.otex){T3.otex=gl.createTexture();}
   gl.bindTexture(gl.TEXTURE_2D,T3.otex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,c);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
@@ -11623,7 +11664,7 @@ function t3Overlay(noLine){
 }
 /* 👁️ a ras del suelo: la cámara va unos metros detrás y arriba de quien se mueve, mirando el camino que viene (como un juego de carreras).
    Siguiendo un recorrido (Revivir o Sobrevolar) mira hacia donde va; si no, se camina por el mapa con un dedo. */
-const t3Follow=()=>!!(T3.fpvP&&(T3.fly||(T3.rel&&T3.rel.started&&T3.rel.now)));
+const t3Follow=()=>!!(T3.fpvP&&(T3.fly||T3.live||(T3.rel&&T3.rel.started&&T3.rel.now)));
 function t3CamFpv(){
   const c=T3.cam,span=T3.N*256*T3.mpp/2,fo=t3Follow(),P=fo?T3.fpvP:{x:c.tx,z:c.tz,az:c.az};
   const px=Math.max(-span,Math.min(span,P.x)),pz=Math.max(-span,Math.min(span,P.z));
@@ -11678,6 +11719,7 @@ function t3Loop(){
   const tick=t=>{
     if(!T3.on)return;
     if(T3.fly)t3FlyStep(t);
+    if(T3.live)t3LiveStep(t);
     if(T3.rel&&T3.rel.go)t3RelStep(t);
     if(lastFix&&Date.now()-T3.ovT>8000&&(T3.lastFixT!==lastFix.t)){T3.lastFixT=lastFix.t;t3Overlay(!!T3.km);}
     if(T3.dirty){T3.dirty=false;t3Draw();if(T3.rel&&T3.km)t3RelHud();else if(T3.flyPos)t3MkAt(T3.flyPos[0],T3.flyPos[1],T3.flyY);if(T3.vc)t3VidFrame();}
@@ -11695,7 +11737,7 @@ function t3Gestures(cv){
     const c=T3.cam;
     if(T3.fpv&&pts.size===1&&t3Follow()){T3.fpvYaw-=dx*.25;T3.fpvPit=Math.max(-40,Math.min(25,T3.fpvPit+dy*.15));}   // siguiendo: un dedo mira alrededor
     else if(T3.fpv&&pts.size===2&&T3.g0){const g=pair(),g0=T3.g0;if(g.d>10&&g0.d>10)T3.fpvH=Math.max(2,Math.min(400,T3.fpvH*g0.d/g.d));
-      let da=g.ang-g0.ang;if(da>Math.PI)da-=2*Math.PI;if(da<-Math.PI)da+=2*Math.PI;if(t3Follow())T3.fpvYaw-=da/rad;else c.az-=da/rad;
+      let da=g.ang-g0.ang;if(da>Math.PI)da-=2*Math.PI;if(da<-Math.PI)da+=2*Math.PI;if(T3.live)T3.live.yaw=(T3.live.yaw||0)-da/rad;else if(t3Follow())T3.fpvYaw-=da/rad;else c.az-=da/rad;
       T3.fpvPit=Math.max(-40,Math.min(25,T3.fpvPit+(g0.my-g.my)*.15));T3.g0=g;}
     else if(pts.size===1&&T3.fpv){                                      // caminando por el mapa: arriba avanza, a los costados gira
       const az=c.az*rad,f=[Math.sin(az),-Math.cos(az)],st=Math.max(1,T3.fpvH*.15);c.tx+=f[0]*dy*st;c.tz+=f[1]*dy*st;c.az+=dx*.25;
@@ -11706,7 +11748,7 @@ function t3Gestures(cv){
     }else if(pts.size===2&&T3.g0){
       const g=pair(),g0=T3.g0;
       if(g.d>10&&g0.d>10)c.dist*=g0.d/g.d;
-      let da=g.ang-g0.ang;if(da>Math.PI)da-=2*Math.PI;if(da<-Math.PI)da+=2*Math.PI;c.az-=da/rad;
+      let da=g.ang-g0.ang;if(da>Math.PI)da-=2*Math.PI;if(da<-Math.PI)da+=2*Math.PI;if(T3.live)T3.live.yaw=(T3.live.yaw||0)-da/rad;else c.az-=da/rad;
       c.tilt+=(g0.my-g.my)*0.25;
       T3.g0=g;t3MyView();
     }
@@ -11929,6 +11971,63 @@ function t3FlyStep(now){
   T3.dirty=true;
   if(k>=1){T3.fly=null;T3.flyK=0;t3FlyBtn();}
 }
+
+/* ---------- 🏔️ 3D EN VIVO mientras guiás ----------
+   Hugo: "¿se podrá tener la vista 3D con relieve en la navegación en tiempo real?". Se arma el relieve en una ventana de ~17 km
+   (4×4 teselas) alrededor de donde estás (con el tramo de la ruta que cae adentro, tallado en el terreno) y la cámara va detrás tuyo mirando
+   hacia donde te movés, con cada posición del GPS. Al acercarte al borde de la ventana se arma otra, centrada en vos. */
+async function navLive3D(){
+  if(!NAV.on||!NAV.N||T3.liveBusy)return;
+  if(!lastFix){toast('Esperá la señal del GPS para ver el 3D',3500);return;}
+  T3.liveBusy=true;
+  try{
+    const f=lastFix,R=4500,dl=R/111195,dn=R/(111195*Math.cos(f.lat*rad)),bb={n:f.lat+dl,s:f.lat-dl,e:f.lon+dn,w:f.lon-dn};
+    const cs=NAV.N.route.coords||[],inb=p=>p[0]<bb.n&&p[0]>bb.s&&p[1]<bb.e&&p[1]>bb.w,kx=Math.cos(f.lat*rad);
+    let line=null;
+    if(cs.length>1){
+      let i0=0,bd=1e18;cs.forEach((p,i)=>{const d=(p[0]-f.lat)**2+((p[1]-f.lon)*kx)**2;if(d<bd){bd=d;i0=i;}});
+      let a=i0,b=i0;while(a>0&&inb(cs[a-1]))a--;while(b<cs.length-1&&inb(cs[b+1]))b++;
+      if(b>a)line=cs.slice(a,b+1).map(p=>[p[0],p[1]]);
+    }
+    const old=T3.live&&{yaw:T3.live.yaw,az:T3.live.az};
+    await open3D({live:true,line,bb});
+    if(!T3.on)return;
+    Object.assign(T3.cam,{tilt:62,dist:420});
+    const hd=POS.hdg!=null?POS.hdg:(old?old.az:0);
+    T3.live={x:null,z:null,tx:null,tz:null,az:old?old.az:hd,taz:hd,yaw:old?old.yaw:0,re:Date.now(),sp:0,ft:performance.now()};
+    t3LiveFix(lastFix);
+    const mk=$('#t3mk');mk.textContent=MI[NAV.mode]||'📍';mk.hidden=false;
+    const nv=$('#t3nav');if(nv)nv.hidden=false;
+    const r=NAV.N.route,st=NAV.N.route.steps&&NAV.N.route.steps[1];
+    $('#t3msg').textContent='';
+    updNav({next:NAV.lastRes?NAV.lastRes.next:{step:r.steps[1]||r.steps[0],dist:(r.steps[1]||r.steps[0]).at},rem:NAV.lastRes?NAV.lastRes.rem:NAV.N.total});
+    T3.dirty=true;
+  }catch(e){errLog(e,'3D en vivo');}
+  T3.liveBusy=false;
+}
+function t3LiveFix(f){
+  const L=T3.live;if(!L||!f)return;
+  const [x,z]=t3XZ(f.lat,f.lon);
+  if(L.fx!=null&&Math.hypot(x-L.fx,z-L.fz)>3&&!(f.speed>0.8&&f.brg!=null&&!isNaN(f.brg)))L.taz=Math.atan2(x-L.fx,-(z-L.fz))/rad;
+  if(f.speed>0.8&&f.brg!=null&&!isNaN(f.brg))L.taz=f.brg;
+  L.fx=x;L.fz=z;L.sp=f.speed>0.5?f.speed:0;L.ft=performance.now();
+  if(L.x==null){L.x=x;L.z=z;L.az=L.taz;}
+  L.tx=x;L.tz=z;
+}
+function t3LiveStep(now){
+  const L=T3.live;if(!L||L.fx==null)return;
+  const dt=Math.min(.25,(now-(L.tm||now))/1000);L.tm=now;
+  /* entre fix y fix se sigue avanzando con la velocidad (hasta 2,5 s), así la cámara no va a saltos */
+  const ago=Math.min(2.5,(performance.now()-L.ft)/1000),a=L.taz*rad,tx=L.fx+Math.sin(a)*L.sp*ago,tz=L.fz-Math.cos(a)*L.sp*ago;
+  const k=1-Math.exp(-dt*5);
+  L.x+=(tx-L.x)*k;L.z+=(tz-L.z)*k;
+  let d=L.taz-L.az;while(d>180)d-=360;while(d<-180)d+=360;L.az+=d*Math.min(1,k*.7);
+  Object.assign(T3.cam,{tx:L.x,tz:L.z,az:L.az+(L.yaw||0)});
+  T3.fpvP={x:L.x,z:L.z,az:L.az,f:null};T3.flyPos=[L.x,L.z];T3.flyY=null;
+  T3.dirty=true;
+  const half=T3.N*128*T3.mpp;
+  if((Math.abs(L.fx)>half*.55||Math.abs(L.fz)>half*.55)&&Date.now()-L.re>20000&&!T3.liveBusy){L.re=Date.now();navLive3D();}
+}
 function t3FpvSet(on){
   T3.fpv=on;T3.fpvYaw=0;T3.fpvPit=0;T3.fpvY=null;const b=$('#t3fp');if(b)b.classList.toggle('on',on);
   const h=$('#t3 .t3h');if(h&&!T3.rel)h.textContent=on?'Un dedo: arriba avanza, a los costados gira · dos dedos: subir o bajar la cámara · 👁️ vuelve a la vista de arriba':'Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar';
@@ -11949,6 +12048,7 @@ document.addEventListener('click',e=>{
   else if(a==='ex'){T3.exag=+b.dataset.ex;S.exag3d=T3.exag;saveS();t3Ui();T3.dirty=true;}
   else if(a==='in'&&T3.fpv){T3.fpvH=Math.max(2,T3.fpvH/1.6);T3.dirty=true;}
   else if(a==='out'&&T3.fpv){T3.fpvH=Math.min(400,T3.fpvH*1.6);T3.dirty=true;}
+  else if(a==='n'&&T3.live){T3.live.yaw=0;T3.fpvYaw=0;T3.fpvPit=0;if(!T3.fpv)c.tilt=62;T3.dirty=true;}
   else if(a==='n'&&T3.fpv){T3.fpvYaw=0;T3.fpvPit=0;if(!t3Follow())c.az=0;T3.dirty=true;}
   else if(a==='fpv')t3FpvSet(!T3.fpv);
   else if(a==='in'){c.dist/=1.6;T3.dirty=true;t3MyView();}
