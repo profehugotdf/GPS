@@ -149,6 +149,16 @@ input[type=range]{width:100%;height:36px}
 .nvt b{display:block;font-size:17px;line-height:1.2}
 .nvt span{font:700 22px var(--num)}
 .nvr{display:flex;justify-content:space-between;font-size:13px;opacity:.85;margin:6px 0}
+/* Guiarme: llegada, distancia y tiempo, grandes y a golpe de vista; los botones, finitos (tocar la indicación los esconde) */
+.nvs{display:grid;grid-template-columns:1fr 1fr 1fr;margin:4px 0 6px;border-top:1px solid rgba(255,255,255,.25);border-bottom:1px solid rgba(255,255,255,.25)}
+.nvs>div{padding:3px 4px;text-align:center}
+.nvs>div+div{border-left:1px solid rgba(255,255,255,.2)}
+.nvs small{display:block;font:600 10.5px system-ui;opacity:.8;letter-spacing:.04em;text-transform:uppercase}
+.nvs b{display:block;font:800 26px var(--num);line-height:1.1;font-variant-numeric:tabular-nums}
+#nav .nvb button{min-height:36px}
+#nav .nvb #nvEnd{flex:1.5}
+#nav.min .nvb{display:none}
+#nav .nvm{cursor:pointer}
 .nvb{display:flex;gap:6px}
 #meas .nvb{flex-wrap:wrap}#meas .nvb button{flex:1 1 30%}
 .nvb button{flex:1;min-height:44px;border-radius:12px;border:0;font:600 13px system-ui;background:#264b5c;color:#fff}
@@ -587,8 +597,8 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
   #nav{right:auto;width:min(54vw,430px);padding:6px 10px}
   #nvIco{font-size:30px}
   .nvt b{font-size:15px}.nvt span{font-size:19px}
-  .nvr{margin:3px 0}
-  .nvb button{min-height:34px}
+  .nvs{margin:2px 0 4px}.nvs b{font-size:22px}
+  #nav .nvb button{min-height:32px}
   #trace,#cap,#gate,#nodep,#rplan,#perim{right:auto;width:min(60vw,520px);max-width:calc(100vw - 130px);max-height:calc(100vh - var(--top) - var(--bot) - var(--o84,84px) - 8px);overflow:auto}
   #meas{max-height:calc(100vh - var(--top) - var(--bot) - var(--o84,84px) - 8px)}
   #sheet{right:auto;width:min(62vw,600px);max-height:calc(100vh - var(--top) - 6px);border-radius:0 18px 0 0}   /* las hojas (Rutas, Ajustes…) ocupan la izquierda: el mapa se sigue viendo a la derecha */
@@ -610,8 +620,8 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
 <div id="pill" onclick="showGnss()" role="button" title="Estado del GPS"><i></i><span>Buscando GPS…</span></div>
 <div id="nav" hidden>
   <div class="nvm"><span id="nvIco">⬆️</span><div class="nvt"><b id="nvTxt"></b><span id="nvDist"></span></div></div>
-  <div class="nvr"><span id="nvEta"></span><span id="nvRem"></span></div>
-  <div class="nvb"><button id="nvMute">🔊</button><button id="nvPozo">🕳️ Pozo</button><button id="nvLomo">🚧 Lomo</button><button id="nv3d">🏔️ 3D</button><button id="nvEnd">Terminar</button></div>
+  <div class="nvs"><div><small>Llegás</small><b id="nvEta">–</b></div><div><small>Faltan</small><b id="nvKm">–</b></div><div><small>Tiempo</small><b id="nvMin">–</b></div></div>
+  <div class="nvb"><button id="nvMute" title="Voz" aria-label="Voz">🔊</button><button id="nvPozo" title="Marcar un pozo" aria-label="Marcar un pozo">🕳️</button><button id="nvLomo" title="Marcar un lomo de burro" aria-label="Marcar un lomo">🚧</button><button id="nv3d" title="Ver en 3D" aria-label="Ver en 3D">🏔️ 3D</button><button id="nvEnd">Terminar</button></div>
 </div>
 <div id="rvbar" hidden><b>🌧️ Radar</b> <span id="rvT"></span><button id="rvPrev" aria-label="Antes">◀</button><button id="rvNext" aria-label="Después">▶</button><button id="rvCov" title="Cobertura del radar">🗺️</button><button id="rvX" aria-label="Quitar">✕</button></div>
 <div id="meas" hidden>
@@ -5769,8 +5779,9 @@ function updNav(res){
   $('#nvIco').textContent=st.ico;
   $('#nvTxt').textContent=st.text;
   $('#nvDist').textContent=st.kind==='end'?fmtD(res.rem):'en '+fmtD(res.next.dist);
-  $('#nvEta').textContent='Llegás a las '+hhmm(Date.now()+left*1000);
-  $('#nvRem').textContent=fmtD(res.rem)+' · '+fmtDur(left);
+  $('#nvEta').textContent=hhmm(Date.now()+left*1000);
+  $('#nvKm').textContent=fmtD(res.rem);
+  $('#nvMin').textContent=fmtDur(left);
   $('#nvMute').textContent=S.voice?'🔊':'🔇';
   NAV.lastRes=res;
   if(T3.live){$('#t3nIco').textContent=st.ico;$('#t3nTxt').textContent=st.text;$('#t3nDist').textContent=st.kind==='end'?fmtD(res.rem):'en '+fmtD(res.next.dist);$('#t3nRem').textContent=fmtD(res.rem)+' · '+fmtDur(left)+' · llegás a las '+hhmm(Date.now()+left*1000);}
@@ -5829,6 +5840,8 @@ async function markHere(k){
 $('#nvMute').onclick=()=>{S.voice=!S.voice;saveS();$('#nvMute').textContent=S.voice?'🔊':'🔇';};
 $('#nvPozo').onclick=()=>markHere('pozo');
 $('#nv3d').onclick=()=>navLive3D();
+$('#nav .nvm').onclick=()=>{const m=$('#nav').classList.toggle('min');S.navMin=m;saveS();};
+$('#nav').classList.toggle('min',!!S.navMin);
 $('#nvLomo').onclick=()=>markHere('lomo');
 $('#nvEnd').onclick=endNav;
 

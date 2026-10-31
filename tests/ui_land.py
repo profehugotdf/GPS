@@ -74,6 +74,15 @@ async def main():
             nav = await pg.evaluate(BOX, '#nav')
             fabs = await pg.evaluate(BOX, '#fabs')
             print('   nav', nav)
+            tx = await pg.evaluate("({eta:$('#nvEta').textContent,km:$('#nvKm').textContent,min:$('#nvMin').textContent})")
+            print('   datos', tx)
+            import re
+            ok(re.match(r'^\d{1,2}:\d{2}$', tx['eta']) and tx['km'] not in ('', '–') and tx['min'] not in ('', '–'), 'Guiarme muestra llegada, distancia y tiempo en tres datos grandes')
+            h0 = nav['h']
+            await pg.evaluate("document.querySelector('#nav .nvm').click()")
+            h1 = (await pg.evaluate(BOX, '#nav'))['h']
+            ok(h1 < h0 - 25 and await pg.evaluate("S.navMin===true"), 'tocar la indicación esconde los botones y la tarjeta queda más baja (%d → %d px)' % (h0, h1))
+            await pg.evaluate("document.querySelector('#nav .nvm').click()")
             if nombre == 'horizontal':
                 ok(nav and nav['r'] <= fabs['l'] + 1, 'la tarjeta de Guiarme no tapa los botones del mapa')
                 ok(nav['w'] < W * 0.6 and nav['h'] < H * 0.45, 'Guiarme en horizontal es una columna angosta (%d×%d)' % (nav['w'], nav['h']))
