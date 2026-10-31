@@ -28,8 +28,18 @@ inv:fh(-54.81,-68.30),vacio:coastSeaFn([])===null,
         ok(r['cono']==0 and r['tierraAlt']==40,'el cono falso sobre el agua se aplana y la tierra queda igual')
         ok(r['sinCosta']==60,'sin costa, el relieve queda como estaba')
         ok(r['nan'] and r['fondo']==-30,'sin dato sigue sin dato y el fondo del mar no se toca')
+        # bkOverPar: los servidores a la vez; si el primero se cuelga y el segundo responde, gana el segundo (antes: tope tras el primero → mar:0)
+        r=await pg.evaluate("""async()=>{const urls=[];const of=window.fetch;
+          window.fetch=(u,o)=>{urls.push(u);if(u.includes('overpass-api.de'))return new Promise((_,no)=>{o.signal.addEventListener('abort',()=>{const e=new Error('x');e.name='AbortError';no(e)})});
+            if(u.includes('kumi'))return Promise.resolve({ok:true,json:async()=>({elements:[{id:7}]})});return Promise.resolve({ok:false,status:429});};
+          const t0=Date.now();const a=await bkOverPar('x',5000);let fail=null;
+          window.fetch=()=>Promise.resolve({ok:false,status:504});try{await bkOverPar('x',5000)}catch(e){fail=String(e.message)}
+          window.fetch=of;return {a,ms:Date.now()-t0,urls:urls.length,fail};}""")
+        print('   ',r)
+        ok(r['a']==[{'id':7}] and r['ms']<2000 and r['urls']==3,'bkOverPar: gana el primer servidor que responde, sin esperar al colgado')
+        ok(r['fail'] and 'HTTP 504' in r['fail'],'bkOverPar: si todos fallan, tira el error')
         # coastSea: baja la costa con bkOver (falso), la guarda, y la segunda vez sale del caché
-        r=await pg.evaluate("""async()=>{let n=0;bkOver=async(q)=>{n++;return [{type:'way',id:1,tags:{natural:'coastline'},geometry:[{lat:-54.80,lon:-68.40},{lat:-54.80,lon:-68.20}]}];};
+        r=await pg.evaluate("""async()=>{let n=0;bkOverPar=async(q)=>{n++;return [{type:'way',id:1,tags:{natural:'coastline'},geometry:[{lat:-54.80,lon:-68.40},{lat:-54.80,lon:-68.20}]}];};
           const bb={n:-54.78,s:-54.83,w:-68.35,e:-68.25},a=await coastSea(bb),b=await coastSea(bb);return {n,mar:a(-54.81,-68.3),mar2:b(-54.81,-68.3)};}""")
         print('   ',r)
         ok(r['n']==1 and r['mar'] is True and r['mar2'] is True,'coastSea pide la costa una sola vez y la guarda')
