@@ -37,6 +37,7 @@ bkOver=async(q)=>{if(!String(q).includes('man_made"="pier'))return [];window.__b
    {type:'way',id:13,tags:{tunnel:'culvert'},geometry:g([[-54.8480,-68.3400],[-54.8481,-68.3400]])},
    {type:'way',id:14,tags:{embankment:'yes',highway:'trunk'},geometry:g([[-54.8470,-68.3300],[-54.8470,-68.3250]])},
    {type:'way',id:15,tags:{bridge:'yes'},geometry:g([[-54.7800,-68.3500],[-54.7810,-68.3500]])}];};
+bkOverPar=async()=>[];   // la costa pide con bkOverPar: sin costa en esta prueba (si no, sale a internet de verdad)
 """
 def_ok=0
 async def main():

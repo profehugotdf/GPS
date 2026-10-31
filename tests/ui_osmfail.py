@@ -20,6 +20,7 @@ async def main():
           fetchDemList=async(list,z)=>{const m=new Map();for(const t of list)m.set(t.x+'/'+t.y,new Float32Array(65536).fill(450));return m;};
           demMissing=async()=>0;bkPeaks=async()=>[];bkGround=async()=>null;
           bkOver=async()=>{throw new Error('HTTP 429 (overpass-api.de)')};
+          bkOverPar=bkOver;   // la costa (coastSea) ahora pide con bkOverPar: si no se simula también, en GitHub sale a internet de verdad y se cuelga
           // la calle por la que va el recorrido y las paralelas: todas residenciales asfaltadas
           const ways=[{id:1,t:{highway:'residential',name:'Calle'},n:[1,2],p:[la,lo(0),la,lo(2.2)]},{id:2,t:{highway:'residential'},n:[3,4],p:[la+0.001,lo(0),la+0.001,lo(2.2)]}];
           await DB.put('kv','net:tst',{id:'tst',bb:{s:la-0.02,n:la+0.02,w:-65.25,e:-65.15},date:Date.now(),ways,hz:[]});
