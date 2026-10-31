@@ -24,7 +24,7 @@ async def main():
         await pg.wait_for_function('!!window.__ok')
         await pg.evaluate("async()=>{await openTrace();}")
         ok(await pg.evaluate("!!document.querySelector('#trKind button[data-k=naval]')"), 'el tipo 🛡️ Buque naval aparece en Calcar')
-        ok(await pg.evaluate("NOROUTE.has('naval')&&BARCOK.includes('naval')&&ELEMK.includes('naval')"), 'no se rutea y cuenta como barco (largo en "Altura")')
+        ok(await pg.evaluate("['naval','patrullera'].every(k=>NOROUTE.has(k)&&BARCOK.includes(k)&&ELEMK.includes(k))&&!!document.querySelector('#trKind button[data-k=patrullera]')"), 'no se rutea y cuenta como barco (largo en "Altura")')
         ok(await pg.evaluate("userTags({kind:'naval',props:{}}).seamark")=='vessel', 'etiqueta seamark=vessel')
         await pg.evaluate("""async()=>{await DB.put('kv','edit:n1',{id:'n1',type:'path',kind:'naval',name:'ARA de prueba',pts:[[-54.8100,-68.3100],[-54.8100,-68.3090]],props:{alto:90},created:Date.now()});}""")
         r = await pg.evaluate("""async()=>{const P=[[-54.812,-68.312],[-54.812,-68.305]];const bb={s:-54.83,n:-54.79,w:-68.33,e:-68.29};const o=await elCollect(P,bb,900);
