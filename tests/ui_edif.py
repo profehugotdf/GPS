@@ -25,7 +25,7 @@ async def main():
             {type:'relation',tags:{building:'yes'}}];
           const out=edifFromOsm(els);
           // bkOver simulado: una consulta
-          let q=null;bkOver=async(s)=>{q=s;return els.slice(0,2).map(e=>Object.assign({},e));};
+          let q=null;bkOver=bkOverPar=async(s)=>{q=s;return els.slice(0,2).map(e=>Object.assign({},e));};
           const P=[[la,lo+.01,0],[la,lo+.011,100]];const c=await edifCollect(P);
           return {out,q:q&&q.includes('way["building"]'),c:{n:c.list.length,real:c.real,err:c.err},rect:edifRect(poly)};}""")
         print('   ',r)
@@ -46,7 +46,7 @@ async def main():
             {type:'way',geometry:g([[-54.83,-68.3],[-54.83,-68.29]]),tags:{highway:'steps'}},
             {type:'way',geometry:g([[-54.84,-68.3]]),tags:{highway:'primary'}}];
           const out=callesFromOsm(els);
-          let q=null;bkOver=async(s)=>{q=s;return els;};
+          let q=null;bkOver=bkOverPar=async(s)=>{q=s;return els;};
           const r=await callesCollect([[-54.8,-68.28,0],[-54.8,-68.281,100]]);
           return {clases:out.map(x=>x[0]),rectaPts:out[0][1].length,q:q&&q.includes('way["highway"]'),n:r.list.length,err:r.err};}""")
         print('   ',c)
