@@ -1068,7 +1068,7 @@ function toGPX(tracks,wpts,esc){
 /* ====================== RED DE CALLES Y RUTAS ====================== */
 const MODES=['foot','bike','car'];
 /* 🚦 semáforos: SIG_AVOID = cuántos segundos de rodeo se acepta por esquivar uno (preferencia "Menos semáforos"); SIG_CLUSTER = dos semáforos a menos de tantos m en la ruta son el mismo cruce (OpenStreetMap suele marcar uno por cada acceso) */
-const SIG_AVOID=180,SIG_CLUSTER=40;
+const SIG_AVOID=180,SIG_CLUSTER=40,SIG_SNAP=35,SIG_PAIR=25;   // SIG_SNAP: un semáforo a menos de tantos m (por la calle) de una esquina es el de la esquina; SIG_PAIR: las esquinas de las dos manos de una avenida (a menos de tantos m) son el mismo cruce
 const KIND_TAGS={sendero:{highway:'path'},escalera:{highway:'steps'},peatonal:{highway:'footway'},ciclovia:{highway:'cycleway'},calle:{highway:'residential'},rotonda:{highway:'tertiary',junction:'roundabout'},
   camino:{highway:'track'},servicio:{highway:'service'},principal:{highway:'secondary'},ruta:{highway:'primary'},ferry:{route:'ferry'},nivel:{contour:'elevation'},medida:{measure:'yes'},costa:{natural:'coastline'},limite:{boundary:'administrative'},rio:{waterway:'river'},
   muelle:{man_made:'pier'},puente:{man_made:'bridge'},tunel:{man_made:'tunnel'},terraplen:{man_made:'embankment'},desmonte:{man_made:'cutting'},velero:{seamark:'vessel'},carguero:{seamark:'vessel'},naval:{seamark:'vessel'},patrullera:{seamark:'vessel'},faro:{man_made:'lighthouse'},baliza:{'seamark:type':'beacon_special_purpose'},crucero:{seamark:'vessel'},lancha:{seamark:'vessel'},encallado:{seamark:'vessel'}};
@@ -1478,7 +1478,28 @@ class Graph{
   addSignals(list){for(const s of list){const i=this.idx.get(s[0]);if(i!==undefined)this.sig.add(i);}}
   /* OpenStreetMap suele marcar un semáforo por cada acceso del cruce. Los que quedan a menos de SIG_CLUSTER m por la calle se juntan en uno,
      puesto en la esquina (el nodo con más calles): así el cruce se cobra una sola vez, y también si la ruta dobla ahí. */
-  clusterSignals(){
+  /* "un semáforo en una esquina es todo el cruce" (Hugo, 1-nov: OpenStreetMap marca 3 en una esquina, y la ruta por la avenida decía "sin semáforos"):
+     cada semáforo que está a ≤ SIG_SNAP m por la calle de una esquina (nodo con 3 o más calles) pasa a ser el de esa esquina, y la esquina vecina de la otra
+     mano de una avenida (≤ SIG_PAIR m) también lo tiene: la ruta lo cobra por cualquier mano y por cualquier calle que lo cruce */
+  snapSignals(){
+    const sig=this.sig;if(!sig.size)return;
+    const deg=n=>{let k=0;for(const ei of this.adj[n])if(this.E[ei].alive)k++;return k;};
+    const reach=(s,max)=>{const dist=new Map([[s,0]]),q=[s];
+      for(let h=0;h<q.length;h++){const u=q[h],du=dist.get(u);
+        for(const ei of this.adj[u]){const e=this.E[ei];if(!e.alive)continue;const w=e.a===u?e.b:e.a,dw=du+e.len;
+          if(dw>max||(dist.has(w)&&dist.get(w)<=dw))continue;dist.set(w,dw);q.push(w);}}
+      return dist;};
+    const out=new Set();
+    for(const s of sig){
+      let rep=s;
+      if(deg(s)<3){let bd=1e9;for(const [n,d] of reach(s,SIG_SNAP))if(deg(n)>=3&&d<bd){rep=n;bd=d;}}
+      out.add(rep);
+      if(deg(rep)>=3)for(const [n] of reach(rep,SIG_PAIR))if(n!==rep&&deg(n)>=3)out.add(n);
+    }
+    this.sig=out;
+  }
+  clusterSignals(){this.clusterSignals0();this.snapSignals();}
+  clusterSignals0(){
     const sig=this.sig;if(sig.size<2)return;
     const seen=new Set(),deg=n=>{let k=0;for(const ei of this.adj[n])if(this.E[ei].alive)k++;return k;};
     for(const s of [...sig].sort((a,b)=>a-b)){
@@ -1513,7 +1534,7 @@ function buildGraph(nets,paths,ov,cfg,extra){
   g.finish(ov);
   for(const p of paths)g.addUser(p);
   g.hz=[];for(const n of nets)for(const h of (n.hz||[]))g.hz.push(h);
-  for(const n of nets)if(Array.isArray(n.sg)){if(!n.regional)g.sigKnown=true;g.addSignals(n.sg);}
+  for(const n of nets)if(Array.isArray(n.sg)){if(!n.regional)g.sigKnown=g.sigOsm=true;g.addSignals(n.sg);}
   g.clusterSignals();
   g.applyExtras(extra);
   if((extra&&extra.signals||[]).length)g.sigKnown=true;
@@ -1719,7 +1740,7 @@ function findRoute(G,mode,from,to,pref){
   }
   const sw=(G.cfg.sig&&G.cfg.sig[mode]||0)*sg;      /* 🚦 espera en los semáforos, a la ida y a la vuelta */
   if(sw){time+=sw;timeBack+=sw;}
-  return {sig:sg,sigWait:sw,sigPts:sgPts,sigK:G.sigKnown,timeBack,mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,offFrom:A.off,offTo:B.off,coords,eids:r.edges.map(x=>x.ei),elen:r.edges.map(x=>G.E[x.ei].len),stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
+  return {sig:sg,sigWait:sw,sigPts:sgPts,sigK:G.sigKnown,sigOsm:!!G.sigOsm,timeBack,mode,pref,dist,time,avgKmh,avgStops:G.cfg.avgStops||0,offFrom:A.off,offTo:B.off,coords,eids:r.edges.map(x=>x.ei),elen:r.edges.map(x=>G.E[x.ei].len),stairs,steps,up,down,hasZ:G.hasZ,ferry:fDist>0?{dist:fDist,time:fTime,names:fNames,unver:fUnver}:null};
 }
 
 /* ====================== GUÍA PASO A PASO ====================== */
@@ -2331,7 +2352,7 @@ function joinRoutes(a,b,via){
   b.steps.forEach((s,i)=>{const c=Object.assign({},s,{at:s.at+off});if(i===0&&/^Salí por/.test(c.text))c.text=c.text.replace(/^Salí por/,'Seguí por');steps.push(c);});
   const fa=a.ferry,fb=b.ferry;
   const ferry=(fa||fb)?{dist:(fa?fa.dist:0)+(fb?fb.dist:0),time:(fa?fa.time:0)+(fb?fb.time:0),names:[...(fa?fa.names:[]),...(fb?fb.names:[])],unver:!!((fa&&fa.unver)||(fb&&fb.unver))}:null;
-  const o={sig:(a.sig||0)+(b.sig||0),sigWait:(a.sigWait||0)+(b.sigWait||0),sigPts:(a.sigPts||[]).concat(b.sigPts||[]),sigK:!!(a.sigK||b.sigK),timeBack:(a.timeBack||a.time)+(b.timeBack||b.time),mode:a.mode,pref:a.pref,dist:a.dist+b.dist,time:a.time+b.time,avgKmh:a.avgKmh,avgStops:a.avgStops,coords:a.coords.concat(b.coords.slice(1)),eids:(a.eids||[]).concat(b.eids||[]),elen:(a.elen||[]).concat(b.elen||[]),stairs:(a.stairs||0)+(b.stairs||0),steps,up:(a.up||0)+(b.up||0),down:(a.down||0)+(b.down||0),hasZ:a.hasZ,ferry,via:true,stayMin:(a.stayMin||0)+(b.stayMin||0)+(via.stay||0),
+  const o={sig:(a.sig||0)+(b.sig||0),sigWait:(a.sigWait||0)+(b.sigWait||0),sigPts:(a.sigPts||[]).concat(b.sigPts||[]),sigK:!!(a.sigK||b.sigK),sigOsm:!!(a.sigOsm||b.sigOsm),timeBack:(a.timeBack||a.time)+(b.timeBack||b.time),mode:a.mode,pref:a.pref,dist:a.dist+b.dist,time:a.time+b.time,avgKmh:a.avgKmh,avgStops:a.avgStops,coords:a.coords.concat(b.coords.slice(1)),eids:(a.eids||[]).concat(b.eids||[]),elen:(a.elen||[]).concat(b.elen||[]),stairs:(a.stairs||0)+(b.stairs||0),steps,up:(a.up||0)+(b.up||0),down:(a.down||0)+(b.down||0),hasZ:a.hasZ,ferry,via:true,stayMin:(a.stayMin||0)+(b.stayMin||0)+(via.stay||0),
     offFrom:a.offFrom||0,offTo:b.offTo||0};
   if(a.water!==undefined||b.water!==undefined){                 /* kayak: se suman los tramos de agua, de a pie y de lago */
     for(const k of ['water','portage','lake'])o[k]=(a[k]||0)+(b[k]||0);
@@ -5429,7 +5450,7 @@ async function showRoutes(){
     <label for="dep">Salida (vacío = ahora)</label><input class="in" id="dep" type="time" value="${esc(RT.dep)}">
     <label>Preferencia</label>
     <div class="chips">${PREFS.map(([k,e,n])=>`<button data-act="pref" data-p="${k}" class="${k===S.pref?'on':''}">${e} ${n}</button>`).join('')}</div>
-    ${g&&!g.sigKnown&&(S.sigFoot||S.sigBike||S.sigCar)?'<p class="mut">🚦 Las calles que bajaste todavía no traen los semáforos, así que la ruta no los cuenta: en Más → Correcciones tocá "Traer los semáforos de lo que ya bajé".</p>':''}
+    ${g&&!g.sigOsm&&(S.sigFoot||S.sigBike||S.sigCar)?'<p class="mut">🚦 Las calles que bajaste todavía no traen los semáforos, así que la ruta no los cuenta: en Más → Correcciones tocá "Traer los semáforos de lo que ya bajé".</p>':''}
     ${!g||g.hasZ?'':'<p class="mut">Para "menos pendiente" hace falta la altura del terreno: en Más → Correcciones tocá "Reemplazar por esta zona", con internet.</p>'}
     <div class="row" style="margin-top:10px"><button class="btn primary" data-act="calc">Calcular ruta</button><button class="btn" data-act="swap">⇅ Invertir A y B</button>${RT.from||RT.to?'<button class="btn" data-act="rclear">🧹 Limpiar</button>':''}</div>
     <div id="rres">${RT.res?resultsHtml():''}</div>`;
@@ -8732,7 +8753,7 @@ const STOP_OF={camp:'camp',regroup:'regroup',embark:'embark',agua:'agua',comida:
 const stopsList=()=>{RT.stops=RT.stops||[];return RT.stops;};
 const totT=r=>r.time+(r.stayMin||0)*60;
 /* 🚦 "3 semáforos (+1 min)"; si las calles traen semáforos y la ruta no pasa por ninguno, lo dice; sin datos de semáforos no muestra nada */
-const sigTxt=r=>!r?'':r.sig>0?`🚦 ${r.sig} semáforo${r.sig>1?'s':''}${r.sigWait>=30?` (+${fmtDur(r.sigWait)})`:''}`:r.sigK?'🚦 sin semáforos':'';
+const sigTxt=r=>!r?'':r.sig>0?`🚦 ${r.sig} semáforo${r.sig>1?'s':''}${r.sigWait>=30?` (+${fmtDur(r.sigWait)})`:''}`:r.sigOsm?'🚦 sin semáforos':'';   // "sin semáforos" solo si se bajaron los de OpenStreetMap (con solo los marcados a mano no se sabe)
 function stopsHtml(){
   const L=stopsList();
   return `<h3>Paradas y puntos de paso</h3>`+

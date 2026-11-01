@@ -249,6 +249,37 @@ async def main():
           const f=P(300,-150),t=P(300,160),r=findRoute(g,'car',{lat:f[0],lon:f[1]},{lat:t[0],lon:t[1]},'fast');return {sig:r.sig,err:r.err};}""")
         ok(r['sig'] == 0, 'la calle transversal no recibe un semáforo falso (solo las calles casi paralelas)')
 
+        # ---------- 7. un semáforo en una esquina es todo el cruce ----------
+        print('7) Semáforo de la esquina (OpenStreetMap lo marca en una calle que cruza)')
+        r = await pg.evaluate("""async()=>{
+          const la=-26.95,lo0=-65.3,kx=111320*Math.cos(la*Math.PI/180),P=(x,y)=>[+(la+y/110540).toFixed(6),+(lo0+x/kx).toFixed(6)];
+          const a=P(0,0),b=P(300,0),c=P(600,0),a2=P(600,12),b2=P(300,12),c2=P(0,12),t1=P(300,-150),t0=P(300,-25),t2=P(300,160),far=P(150,0);
+          const ways=[{id:11,t:{highway:'primary',name:'Av Este',oneway:'yes'},n:[111,112,113],p:[...a,...b,...c]},
+            {id:12,t:{highway:'primary',name:'Av Oeste',oneway:'yes'},n:[121,122,123],p:[...a2,...b2,...c2]},
+            {id:13,t:{highway:'residential',name:'Transversal'},n:[131,133,112,122,132],p:[...t1,...t0,...b,...b2,...t2]}];
+          for(const n of await DB.all('kv','net:'))await DB.del('kv','net:'+n.id);
+          for(const e of await DB.all('kv','edit:'))await DB.del('kv','edit:'+e.id);
+          // OpenStreetMap marca UN semáforo, en la transversal a 25 m de la avenida (no en la avenida)
+          await DB.put('kv','net:es',{id:'es',bb:{s:la-.02,n:la+.02,w:lo0-.02,e:lo0+.03},date:Date.now(),ways,hz:[],sg:[[133,t0[0],t0[1]]]});await DB.del('kv','netidx:es');netsChanged();dropGraph();
+          Object.assign(S,{sigFoot:15,sigBike:20,sigCar:25,timeMode:'model',pref:'fast',sigVoice:true,dataMode:'allow'});
+          const g=await ensureGraph(),rr=(f,t)=>{const r=findRoute(g,'car',{lat:f[0],lon:f[1]},{lat:t[0],lon:t[1]},'fast');return {err:r.err,sig:r.sig,osm:r.sigOsm};};
+          return {este:rr(P(0,0),P(600,0)),oeste:rr(P(600,12),P(0,12)),cruza:rr(t1,t2)};}""")
+        print('   ', r)
+        ok(r['este']['sig'] == 1, 'la avenida por la mano Este cobra el semáforo de la esquina (estaba en la transversal)')
+        ok(r['oeste']['sig'] == 1, 'y por la mano Oeste también, una sola vez')
+        ok(r['cruza']['sig'] >= 1, 'la transversal también lo cobra')
+        ok(r['este']['osm'] is True, 'con los semáforos de OpenStreetMap bajados, "sin semáforos" es un dato')
+        # solo marcado a mano, sin los de OpenStreetMap: no se puede decir "sin semáforos"
+        r = await pg.evaluate("""async()=>{
+          const la=-26.95,lo0=-65.3,kx=111320*Math.cos(la*Math.PI/180),P=(x,y)=>[+(la+y/110540).toFixed(6),+(lo0+x/kx).toFixed(6)];
+          for(const n of await DB.all('kv','net:'))await DB.del('kv','net:'+n.id);
+          const ways=[{id:11,t:{highway:'primary',name:'Av'},n:[111,112],p:[...P(0,0),...P(600,0)]}];
+          await DB.put('kv','net:nm',{id:'nm',bb:{s:la-.02,n:la+.02,w:lo0-.02,e:lo0+.03},date:Date.now(),ways,hz:[]});await DB.del('kv','netidx:nm');netsChanged();dropGraph();
+          const g=await ensureGraph(),f=P(0,0),t=P(600,0),r=findRoute(g,'car',{lat:f[0],lon:f[1]},{lat:t[0],lon:t[1]},'fast');
+          return {sig:r.sig,osm:r.sigOsm,txt:sigTxt(r),hint:!g.sigOsm};}""")
+        print('   ', r)
+        ok(r['sig'] == 0 and r['osm'] is False and r['txt'] == '', 'sin los semáforos de OpenStreetMap, no dice "sin semáforos"')
+
         print('ERRORES JS:', errs[:3] or 'ninguno')
         assert not errs, errs[:3]
         await b.close()
