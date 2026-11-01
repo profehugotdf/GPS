@@ -1426,11 +1426,22 @@ class Graph{
     x=x||{};
     this.turns=new Map();this.barr=new Map();this.hasTurn={foot:false,bike:false,car:false};
     /* 🚦 semáforos marcados a mano en Correcciones: se pegan al nodo más cercano, o parten el tramo si caen a mitad de cuadra */
+    /* en una avenida de dos manos (dos calles de un solo sentido) el semáforo manda para las dos: además de la calle más cercana se marca la otra mano
+       (otra calle, casi paralela, a ≤ 25 m); si no, una ruta por la mano de enfrente no lo contaba (Hugo, 1-nov: "sin semáforos") */
+    const brg=e=>{const kc=Math.cos(this.lat[e.a]*Math.PI/180),dx=(this.lon[e.b]-this.lon[e.a])*kc,dy=this.lat[e.b]-this.lat[e.a];return Math.atan2(dx,dy)*180/Math.PI;};
     for(const sg of x.signals||[]){
-      const h=this.nearestEdge(sg.lat,sg.lon,25,e=>this.W[e.w].hw!=='connector');if(!h)continue;
-      const e=this.E[h.ei];let n;
-      if(h.t<=0.03)n=e.a;else if(h.t>=0.97)n=e.b;else n=this.split(h.ei,h.t,h.lat,h.lon);
-      this.sig.add(n);
+      const used=new Set();let b0=null;
+      for(let k=0;k<3;k++){
+        const h=this.nearestEdge(sg.lat,sg.lon,25,e=>{
+          if(this.W[e.w].hw==='connector'||used.has(e.w))return false;
+          if(b0==null)return true;
+          let d=Math.abs(brg(e)-b0)%180;if(d>90)d=180-d;return d<=25;});
+        if(!h)break;
+        const e=this.E[h.ei];used.add(e.w);if(b0==null)b0=brg(e);
+        let n;
+        if(h.t<=0.03)n=e.a;else if(h.t>=0.97)n=e.b;else n=this.split(h.ei,h.t,h.lat,h.lon);
+        this.sig.add(n);
+      }
     }
     for(const b of x.barriers||[]){
       const h=this.nearestEdge(b.lat,b.lon,15,e=>this.W[e.w].hw!=='connector');if(!h)continue;

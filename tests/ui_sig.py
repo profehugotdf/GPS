@@ -224,6 +224,31 @@ async def main():
         await pg.evaluate("""()=>{const e=document.getElementById('s22');e.value='999';e.dispatchEvent(new Event('change',{bubbles:true}));}""")
         ok(await pg.evaluate("S.sigCar") == 180, 'la espera tiene un tope razonable (180 s)')
 
+        # ---------- 6. avenida de dos manos: el semáforo marcado en una mano vale para la otra ----------
+        print('6) Avenida de dos manos')
+        r = await pg.evaluate("""async()=>{
+          const la=-26.95,lo0=-65.3,kx=111320*Math.cos(la*Math.PI/180),P=(x,y)=>[+(la+y/110540).toFixed(6),+(lo0+x/kx).toFixed(6)];
+          // dos manos de 600 m separadas 12 m: Este (hacia el este, y=0) y Oeste (hacia el oeste, y=12); una calle transversal que cruza en x=300
+          const a=P(0,0),b=P(300,0),c=P(600,0),a2=P(600,12),b2=P(300,12),c2=P(0,12),t1=P(300,-150),t2=P(300,160);
+          const ways=[{id:11,t:{highway:'primary',name:'Av Este',oneway:'yes'},n:[111,112,113],p:[...a,...b,...c]},
+            {id:12,t:{highway:'primary',name:'Av Oeste',oneway:'yes'},n:[121,122,123],p:[...a2,...b2,...c2]},
+            {id:13,t:{highway:'residential',name:'Transversal'},n:[131,112,122,132],p:[...t1,...b,...b2,...t2]}];
+          for(const k of Object.keys(await (async()=>{const o={};for(const n of await DB.all('kv','net:'))o[n.id]=1;return o;})()))await DB.del('kv','net:'+k);
+          await DB.put('kv','net:av',{id:'av',bb:{s:la-.02,n:la+.02,w:lo0-.02,e:lo0+.03},date:Date.now(),ways,hz:[],sg:[]});await DB.del('kv','netidx:av');netsChanged();
+          for(const e of await DB.all('kv','edit:'))await DB.del('kv','edit:'+e.id);
+          // el semáforo se marca del lado de la mano Oeste (y=12), a mitad de cuadra (x=150)
+          const s=P(150,11);
+          await DB.put('kv','edit:s1',{id:'s1',type:'signal',name:'Semáforo',lat:s[0],lon:s[1],created:Date.now()});dropGraph();
+          Object.assign(S,{sigFoot:15,sigBike:20,sigCar:25,timeMode:'model',pref:'fast',sigVoice:true,dataMode:'allow'});
+          const g=await ensureGraph(),rr=(f,t)=>{const r=findRoute(g,'car',{lat:f[0],lon:f[1]},{lat:t[0],lon:t[1]},'fast');return {err:r.err,sig:r.sig,k:r.sigK};};
+          return {este:rr(P(0,0),P(600,0)),oeste:rr(P(600,12),P(0,12))};}""")
+        print('   ', r)
+        ok(r['oeste']['sig'] == 1, 'la mano donde se marcó cuenta el semáforo')
+        ok(r['este']['sig'] == 1, 'la mano de enfrente también (antes decía "sin semáforos")')
+        r = await pg.evaluate("""async()=>{const g=await ensureGraph();const la=-26.95,lo0=-65.3,kx=111320*Math.cos(la*Math.PI/180),P=(x,y)=>[+(la+y/110540).toFixed(6),+(lo0+x/kx).toFixed(6)];
+          const f=P(300,-150),t=P(300,160),r=findRoute(g,'car',{lat:f[0],lon:f[1]},{lat:t[0],lon:t[1]},'fast');return {sig:r.sig,err:r.err};}""")
+        ok(r['sig'] == 0, 'la calle transversal no recibe un semáforo falso (solo las calles casi paralelas)')
+
         print('ERRORES JS:', errs[:3] or 'ninguno')
         assert not errs, errs[:3]
         await b.close()
