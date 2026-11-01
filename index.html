@@ -5654,7 +5654,7 @@ async function showFix(){
   if(gs.length)h+=`<h3>Importado</h3>`+groupHtml(gs);
   if(singles.length)h+=`<h3>Tus correcciones (${singles.length})</h3>`+singles.map(e=>{
     const t=editTitle(e);
-    return `<div class="item"><div><b>${t}</b><br><small class="mut">${fmtDate(e.created)}${e.type==='path'?propsLine(e):e.type==='area'?areaLine(e):e.type==='turn'?` · ${e.kind==='only'?'solo hacia ahí':'prohibido'} · ${e.modes.car?'autos':''}${e.modes.car&&e.modes.bike?' y ':''}${e.modes.bike?'bicis':''}`:e.type==='barrier'?` · corta ${['foot','bike','car'].filter(m=>e.modes[m]).map(m=>({foot:'peatones',bike:'bicis',car:'autos'})[m]).join(', ')}`:e.type==='signal'?' · suma una espera en cada ruta que pase':''}</small></div><div class="row"><button class="btn sm" data-act="eview" data-id="${e.id}">Ver</button>${e.type==='path'||e.type==='area'?`<button class="btn sm" data-act="${e.type==='path'?'etr':'ear'}" data-id="${e.id}">Datos</button><button class="btn sm" data-act="evx" data-id="${e.id}">Puntos</button>`:''}<button class="btn sm danger" data-act="edel" data-id="${e.id}">Quitar</button></div></div>`;
+    return `<div class="item"><div><b>${t}</b><br><small class="mut">${fmtDate(e.created)}${e.type==='path'?propsLine(e):e.type==='area'?areaLine(e):e.type==='turn'?` · ${e.kind==='only'?'solo hacia ahí':'prohibido'} · ${e.modes.car?'autos':''}${e.modes.car&&e.modes.bike?' y ':''}${e.modes.bike?'bicis':''}`:e.type==='barrier'?` · corta ${['foot','bike','car'].filter(m=>e.modes[m]).map(m=>({foot:'peatones',bike:'bicis',car:'autos'})[m]).join(', ')}`:e.type==='signal'?' · suma una espera en cada ruta que pase':''}</small></div><div class="row"><button class="btn sm" data-act="eview" data-id="${e.id}">Ver</button>${e.type==='path'||e.type==='area'?`<button class="btn sm" data-act="${e.type==='path'?'etr':'ear'}" data-id="${e.id}">Datos</button><button class="btn sm" data-act="evx" data-id="${e.id}">Puntos</button>`:''}${e.type==='signal'||e.type==='barrier'?`<button class="btn sm" data-act="emove" data-id="${e.id}">Mover</button>`:''}<button class="btn sm danger" data-act="edel" data-id="${e.id}">Quitar</button></div></div>`;
   }).join('');
   if(edits.some(x=>x.type==='path'||x.type==='area'||x.type==='turn'||x.type==='barrier'))h+=`<h3>Exportar lo calcado</h3><p class="mut">Para usarlo en otros programas (OsmAnd, QGIS, JOSM…).</p><div class="row"><button class="btn" data-act="expg">GeoJSON</button><button class="btn" data-act="expx">GPX</button></div>`;
   openSheet('Correcciones',h,async(a,d,el)=>{
@@ -5687,6 +5687,12 @@ async function showFix(){
     else if(a==='expg')exportTraced('geojson');
     else if(a==='expx')exportTraced('gpx');
     else if(a==='pickway'){PICK={type:'way'};closeSheet();banner('Tocá la calle que querés corregir');}
+    else if(a==='emove'){
+      const e=edits.find(x=>x.id===d.id);if(!e)return;
+      PICK={type:'nmove',id:e.id};closeSheet();map.setView([e.lat,e.lon],Math.max(map.getZoom(),18));
+      pickLayer.clearLayers();L.marker([e.lat,e.lon],{interactive:false,icon:L.divIcon({html:`<div class="nodem">${e.type==='signal'?'🚦':'⛔'}</div>`,className:'',iconSize:[26,26],iconAnchor:[13,13]})}).addTo(pickLayer);
+      banner(`Tocá la calle donde va ${e.type==='signal'?'el semáforo':'la barrera'}`);
+    }
     else if(a==='edel'){if(armed(el)){await DB.del('kv','edit:'+d.id);dropGraph();vecInvalidate();await drawEdits();showFix();}}
     else if(a==='eview'){
       const e=edits.find(x=>x.id===d.id);
@@ -5697,6 +5703,19 @@ async function showFix(){
   });
 }
 const PF={kind:'sendero',name:'',oneway:0};
+// Mover un semáforo o una barrera: se pega a la calle más cercana (si hay red) y conserva tipo, nombre y modos.
+async function nodeMoveTo(id,ll){
+  try{
+    const e=await DB.get('kv','edit:'+id);if(!e){cancelPick();return;}
+    let p=[ll.lat,ll.lon];
+    const g=G||await ensureGraph();
+    if(g){const h=g.nearestEdge(ll.lat,ll.lon,Math.max(8,22*mppNow()),x=>g.W[x.w].hw!=='connector');if(h)p=[h.lat,h.lon];}
+    e.lat=+p[0].toFixed(7);e.lon=+p[1].toFixed(7);
+    await DB.put('kv','edit:'+id,e);
+    PICK=null;pickLayer.clearLayers();banner(null);
+    dropGraph();await drawEdits();toast('Movido',2500);showFix();
+  }catch(er){errLog(er,'nodeMoveTo',true);}
+}
 function cancelPick(){
   const p=PICK;PICK=null;pickLayer.clearLayers();banner(null);
   if(p)(p.type==='pt'||p.type==='via'||p.type==='stop'?showRoutes:p.type==='wx'?()=>showWeather(null):p.type==='rsdest'?()=>showSafeReturn():p.type==='ovl'?()=>showOvlAdjust(p.id):showFix)();
@@ -5760,6 +5779,7 @@ function onPickClick(e){
     RT[PICK.target]={lat:ll.lat,lon:ll.lon,label:'Punto en el mapa'};RT.res=null;
     PICK=null;banner(null);showRoutes();
   }else if(PICK.type==='wx'){PICK=null;banner(null);showWeather([ll.lat,ll.lon]);}
+  else if(PICK.type==='nmove')nodeMoveTo(PICK.id,ll);
   else if(PICK.type==='rsdest'){PICK=null;banner(null);RS.custom={key:'map',label:'Punto elegido',lat:ll.lat,lon:ll.lon,icon:'📍'};RS.key='map';showSafeReturn('map');}
   else if(PICK.type==='via'){PICK=null;banner(null);addViaAt(ll);}
   else if(PICK.type==='stop'){PICK=null;banner(null);addStopAt(ll);}
