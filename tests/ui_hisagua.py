@@ -57,6 +57,16 @@ async def main():
           const f=await hisWater((la,lo)=>la>-54.80?40:0);return {mar:f(-54.801,-68.3),tierra:f(-54.799,-68.3),lim:f(-54.701,-68.3)};}""")
         print('   ',r)
         ok(r['mar'] is True and r['tierra'] is False and r['lim'] is None,'hisWater toma las costas guardadas (el 🚩 límite no cuenta)')
+        # hisResumen: dice qué dibujó Hugo cerca de la ruta (para diagnosticar "marqué la costa y no aparece")
+        r3=await pg.evaluate("""async()=>{
+          await DB.put('kv','edit:h3',{id:'h3',type:'area',kind:'playa',pts:[[-54.801,-68.31],[-54.801,-68.30],[-54.8015,-68.305]],created:1});
+          await DB.put('kv','edit:h4',{id:'h4',type:'path',kind:'costa',pts:[[-10,-10],[-10,-9]],created:1});   // lejos
+          const f=await hisWater((la,lo)=>0.3,[[-54.8004,-68.30]]);
+          const P=[[-54.8004,-68.31,0],[-54.8004,-68.30,60]];
+          return {t:await hisResumen(P,f),vacio:await hisResumen([[-30,-30,0],[-30,-29.99,10]],null),info:f&&f.info};}""")
+        print('   ',r3)
+        ok('costa 1 (1 orientada)' in r3['t'] and 'área playa 1' in r3['t'] and 'costa 2' not in r3['t'],'hisResumen cuenta lo dibujado a ≤ 800 m de la ruta y las costas orientadas: %s'%r3['t'])
+        ok(r3['vacio']=='nada dibujado cerca','sin nada cerca lo dice')
         ok(not errs,'sin errores JS: %s'%errs[:2])
         await b.close()
     s1.shutdown()
