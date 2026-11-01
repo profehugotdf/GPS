@@ -7602,7 +7602,7 @@ function updNodeUi(){
 async function openNodeTool(){
   if(REC.state!=='idle'){toast('Terminá la grabación para editar',4000);return;}
   closeSheet();sBody.innerHTML='';hidePin();
-  NP.on=true;NP.pt=null;
+  NP.on=true;NP.pt=null;NP.pick=null;
   $('#nodep').hidden=false;setFollow(false);
   try{await ensureGraph();}catch(e){errLog(e)}
   if(!G){toast('Primero hay que bajar las calles de la zona',5000);}
@@ -7615,12 +7615,12 @@ async function nodeTap(e){
   const ll=[e.latlng.lat,e.latlng.lng],r=Math.max(8,22*mppNow()),nd=g.nodeNear(ll[0],ll[1],r);
   if(nd&&g.adj[nd.n].filter(ei=>g.E[ei].alive).length>=3){
     NP.node=nd.n;NP.pt=[g.lat[nd.n],g.lon[nd.n]];NP.items=nodeItems(g,nd.n);
-    if(NP.items.length>=3){NP.type='turn';NP.from=0;NP.to=Math.min(1,NP.items.length-1);}
-    else{NP.type='barrier';}
+    if(NP.items.length>=3){NP.type=NP.pick==='signal'||NP.pick==='barrier'?NP.pick:'turn';NP.from=0;NP.to=Math.min(1,NP.items.length-1);}
+    else{NP.type=NP.pick==='signal'?'signal':'barrier';}
   }else{
     const h=g.nearestEdge(ll[0],ll[1],r,x=>g.W[x.w].hw!=='connector');
     if(!h){toast('No hay una calle cerca: tocá sobre una calle o una esquina',4000);return;}
-    NP.node=null;NP.pt=[h.lat,h.lon];NP.items=[];NP.type='barrier';
+    NP.node=null;NP.pt=[h.lat,h.lon];NP.items=[];NP.type=NP.pick==='signal'?'signal':'barrier';
   }
   drawNodeTool();
 }
@@ -7643,7 +7643,9 @@ async function nodeSave(){
   toast(e.type==='turn'?'Restricción de giro guardada':e.type==='signal'?'Semáforo guardado':'Barrera guardada',3000);
   $('#npName').value='';NP.pt=null;drawNodeTool();
 }
-document.querySelectorAll('#npType button').forEach(b=>b.onclick=()=>{NP.type=b.dataset.t;drawNodeTool();});
+// Lo que eligió Hugo (NP.pick) se respeta al tocar otro punto; el panel no deja pasar toques al mapa.
+$('#npType').addEventListener('click',ev=>{const b=ev.target.closest('button');if(!b||b.disabled)return;ev.stopPropagation();NP.type=NP.pick=b.dataset.t;drawNodeTool();});
+try{L.DomEvent.disableClickPropagation($('#nodep'));L.DomEvent.disableScrollPropagation($('#nodep'));}catch(e){errLog(e)}
 document.querySelectorAll('#npKind button').forEach(b=>b.onclick=()=>{NP.kind=b.dataset.k;updNodeUi();});
 $('#npFrom').addEventListener('click',ev=>{const b=ev.target.closest('button');if(b){NP.from=+b.dataset.i;drawNodeTool();}});
 $('#npTo').addEventListener('click',ev=>{const b=ev.target.closest('button');if(b){NP.to=+b.dataset.i;drawNodeTool();}});
