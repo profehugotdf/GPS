@@ -13044,14 +13044,24 @@ function elemMask(list){
 /* pura: relieve con 0 m donde hay un muelle o un barco definido (si no hay máscara, queda igual) */
 /* keep(la,lo)===false = tierra segura (por lo que dibujó Hugo): ahí el muelle o el barco NO aplana (un muelle dibujado pegado a la costa se comía la playa de atrás) */
 const demSinElems=(f,m,keep)=>m?(la,lo)=>{const h=f(la,lo);return isFinite(h)&&h>0&&m(la,lo)&&!(keep&&keep(la,lo)===false)?0:h;}:f;
+/* pura: donde lo dibujado dice tierra (his(la,lo)===false) el relieve vale al menos `min` m. El radar ve la playa de arena casi a 0 m, kyShores pide tierra a más de 2,2 m
+   sobre el agua y entonces no había orilla: el muelle quedaba "en medio del agua" (Hugo, 1-nov, Muelle Afasyn, con su costa ya trazada) */
+const demPisoTierra=(f,his,min)=>his?(la,lo)=>{const h=f(la,lo);return isFinite(h)&&h<min&&his(la,lo)===false?min:h;}:f;
 /* 🌊💧 Lo que Hugo dibujó como referencia de agua y tierra para Kayak (Costa, áreas de agua, áreas de tierra).
    pura: coasts=[[[lat,lon],…]] trazos de costa SIN sentido, aguas/tierras=[[[lat,lon],…]] polígonos, dem=(la,lo)→m.
    Cada costa se orienta con el relieve (la tierra es el lado más alto a 50–150 m) y después se usa coastSeaFn (tierra a la izquierda).
    → (la,lo) → true (agua), false (tierra) o null (no se sabe: lejos de lo dibujado). Una costa que no se puede orientar (relieve parejo) se ignora. */
-function hisSeaFn(coasts,aguas,tierras,dem){
+function hisSeaFn(coasts,aguas,tierras,dem,ref){
   const K=111320,ways=[],segs=[];
   for(const c of coasts||[]){
     if(!c||c.length<2)continue;
+    /* ref = puntos sobre el agua (la ruta del kayak): si hay uno a ≤ 800 m, manda — la costa se orienta para que ese punto quede del lado del agua (derecha).
+       La playa de arena es casi plana en el radar y por relieve no se podía orientar (la costa se ignoraba: Hugo, Muelle Afasyn) */
+    if(ref&&ref.length){
+      let bd=1e18,bi=0,bq=null;for(const q of ref)for(let i=1;i<c.length;i++){const d=projSeg(c[i-1],c[i],q).d;if(d<bd){bd=d;bi=i;bq=q;}}
+      if(bd<=800){const a=c[bi-1],b=c[bi],kc=Math.cos(a[0]*rad),cr=(b[1]-a[1])*kc*(bq[0]-a[0])-(b[0]-a[0])*((bq[1]-a[1])*kc);   // cr<0: el agua a la derecha
+        const w=cr<0?c:c.slice().reverse();ways.push(w);for(let i=1;i<w.length;i++)segs.push([w[i-1],w[i]]);continue;}
+    }
     let tot=0;const step=Math.max(1,Math.floor((c.length-1)/15));
     for(let i=0;i+1<c.length;i+=step){
       const a=c[i],b=c[i+1],kc=Math.max(.2,Math.cos(a[0]*rad)),dx=(b[1]-a[1])*kc,dy=b[0]-a[0],l=Math.hypot(dx,dy)||1,nx=-dy/l,ny=dx/l,la=(a[0]+b[0])/2,lo=(a[1]+b[1])/2;
@@ -13076,7 +13086,7 @@ function hisSeaFn(coasts,aguas,tierras,dem){
   };
 }
 /* lo dibujado (edit:) → función de agua/tierra, o null si no hay nada dibujado en la zona */
-async function hisWater(dem){
+async function hisWater(dem,ref){
   const eds=await DB.all('kv','edit:'),coasts=[],aguas=[],tierras=[];
   for(const e of eds){
     if(e.type==='path'&&e.kind==='costa'&&e.pts&&e.pts.length>1)coasts.push(e.pts.map(q=>[q[0],q[1]]));
@@ -13086,7 +13096,7 @@ async function hisWater(dem){
       else if(!['medida','cerrada','urbano','edificio'].includes(e.kind))tierras.push(e.pts.map(q=>[q[0],q[1]]));
     }
   }
-  return hisSeaFn(coasts,aguas,tierras,dem);
+  return hisSeaFn(coasts,aguas,tierras,dem,ref);
 }
 function bkHorizon(P,prof,sp,hNear,hFar){
   const na=BKH.na,idx=[];
@@ -13466,14 +13476,14 @@ async function kySend(o){
   const dem=await fetchDemList(list,z);
   let sea=null;try{sea=await coastSea(bkPadBB(P,KY.MAX+300));}catch(e){errLog(e)}   // picos falsos del relieve sobre el agua
   const marWhy=sea?'':(coastSea.why||'sin dato');
-  let his=null;try{his=await hisWater((la,lo)=>sampleDem(dem,z,la,lo));}catch(e){errLog(e,'agua y costa dibujadas')}   // lo que dibujó Hugo manda sobre OpenStreetMap
+  let his=null;try{his=await hisWater((la,lo)=>sampleDem(dem,z,la,lo),P.map(p=>[p[0],p[1]]));}catch(e){errLog(e,'agua y costa dibujadas')}   // lo que dibujó Hugo manda sobre OpenStreetMap
   const seaAll=his?(sea?(la,lo)=>{const h=his(la,lo);return h!=null?h:sea(la,lo);}:his):sea;
   /* muelles, puentes, túneles, terraplenes y desmontes: lo marcado a mano y lo de OpenStreetMap, hasta 900 m de la ruta.
      Se buscan ANTES de las orillas: lo que se define como muelle o barco reemplaza al relieve de abajo (si no, el radar lo cuenta como tierra) */
   let E={list:[],err:'',nMan:0,nOsm:0};
   try{toast('🪵 Buscando muelles, puentes y terraplenes…',30000);E=await elCollect(P,bkPadBB(P,900),900);}catch(e){errLog(e,'muelles y puentes');}
   const elM=elemMask(E.list);
-  const demS=demSinElems(demSinMar((la,lo)=>sampleDem(dem,z,la,lo),seaAll),elM,his);
+  const demS=demPisoTierra(demSinElems(demSinMar((la,lo)=>sampleDem(dem,z,la,lo),seaAll),elM,his),his,3.5);
   const wl=kyWaterLevel(P.map(p=>demS(p[0],p[1])),ds);
   let shoreIdx=null;try{const w=await kayakWG();shoreIdx=w&&w.shore&&w.shore.n?w.shore:null;}catch(e){errLog(e)}
   const sh=kyShores(P,wl,demS,shoreIdx);

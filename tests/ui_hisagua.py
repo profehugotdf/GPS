@@ -37,6 +37,18 @@ async def main():
         ok(r['agua'] is True and r['isla'] is False and r['fuera'] is None,'área de agua = agua; el área de tierra adentro (isla) = tierra; afuera no se sabe')
         ok(r['playaSin']==0 and r['playaCon']==40,'el muelle pegado a la costa ya no aplana la playa: %s → %s'%(r['playaSin'],r['playaCon']))
         ok(r['piloteSin']==0 and r['piloteCon']==0,'sobre el agua el muelle sigue aplanando el pico')
+        # playa de arena (relieve plano): la costa se orienta con la ruta del kayak y la tierra de su lado vale al menos 3,5 m (Hugo, Muelle Afasyn)
+        r2=await pg.evaluate("""()=>{
+          const costa=[[[-54.80,-68.30],[-54.80,-68.29],[-54.80,-68.28]]],costaRev=[[[-54.80,-68.28],[-54.80,-68.29],[-54.80,-68.30]]];
+          const plano=()=>0.3,ref=[[-54.8004,-68.29]];                       // el kayak, en el agua: al sur
+          const f=hisSeaFn(costa,[],[],plano,ref),g=hisSeaFn(costaRev,[],[],plano,ref),sinRef=hisSeaFn(costa,[],[],plano);
+          const h=demPisoTierra(plano,f,3.5);
+          return {mar:f(-54.8002,-68.29),tierra:f(-54.7998,-68.29),rev:g(-54.8002,-68.29)===true&&g(-54.7998,-68.29)===false,sinRef:sinRef===null,
+            arena:h(-54.7998,-68.29),agua:h(-54.8002,-68.29),lejos:h(-54.70,-68.29),sin:demPisoTierra(plano,null,3.5)(-54.7998,-68.29)};}""")
+        print('   ',r2)
+        ok(r2['mar'] is True and r2['tierra'] is False and r2['rev'],'con la ruta en el agua la costa se orienta aunque el relieve sea plano (en cualquier sentido trazada)')
+        ok(r2['sinRef'],'sin ruta y con relieve plano se ignora, como antes')
+        ok(r2['arena']==3.5 and r2['agua']==0.3 and r2['lejos']==0.3 and r2['sin']==0.3,'la arena del lado de tierra sube a 3,5 m; el agua y lo lejano no se tocan')
         ok(r['nada'],'sin nada dibujado, null')
         # hisWater lee lo guardado (edit:)
         r=await pg.evaluate("""async()=>{
