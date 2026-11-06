@@ -4560,7 +4560,7 @@ async function showTrackDetail(id){
       ${tr.gMax?`<div><b>🎢 ${dec(tr.gMax,2)} G</b><small>máximo</small></div>`:''}
     </div>
     ${tr.act==='bike'&&!(tr.pw&&tr.pw.some(x=>x>0))?`<p class="mut">⚡ Potencia estimada con la velocidad, la pendiente y tus datos de ${bkCfg().src||'Ajustes'} (peso, CdA, Crr). En subida es bastante fiel; en llano y bajada el viento, el freno y el ir a rueda la pueden correr bastante.</p>`:''}
-    ${res.map(lapBlock).join('')}
+    ${res.map(r=>lapBlock(r)+`<div class="row"><button class="btn sm" data-act="chist" data-id="${r.cid}">📈 Historial de ${esc(r.name||'este circuito')} (${RUNS.filter(x=>x.cid===r.cid&&x.act===tr.act).length} pasadas)</button></div>`).join('')}
     <div class="row" style="margin-top:8px">
       <button class="btn primary" data-act="map">Ver en el mapa</button>
       <button class="btn" data-act="v3d">🏔️ Ver en 3D</button>
@@ -4580,6 +4580,7 @@ async function showTrackDetail(id){
     </div>`,
     async(a,d,el)=>{
       if(a==='map')showOnMap(tr);
+      else if(a==='chist')showCircuitDetail(d.id,tr.act);   // Hugo: "¿puedo ver el historial de este recorrido? No sólo la última pasada"
       else if(a==='v3d'){closeSheet();open3D({line:tr.pts.map(p=>[p[0],p[1]]),track:tr});}
       else if(a==='rel'){closeSheet();open3D({line:tr.pts.map(p=>[p[0],p[1]]),track:tr,relive:true});}
       else if(a==='multi')showMultiPick(id);
@@ -4708,6 +4709,13 @@ async function showCircuits(){
     },
     t=>{if(t.id==='autoRec'){S.autoRec=t.checked;saveS();AUTO.prev=null;AUTO.circs=null;toast(t.checked?'Listo: al cruzar una largada vigilada empieza a grabar sola':'Arranque automático apagado',3500);}});
 }
+function histPasadas(recent,best){
+  const fila=(r,i)=>{const prev=recent[i+1],dif=prev?r.time-prev.time:null;
+    return `<div class="item" data-act="tr" data-id="${r.tid}"><div><b>${r.time===best.time?'🏆 ':''}${fmtT(r.time,true)}</b>${r.time!==best.time?` <small class="mut">${fmtDelta(r.time-best.time)} del récord</small>`:''}<br>`+
+      `<small class="mut">${fmtDate(r.t0)}${dif!=null?` · ${dif<0?'▼':'▲'} ${fmtDelta(dif)} vs. la anterior`:''}</small></div><span>›</span></div>`;};
+  const a=recent.slice(0,20).map(fila).join(''),b=recent.slice(20).map((r,i)=>fila(r,i+20)).join('');
+  return a+(b?`<details><summary class="mut" style="padding:8px 0;cursor:pointer">Ver las ${recent.length-20} más viejas</summary>${b}</details>`:'');
+}
 async function showCircuitDetail(id,act){
   const c=await DB.get('kv','circuit:'+id);if(!c){showCircuits();return;}
   editingCirc=id;refreshGates();
@@ -4726,6 +4734,8 @@ async function showCircuitDetail(id,act){
     ${sb.length>1?`<h3>Mejores sectores</h3><p>${sb.map((s,i)=>`S${i+1} <b>${fmtT(s,true)}</b>`).join(' · ')}<br><span class="mut">Vuelta teórica: <b>${fmtT(sb.reduce((a,b)=>a+b,0),true)}</b></span></p>`:''}`;
     const ev=recent.slice(0,15).reverse();
     if(ev.length>1)h+=`<h3>Evolución</h3>`+barChart(ev.map(r=>r.time),ev.map((_,i)=>i+1),ev.findIndex(r=>r.time===best.time));
+    /* todas las pasadas, de la más nueva a la más vieja: fecha, tiempo, diferencia con el récord y con la anterior */
+    h+=`<h3>📋 Todas las pasadas (${recent.length})</h3>`+histPasadas(recent,best);
   }
   const sepF=hasLapFin(c)||lapGateOf(c)>=0;
   if(sepF||c.nLaps&&circType(c)==='closed'){
