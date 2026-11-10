@@ -39,12 +39,15 @@ async def main():
         # 2) edificios y calles: primer intento vacío → segundo intento por rectángulo; y el motivo cuando no hay nada
         r=await pg.evaluate("""async()=>{const P=[[17.630,-101.555,0],[17.6389,-101.555,990]];const qs=[];
           const g=a=>a.map(q=>({lat:q[0],lon:q[1]})),casa=[[17.6405,-101.555],[17.6405,-101.5549],[17.6406,-101.5549],[17.6406,-101.555],[17.6405,-101.555]];
-          const o=bkOverPar;bkOverPar=async(q)=>{qs.push(q);const pri=q.includes('around:1500');bkOverPar.vacio=pri?1:0;return pri?[]:q.includes('building')?[{type:'way',geometry:g(casa),tags:{building:'yes'}}]:[{type:'way',geometry:g([[17.6402,-101.556],[17.6402,-101.554]]),tags:{highway:'primary'}}];};
+          const o=bkOverPar,visto={};bkOverPar=async(q)=>{qs.push(q);const tipo=q.includes('building')?'b':'h',pri=!visto[tipo];visto[tipo]=1;bkOverPar.vacio=pri?1:0;return pri?[]:q.includes('building')?[{type:'way',geometry:g(casa),tags:{building:'yes'}}]:[{type:'way',geometry:g([[17.6402,-101.556],[17.6402,-101.554]]),tags:{highway:'primary'}}];};
           const e=await edifCollect(P),c=await callesCollect(P);
           bkOverPar=async()=>{bkOverPar.vacio=2;return [];};const e2=await edifCollect(P),c2=await callesCollect(P);
-          bkOverPar=o;return {e:e.list.length,c:c.list.length,nq:qs.length,e2:e2.err,c2:c2.err};}""")
+          bkOverPar=async()=>{bkOverPar.vacio=0;bkOverPar.dijo='api.de: no respondió a tiempo · kumi.systems: HTTP 504';throw new Error('x');};const e3=await edifCollect(P);
+          bkOverPar=o;return {e:e.list.length,c:c.list.length,nq:qs.length,e2:e2.err,c2:c2.err,e3:e3.err,q0:qs[0]};}""")
         print('   ',r)
-        ok(r['e']==1 and r['c']==1 and r['nq']==4,'vacío al primer intento: se vuelve a preguntar (edificios: a 500 m; calles: por rectángulo) y llegan (edificios %d, calles %d)'%(r['e'],r['c']))
+        ok(r['e']==1 and r['c']==1 and r['nq']==4,'vacío al primer intento: se vuelve a preguntar de otra forma y llegan (edificios %d, calles %d)'%(r['e'],r['c']))
+        ok('around' not in r['q0'] and 'building' in r['q0'],'edificios: el primer intento es por rectángulo (más rápido para el servidor)')
+        ok('kumi.systems: HTTP 504' in r['e3'],'si fallan todos, el motivo dice qué contestó cada servidor: "%s"'%r['e3'])
         ok('2 de 3 servidores sin edificios' in r['e2'] and 'sin calles' in r['c2'],'motivo claro cuando no hay: "%s"'%r['e2'])
         # 3) la tapa
         r=await pg.evaluate("""()=>{const rays=kyTapa([17.6389,-101.555],0,0,(la,lo)=>__terr(la,lo),null);
@@ -64,6 +67,14 @@ async def main():
         pk=await pg.evaluate("""async()=>{const m=window.__href.match(/#rumbo=z(.*)/),u=Uint8Array.from(atob(m[1].replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
           const o=JSON.parse(await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text());return {t:o.tapa&&{n:o.tapa.n,az:o.tapa.fin.az,azi:o.tapa.ini.az,len:o.tapa.fin.d.length}};}""")
         print('   ',pk);ok(pk['t'] and pk['t']['n']==21 and abs(pk['t']['az'])<2 and abs(pk['t']['azi']-180)<2,'el paquete lleva la tapa del final (rumbo 0°) y la del principio (180°)')
+        # circuito que cierra en esquina frente a la playa, con otra esquina a mitad de camino: tapas del cierre y de las esquinas
+        await pg.evaluate("""async()=>{window.__href=null;const A=[17.6389,-101.555],B=[17.632,-101.555],C=[17.632,-101.561],ll=[],seg=(a,b)=>{for(let i=0;i<20;i++)ll.push([a[0]+(b[0]-a[0])*i/20,a[1]+(b[1]-a[1])*i/20]);};
+          seg(A,C);seg(C,B);seg(B,A);ll.push(A);await kySend({name:'Circuito de prueba',ll});}""")
+        await pg.wait_for_function('!!window.__href',timeout=120000)
+        href2=await pg.evaluate("window.__href")
+        pk=await pg.evaluate("""async()=>{const m=window.__href.match(/#rumbo=z(.*)/),u=Uint8Array.from(atob(m[1].replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+          const o=JSON.parse(await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text());return {loop:o.loop,fin:o.tapa&&o.tapa.fin&&o.tapa.fin.az,mas:o.tapa&&o.tapa.mas&&o.tapa.mas.length};}""")
+        print('   ',pk);ok(pk['loop'] and pk['fin'] is not None and abs(pk['fin'])<3 and pk['mas']==4,'circuito: tapa del cierre (rumbo 0°, mirando a la playa) y 2 esquinas × ida y vuelta')
         await pg.close()
         if KY is None:print('  (sin Kayak Indoor: la parte del dibujo se saltea)')
         else:
@@ -94,6 +105,11 @@ async def main():
               return peor;}""")
             ok(peor<0.25,'pasando bajo una calle que cruza el recorrido el agua no queda gris (peor cuadro: %d %% gris)'%round(peor*100))
             ok(g['calles']==31 and g['filas']==0,'de lejos, las %d calles no pintan una franja gris de lado a lado (%d filas grises)'%(g['calles'],g['filas']))
+        if KY is not None:
+            k2=await b.new_page(viewport={'width':412,'height':860});k2.on('pageerror',lambda e:errs.append('kayak: '+str(e)))
+            await k2.goto('http://127.0.0.1:8812/index.html'+href2[href2.index('#'):]);await k2.wait_for_timeout(1500)
+            r=await k2.evaluate("rutaActiva&&{n:rutaActiva.tapas.length,info:document.getElementById('infoRuta').textContent}")
+            ok(r and r['n']==6 and 'puntas y esquinas (6)' in r['info'],'Kayak lee las 6 tapas del circuito y lo dice')
         ok(not errs,'sin errores JS: %s'%errs[:2])
         await b.close()
     s1.shutdown()
