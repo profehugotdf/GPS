@@ -39,13 +39,13 @@ async def main():
         # 2) edificios y calles: primer intento vacío → segundo intento por rectángulo; y el motivo cuando no hay nada
         r=await pg.evaluate("""async()=>{const P=[[17.630,-101.555,0],[17.6389,-101.555,990]];const qs=[];
           const g=a=>a.map(q=>({lat:q[0],lon:q[1]})),casa=[[17.6405,-101.555],[17.6405,-101.5549],[17.6406,-101.5549],[17.6406,-101.555],[17.6405,-101.555]];
-          const o=bkOverPar;bkOverPar=async(q)=>{qs.push(q);bkOverPar.vacio=q.includes('around')?1:0;return q.includes('around')?[]:q.includes('building')?[{type:'way',geometry:g(casa),tags:{building:'yes'}}]:[{type:'way',geometry:g([[17.6402,-101.556],[17.6402,-101.554]]),tags:{highway:'primary'}}];};
+          const o=bkOverPar;bkOverPar=async(q)=>{qs.push(q);const pri=q.includes('around:1500');bkOverPar.vacio=pri?1:0;return pri?[]:q.includes('building')?[{type:'way',geometry:g(casa),tags:{building:'yes'}}]:[{type:'way',geometry:g([[17.6402,-101.556],[17.6402,-101.554]]),tags:{highway:'primary'}}];};
           const e=await edifCollect(P),c=await callesCollect(P);
           bkOverPar=async()=>{bkOverPar.vacio=2;return [];};const e2=await edifCollect(P),c2=await callesCollect(P);
           bkOverPar=o;return {e:e.list.length,c:c.list.length,nq:qs.length,e2:e2.err,c2:c2.err};}""")
         print('   ',r)
-        ok(r['e']==1 and r['c']==1 and r['nq']==4,'vacío al primer intento: se vuelve a preguntar por rectángulo y llegan (edificios %d, calles %d)'%(r['e'],r['c']))
-        ok('2 de 3 servidores' in r['e2'] and 'sin edificios' in r['e2'] and 'sin calles' in r['c2'],'motivo claro cuando no hay: "%s"'%r['e2'])
+        ok(r['e']==1 and r['c']==1 and r['nq']==4,'vacío al primer intento: se vuelve a preguntar (edificios: a 500 m; calles: por rectángulo) y llegan (edificios %d, calles %d)'%(r['e'],r['c']))
+        ok('2 de 3 servidores sin edificios' in r['e2'] and 'sin calles' in r['c2'],'motivo claro cuando no hay: "%s"'%r['e2'])
         # 3) la tapa
         r=await pg.evaluate("""()=>{const rays=kyTapa([17.6389,-101.555],0,0,(la,lo)=>__terr(la,lo),null);
           return {n:rays.length,centro:rays[10].d,lado:rays[0].d,prof:rays[10].prof,bytes:kyTapaBytes(rays,null).length};}""")
@@ -54,7 +54,10 @@ async def main():
         ok(100<r['centro']<150,'de frente, la playa a ~120 m: %s'%r['centro'])
         ok(r['lado'] is not None and r['lado']>r['centro']*3,'a 80° la playa queda mucho más lejos: %s'%r['lado'])
         ok(r['prof'][6]>r['prof'][1]>0,'perfil tierra adentro que sube: %s'%r['prof'])
-        await pg.evaluate("""async()=>{edifCollect=async()=>({list:[[6,0,17.6405,-101.555,12,8,90]],err:'',real:0});callesCollect=async()=>({list:[],err:'x',pts:0});
+        await pg.evaluate("""async()=>{edifCollect=async()=>({list:[[6,0,17.6405,-101.555,12,8,90]],err:'',real:0});const cs=[];for(let i=0;i<=16;i++){const lo=-101.562+i*0.000875;cs.push([2,[[17.6402,lo],[17.6490,lo]]]);}   // un pueblo: 17 calles norte-sur y 13 este-oeste, cada ~90 m
+          for(let j=0;j<=12;j++){const la=17.6402+j*0.00073;cs.push([j?2:1,[[la,-101.562],[la,-101.548]]]);}
+          cs.push([1,[[17.6345,-101.5575],[17.6345,-101.5525]]]);   // un puente o pasarela que CRUZA el recorrido a mitad de camino
+          callesCollect=async()=>({list:cs,err:'',pts:62});
           const ll=[];for(let i=0;i<=40;i++)ll.push([17.630+i*(0.0089/40),-101.555]);await kySend({name:'Bahía de prueba',ll});}""")
         await pg.wait_for_function('!!window.__href',timeout=120000)
         href=await pg.evaluate("window.__href")
@@ -79,6 +82,18 @@ async def main():
             ok(r['zA']>5 and r['zAgua']==0 and r['zElem']==r['zA'],'altura del suelo de frente: %.1f m a 300 m, 0 en el agua; elemSueloZ la usa'%r['zA'])
             ok(r['con']>r['sin']+300,'llegando a la playa se ve tierra de frente (%d px de arena con tapa, %d sin)'%(r['con'],r['sin']))
             ok('tierra de frente' in r['info'],'la tarjeta Recorrido lo dice')
+            # v140 de Kayak: las calles de lejos no forman una franja gris maciza sobre la línea del agua (Hugo, 9-nov)
+            g=await kp.evaluate("""()=>{const R=rutaActiva;moverPreviewRuta(60);const c=document.getElementById('canvasSesionVivo'),x=c.getContext('2d'),w=c.width,h=c.height,d=x.getImageData(0,0,w,h).data;let filas=0;
+              for(let y=Math.round(h*0.15);y<Math.round(h*0.4);y++){let n=0;for(let px=0;px<w;px++){const o=(y*w+px)*4;if(Math.abs(d[o]-d[o+1])<14&&Math.abs(d[o+1]-d[o+2])<14&&d[o]<125&&d[o]>50)n++;}if(n>w*0.5)filas++;}
+              return {filas,calles:R.callesRaw.length,du:c.toDataURL('image/png')};}""")
+            open(os.path.join(BUILD,'ky_tapa_calles.png'),'wb').write(base64.b64decode(g['du'].split(',')[1]))
+            # al pasar por debajo de una calle que cruza el recorrido, el agua no se pinta entera de gris (captura de las 23:08)
+            peor=await kp.evaluate("""()=>{const R=rutaActiva,c=document.getElementById('canvasSesionVivo'),x=c.getContext('2d');let peor=0;
+              for(let d=470;d<=505;d+=1.5){moverPreviewRuta(d);const w=c.width,h=c.height,dt=x.getImageData(0,Math.round(h*0.45),w,Math.round(h*0.5)).data;let n=0;
+                for(let o=0;o<dt.length;o+=4)if(Math.abs(dt[o]-dt[o+1])<10&&Math.abs(dt[o+1]-dt[o+2])<10&&dt[o]<110&&dt[o]>50)n++;peor=Math.max(peor,n/(dt.length/4));}
+              return peor;}""")
+            ok(peor<0.25,'pasando bajo una calle que cruza el recorrido el agua no queda gris (peor cuadro: %d %% gris)'%round(peor*100))
+            ok(g['calles']==31 and g['filas']==0,'de lejos, las %d calles no pintan una franja gris de lado a lado (%d filas grises)'%(g['calles'],g['filas']))
         ok(not errs,'sin errores JS: %s'%errs[:2])
         await b.close()
     s1.shutdown()

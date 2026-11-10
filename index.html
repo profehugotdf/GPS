@@ -12839,7 +12839,7 @@ async function bkOver(q,ms){
 async function bkOverPar(q,ms,lleno){
   /* lleno: una respuesta vacía NO gana (Hugo, 9-nov, Zihuatanejo: "sin edificios · sin calles (no hay en OpenStreetMap)" en plena ciudad: un servidor
      contestó primero y vacío). Se espera a otro que traiga datos; solo si ninguno trae nada se devuelve [] y bkOverPar.vacio dice cuántos contestaron vacío */
-  const ctls=[];let vacios=0;bkOverPar.vacio=0;
+  const ctls=[],dijo=[];let vacios=0;bkOverPar.vacio=0;bkOverPar.dijo='';
   const uno=async url=>{
     const ctl=new AbortController();ctls.push(ctl);const to=setTimeout(()=>ctl.abort(),ms);
     try{const r=await fetch(url,{method:'POST',body:new URLSearchParams({data:q}),signal:ctl.signal});
@@ -12847,11 +12847,11 @@ async function bkOverPar(q,ms,lleno){
       const j=await r.json();if(j.remark&&!(j.elements||[]).length)throw new Error('servidor ocupado ('+url.split('/')[2]+')');   // cualquier aviso del servidor con la respuesta vacía es una falla, no "no hay nada"
       if(lleno&&!(j.elements||[]).length){vacios++;throw new Error('respondió vacío ('+url.split('/')[2]+')');}
       return j.elements||[];
-    }catch(e){throw e.name==='AbortError'?new Error('no respondió a tiempo ('+url.split('/')[2]+')'):e;}
+    }catch(e){const e2=e.name==='AbortError'?new Error('no respondió a tiempo ('+url.split('/')[2]+')'):e;dijo.push(url.split('/')[2].replace(/^overpass[.-]?/,'')+': '+String(e2.message||e2).replace(/ \(.*\)$/,''));throw e2;}
     finally{clearTimeout(to);}
   };
   try{return await Promise.any(OVERPASS.map(uno));}
-  catch(e){if(lleno&&vacios){bkOverPar.vacio=vacios;return [];}throw (e&&e.errors&&e.errors[0])||e;}
+  catch(e){bkOverPar.dijo=dijo.join(' · ');if(lleno&&vacios){bkOverPar.vacio=vacios;return [];}throw (e&&e.errors&&e.errors[0])||e;}
   finally{ctls.forEach(c=>{try{c.abort()}catch(_){}});}
 }
 /* las calles que Rumbo ya tiene guardadas para calcular rutas (las de 🗺️ redes bajadas): sirven para los costados
@@ -13461,20 +13461,21 @@ function edifFromOsm(els){
   return out;
 }
 /* por qué quedó vacío: cuántos servidores contestaron sin datos, o cuántos elementos llegaron pero lejos de la ruta */
-function osmVacioTxt(que,vac,n){return n?`OpenStreetMap trajo ${n} pero ninguno a menos de 1,5 km`:`${vac||0} de ${OVERPASS.length} servidores de OpenStreetMap respondieron sin ${que}`;}
+function osmVacioTxt(que,vac,n){return n?`OpenStreetMap trajo ${n} pero ninguno a menos de 1,5 km`:`${vac||0} de ${OVERPASS.length} servidores sin ${que}`;}
 /* P: puntos de la ruta [[la,lo,d],…] → {list, err, real} */
 async function edifCollect(P){
   if(netBlocked()||S.dataMode==='never')return {list:[],err:'sin internet',real:0};
   try{
     let els=await Promise.race([bkOverPar(edifQ(bkLine(P),EDIF_R),50000,true),new Promise((_,no)=>setTimeout(()=>no(new Error('tardó demasiado')),55000))]);
     let vac=bkOverPar.vacio||0;
-    if(!els.length){   /* vacío: se pregunta de otra forma (por rectángulo en vez de "cerca de la línea") antes de creer que no hay nada */
-      const b=bkPadBB(P,EDIF_R);try{els=await Promise.race([bkOverPar(`[out:json][timeout:60];way["building"](${b.s.toFixed(5)},${b.w.toFixed(5)},${b.n.toFixed(5)},${b.e.toFixed(5)});out geom qt;`,40000,true),new Promise((_,no)=>setTimeout(()=>no(new Error('tardó demasiado')),45000))]);}catch(e2){errLog(e2,'edificios (segundo intento)');if(!vac)throw e2;}
-      vac=Math.max(vac,bkOverPar.vacio||0);}
+    let dijo=bkOverPar.dijo||'';
+    if(!els.length){   /* vacío: en una ciudad la consulta a 1,5 km es muy pesada (Zihuatanejo: dos servidores no llegaron y el otro contestó vacío). Segundo intento más liviano: solo a 500 m de la ruta, que es lo que se distingue desde el agua */
+      try{els=await Promise.race([bkOverPar(edifQ(bkLine(P),500),40000,true),new Promise((_,no)=>setTimeout(()=>no(new Error('tardó demasiado')),45000))]);}catch(e2){errLog(e2,'edificios (segundo intento)');if(!vac)throw e2;}
+      vac=Math.max(vac,bkOverPar.vacio||0);if(bkOverPar.dijo)dijo=bkOverPar.dijo;}
     const line=bkLine(P),all=edifFromOsm(els).map(b=>({b,d:elDistRuta([[b[2],b[3]]],line)})).filter(x=>x.d<=EDIF_R);
     all.sort((a,b)=>a.d-b.d);
     const list=all.slice(0,EDIF_MAX).map(x=>x.b);
-    return {list,err:list.length?'':osmVacioTxt('edificios',vac,els.length),real:list.filter(b=>b[1]).length};
+    return {list,err:list.length?'':(osmVacioTxt('edificios',vac,els.length)+(dijo?' ['+dijo+']':'')).slice(0,78),real:list.filter(b=>b[1]).length};
   }catch(e){errLog(e,'edificios de la costa (OpenStreetMap)');return {list:[],err:e.message||String(e),real:0};}
 }
 /* ---------- 🛣️ Calles y costanera para Kayak ----------
