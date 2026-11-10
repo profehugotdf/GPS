@@ -105,7 +105,9 @@ async def main():
               return peor;}""")
             ok(peor<0.25,'pasando bajo una calle que cruza el recorrido el agua no queda gris (peor cuadro: %d %% gris)'%round(peor*100))
             ok(g['calles']==31 and g['filas']==0,'de lejos, las %d calles no pintan una franja gris de lado a lado (%d filas grises)'%(g['calles'],g['filas']))
-        if KY is not None:
+        # el Kayak publicado puede ser todavía el anterior (se sube un minuto antes que Rumbo y GitHub Pages tarda): sin soporte de tapa.mas, esto se saltea
+        if KY is not None and b'T.mas' not in KY:print('  (el Kayak Indoor que se bajó todavía no lee tapa.mas: se saltea)')
+        if KY is not None and b'T.mas' in KY:
             k2=await b.new_page(viewport={'width':412,'height':860});k2.on('pageerror',lambda e:errs.append('kayak: '+str(e)))
             await k2.goto('http://127.0.0.1:8812/index.html'+href2[href2.index('#'):]);await k2.wait_for_timeout(1500)
             r=await k2.evaluate("rutaActiva&&{n:rutaActiva.tapas.length,info:document.getElementById('infoRuta').textContent}")
