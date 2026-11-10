@@ -6532,6 +6532,16 @@ function openStreetView(lat,lon){
   const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();
   toast('Abriendo Street View en Google Maps… si no hay fotos justo ahí, te muestra las más cercanas',4000);
 }
+/* ⛰️ Altura sobre el nivel del mar del punto tocado (Hugo, 10-nov: "quisiera tener la altura del punto que seleccione, además de las coordenadas").
+   Sale del relieve (el mismo de los perfiles y del 3D): una sola tesela de zoom 13, la guardada si está; si no, se baja salvo que hayas elegido no usar
+   datos. → {ele (m), guardada} o {why}. No es un GPS: es el modelo del terreno (error típico de unos metros; sobre el agua puede no dar 0). */
+async function pinEle(lat,lon){
+  const z=13,p=tileXY(lat,lon,z),t={x:Math.floor(p.x),y:Math.floor(p.y)};
+  let tiene=false;try{tiene=await DB.has('tiles',`dem/${z}/${t.x}/${t.y}`);}catch(e){errLog(e,'altura del punto')}
+  if(!tiene&&netBlocked())return {why:'sin la altura guardada de esta zona'};
+  try{const m=await fetchDemList([t],z),h=sampleDem(m,z,lat,lon);if(!isFinite(h))return {why:'sin dato de altura'};return {ele:h,guardada:tiene};}
+  catch(e){errLog(e,'altura del punto');return {why:'no se pudo bajar la altura'};}
+}
 function hidePin(){PIN=null;pinLayer.clearLayers();$('#pin').hidden=true;}
 async function onMapTap(e){
   if(e.originalEvent&&e.originalEvent._owned)return;
@@ -6553,6 +6563,13 @@ async function onMapTap(e){
   const o=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null),d=o?hav([o.lat,o.lon],[ll.lat,ll.lon]):null;
   $('#pinSub').textContent=(d!=null?fmtD(d)+' en línea recta desde '+(RT.from?'el origen elegido':'tu posición')+' · ':'')+ll.lat.toFixed(5)+', '+ll.lon.toFixed(5);
   $('#pin').hidden=false;
+  /* la altura llega después (puede haber que bajarla): se agrega al renglón si el punto sigue siendo el mismo */
+  const base=$('#pinSub').textContent;$('#pinSub').textContent=base+' · ⛰️ …';
+  pinEle(ll.lat,ll.lon).then(r=>{
+    if(!PIN||PIN.lat!==ll.lat||PIN.lon!==ll.lon)return;
+    if(r.ele!=null)PIN.ele=Math.round(r.ele);
+    $('#pinSub').textContent=base+' · ⛰️ '+(r.ele!=null?'≈ '+Math.max(0,Math.round(r.ele))+' m s. n. m.':'altura: '+r.why);
+  });
 }
 async function goToPin(){
   if(!PIN)return;
@@ -6588,6 +6605,7 @@ $('#pinSave').onclick=async()=>{
   if(!PIN)return;
   const n=(await DB.all('kv','wpt:')).filter(w=>w.type==='punto').length+1;
   const w={id:uid(),lat:PIN.lat,lon:PIN.lon,type:'punto',name:PIN.label==='Punto en el mapa'?'Punto '+n:PIN.label,t:Date.now()};
+  if(PIN.ele!=null)w.ele=PIN.ele;   // la altura del relieve, si ya se calculó
   await DB.put('kv','wpt:'+w.id,w);addWptMarker(w);vib();toast('📍 Punto guardado');hidePin();
 };
 
