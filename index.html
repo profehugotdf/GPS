@@ -720,7 +720,7 @@ body.night #perim .nvb button{background:#E4EDEF;color:#0E2A36}
   <div id="capprog" hidden><div class="bar"><i id="dlbar"></i></div><small id="dlt"></small></div>
   <small id="capmsg"></small>
 </div>
-<div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinTgt">🎯 Seguir distancia</button><button id="pinFrom">Ⓐ Salir de acá</button><button id="pinVia" hidden>↦ Pasar por</button><button id="pinSave">📍 Guardar</button><button id="pinSv">👁️ Street View</button><button id="pinX">✕</button></div></div>
+<div id="pin" hidden><b id="pinTxt"></b><small id="pinSub"></small><div class="nvb"><button id="pinGo">🧭 Ir hasta acá</button><button id="pinTgt">🎯 Seguir distancia</button><button id="pinFrom">Ⓐ Salir de acá</button><button id="pinVia" hidden>↦ Pasar por</button><button id="pinNavVia" hidden>↦ Pasar por acá</button><button id="pinNavTo" hidden>🏁 Cambiar el destino</button><button id="pinSave">📍 Guardar</button><button id="pinSv">👁️ Street View</button><button id="pinX">✕</button></div></div>
 <div id="banner" hidden><span id="bTxt"></span><span class="row"><button class="btn sm" id="bUndo" hidden>Deshacer</button><button class="btn sm primary" id="bOk" hidden>Listo</button><button class="btn sm" id="bCancel">Cancelar</button></span></div>
 
 <button id="fNorth" hidden aria-label="Norte arriba">N⬆</button>
@@ -5813,7 +5813,7 @@ $('#bUndo').onclick=undoPick;
 $('#bOk').onclick=()=>{if(PICK&&PICK.type==='path')finishPath();};
 
 /* ---------- Guía paso a paso ---------- */
-const NAV={on:false,N:null,mode:'foot',dest:null,lastRecalc:0,busy:false,prev:null,endT:null};
+const NAV={on:false,N:null,mode:'foot',dest:null,via:null,lastRecalc:0,busy:false,prev:null,endT:null};   // via: punto de paso elegido durante la guía (se olvida al pasar a menos de 40 m)
 async function collectHz(g){
   const hz=((g&&g.hz)||[]).slice();
   for(const w of await DB.all('kv','wpt:'))if(w.type==='lomo'||w.type==='pozo'||w.type==='peligro')hz.push({lat:w.lat,lon:w.lon,k:w.type});
@@ -5829,7 +5829,7 @@ async function startNav(){
   const r=RT.res&&RT.res[RT.sel];if(!r||r.err)return;
   unlockAudio();
   const g=r.fixed?null:await ensureGraph();
-  Object.assign(NAV,{mode:RT.sel,dest:RT.to,lastRecalc:0,busy:false,prev:null});
+  Object.assign(NAV,{mode:RT.sel,dest:RT.to,via:null,lastRecalc:0,busy:false,prev:null});
   NAV.N=navInit(r,NAV.mode,await collectHz(g));
   NAV.on=true;
   closeSheet();drawRoute(false);setFollow(true);
@@ -5861,31 +5861,37 @@ function navOnFix(f){
   if(!NAV.on||!NAV.N||f.acc>60)return;
   const sp=f.speed!=null?f.speed:(NAV.prev?hav([NAV.prev.lat,NAV.prev.lon],[f.lat,f.lon])/Math.max(1,(f.t-NAV.prev.t)/1000):0);
   NAV.prev=f;
+  if(NAV.via&&hav([f.lat,f.lon],[NAV.via.lat,NAV.via.lon])<40)NAV.via=null;   // ya pasaste por el punto elegido: si hay que recalcular, va directo al destino
   const res=navTick(NAV.N,{lat:f.lat,lon:f.lon,speed:sp});
   if(res.off){navRecalc(f);return;}
   if(res.say.length)navSay(res.say.join('. '));
   updNav(res);
   if(res.arrived&&!NAV.endT)NAV.endT=setTimeout(()=>{NAV.endT=null;endNav();},9000);
 }
-async function navRecalc(f){
+/* forzar = texto a decir cuando el cambio lo pidió la persona (otro destino, pasar por un punto): saltea la espera de 12 s. → true si quedó una ruta nueva */
+async function navRecalc(f,forzar){
   if(NAV.N&&NAV.N.route.fixed){            /* volviendo por la huella: no se recalcula con calles, se te guía de nuevo hacia la línea */
     if(Date.now()-NAV.lastRecalc>20000){NAV.lastRecalc=Date.now();navSay('Te alejaste de la línea. Volvé hacia la línea marcada.');}
-    return;
+    return false;
   }
-  if(NAV.busy||Date.now()-NAV.lastRecalc<12000)return;
-  NAV.busy=true;NAV.lastRecalc=Date.now();
-  navSay('Recalculando');
+  if(NAV.busy||(!forzar&&Date.now()-NAV.lastRecalc<12000))return false;
+  NAV.busy=true;NAV.lastRecalc=Date.now();let listo=false;
+  navSay(forzar||'Recalculando');
   try{
-    const g=await ensureGraph(),r=findRoute(g,NAV.mode,{lat:f.lat,lon:f.lon},NAV.dest,(NAV.N&&NAV.N.route.pref)||'fast');
-    if(r.err)navSay('No encuentro un camino desde acá');
+    const g=await ensureGraph({route:{from:{lat:f.lat,lon:f.lon},to:NAV.dest}}),desde={lat:f.lat,lon:f.lon},pref=(NAV.N&&NAV.N.route.pref)||'fast';
+    let r=NAV.via?findRouteVia(g,NAV.mode,desde,NAV.dest,pref,NAV.via):findRoute(g,NAV.mode,desde,NAV.dest,pref);
+    if(r.err&&NAV.via&&!forzar){r=findRoute(g,NAV.mode,desde,NAV.dest,pref);if(!r.err)NAV.via=null;}   // te saliste y ya no se puede pasar por el punto: directo al destino
+    if(r.err){if(!forzar)navSay('No encuentro un camino desde acá');}
     else{
+      listo=true;
       r.hzs=[];RT.res=RT.res||{};RT.res[NAV.mode]=r;RT.sel=NAV.mode;
       NAV.N=navInit(r,NAV.mode,await collectHz(g));r.hzs=NAV.N.hzs;
       drawRoute(false);navSay(r.steps[0].text);
       if(T3.live)setTimeout(()=>navLive3D(),0);   /* el 3D en vivo toma la ruta nueva */
+      if(forzar&&NAV.N.route.steps){const s1=NAV.N.route.steps[1]||NAV.N.route.steps[0];updNav({next:{step:s1,dist:s1.at},rem:NAV.N.total});}
     }
   }catch(e){errLog(e)}
-  NAV.busy=false;
+  NAV.busy=false;return listo;
 }
 function updNavTop(){
   const hud=$('#hud'),pill=$('#pill');
@@ -5896,7 +5902,7 @@ setInterval(()=>{if(NAV.on)updNavTop();},700);
 function endNav(){
   if(!NAV.on)return;
   if(T3.live)close3D();
-  NAV.on=false;NAV.N=null;clearTimeout(NAV.endT);NAV.endT=null;rtPanel();
+  NAV.on=false;NAV.N=null;NAV.via=null;clearTimeout(NAV.endT);NAV.endT=null;rtPanel();
   $('#nav').hidden=true;
   keepAwake(REC.state!=='idle'&&S.keepAwake);
   if(REC.state==='idle'){setFollow(false);startWatch(SH.on,'Compartiendo tu posición');}
@@ -6542,10 +6548,31 @@ async function pinEle(lat,lon){
   try{const m=await fetchDemList([t],z),h=sampleDem(m,z,lat,lon);if(!isFinite(h))return {why:'sin dato de altura'};return {ele:h,guardada:tiene};}
   catch(e){errLog(e,'altura del punto');return {why:'no se pudo bajar la altura'};}
 }
+/* la tarjeta del punto mientras Guiarme está andando: solo "Pasar por acá" y "Cambiar el destino" (más Guardar y Street View) */
+function pinModoGuia(si){
+  for(const id of ['pinGo','pinTgt','pinFrom'])$('#'+id).hidden=!!si;
+  if(si)$('#pinVia').hidden=true;
+  $('#pinNavVia').hidden=$('#pinNavTo').hidden=!si;
+}
+/* cambia la guía en marcha: `cambio` = {dest} o {via}. Recalcula desde donde estás; si no hay camino, deja todo como estaba y lo dice */
+async function navCambiar(cambio){
+  if(!NAV.on||!NAV.N)return false;
+  if(!lastFix){toast('Todavía sin GPS: no puedo recalcular desde donde estás',4000);return false;}
+  if(NAV.busy){toast('Estoy recalculando, probá de nuevo en un momento',3000);return false;}
+  const antes={dest:NAV.dest,via:NAV.via||null,to:RT.to};
+  if(cambio.dest){NAV.dest=cambio.dest;NAV.via=null;RT.to=cambio.dest;}
+  if(cambio.via)NAV.via=cambio.via;
+  const ok=await navRecalc(lastFix,cambio.dest?'Nuevo destino':'Pasando por '+(cambio.via.label||'el punto elegido'));
+  if(!ok){NAV.dest=antes.dest;NAV.via=antes.via;RT.to=antes.to;toast('No encontré un camino '+(cambio.dest?'hasta ese punto':'que pase por ahí')+': sigo con la ruta de antes',5000);}
+  else{clearTimeout(NAV.endT);NAV.endT=null;}
+  return ok;
+}
 function hidePin(){PIN=null;pinLayer.clearLayers();$('#pin').hidden=true;}
 async function onMapTap(e){
   if(e.originalEvent&&e.originalEvent._owned)return;
-  if(REC.state!=='idle'||NAV.on||CAP.on||sheet.classList.contains('open')||!$('#banner').hidden)return;
+  /* guiando también se puede tocar un punto: para pasar por ahí o cambiar el destino (Hugo, 13-nov). Volviendo por una huella fija no hay calles que recalcular */
+  const guia=NAV.on&&NAV.N&&!NAV.N.route.fixed;
+  if((REC.state!=='idle'&&!guia)||(NAV.on&&!guia)||CAP.on||sheet.classList.contains('open')||!$('#banner').hidden)return;
   const ll={lat:e.latlng.lat,lon:e.latlng.lng};
   PIN={lat:ll.lat,lon:ll.lon,label:'Punto en el mapa'};
   pinLayer.clearLayers();
@@ -6559,6 +6586,7 @@ async function onMapTap(e){
   PIN.label=label;
   $('#pinTxt').textContent=label;
   $('#pinVia').hidden=!(RT.res&&RT.to&&RT.calcFrom&&(RT.res[RT.sel]&&!RT.res[RT.sel].err));
+  pinModoGuia(guia);
   /* distancia desde el origen que se va a usar: el punto A elegido, o tu posición si no elegiste ninguno */
   const o=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null),d=o?hav([o.lat,o.lon],[ll.lat,ll.lon]):null;
   $('#pinSub').textContent=(d!=null?fmtD(d)+' en línea recta desde '+(RT.from?'el origen elegido':'tu posición')+' · ':'')+ll.lat.toFixed(5)+', '+ll.lon.toFixed(5);
@@ -6595,6 +6623,16 @@ $('#pinFrom').onclick=async()=>{
   if(RT.to){const g=await ensureGraph();if(g)await calcRoutes(g);}
   else toast('Salís desde: '+RT.from.label+'. Ahora tocá el destino.',4500);
 };
+$('#pinNavVia').onclick=async()=>{
+  if(!PIN)return;
+  const via={lat:PIN.lat,lon:PIN.lon,label:/^Cerca de /.test(PIN.label)?PIN.label.replace(/^Cerca de /,''):'el punto elegido'};hidePin();
+  await navCambiar({via});
+};
+$('#pinNavTo').onclick=async()=>{
+  if(!PIN)return;
+  const dest={lat:PIN.lat,lon:PIN.lon,label:PIN.label};hidePin();
+  await navCambiar({dest});
+};
 $('#pinVia').onclick=async()=>{
   if(!PIN)return;
   const ll={lat:PIN.lat,lon:PIN.lon};hidePin();
@@ -6616,6 +6654,7 @@ function placePin(lat,lon,label){
   L.marker([lat,lon],{interactive:false,icon:L.divIcon({html:'<div class="gl s">B</div>',className:'',iconSize:[30,30],iconAnchor:[15,15]})}).addTo(pinLayer);
   $('#pinTxt').textContent=label;
   $('#pinVia').hidden=!(RT.res&&RT.to&&RT.calcFrom&&(RT.res[RT.sel]&&!RT.res[RT.sel].err));
+  pinModoGuia(false);
   const o=RT.from||(lastFix?{lat:lastFix.lat,lon:lastFix.lon}:null),d=o?hav([o.lat,o.lon],[lat,lon]):null;
   $('#pinSub').textContent=(d!=null?fmtD(d)+' en línea recta desde '+(RT.from?'el origen elegido':'tu posición')+' · ':'')+lat.toFixed(5)+', '+lon.toFixed(5);
   $('#pin').hidden=false;
