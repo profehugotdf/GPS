@@ -9067,6 +9067,8 @@ function showDiag(){
     <p class="mut">${g?`${g} lecturas guardadas (últimos ${fmtDur((last.t-GLOG[0].t)/1000)}). Última: altitud ${last.alt??'—'} m${last.va!=null?' ±'+last.va:''}, ±${last.acc??'—'} m, ${last.kmh??'—'} km/h.`:'Todavía no hay lecturas.'}</p>
     ${g>3?glogSvg():''}
     <div class="row"><button class="btn sm" data-act="csv"${g?'':' disabled'}>📤 Compartir el registro (CSV)</button><button class="btn sm" data-act="copy">📋 Copiar resultados</button></div>
+    <div class="row"><button class="btn sm" data-act="kycp"${KY.url?'':' disabled'}>🛶 Copiar el último link a Kayak Indoor</button></div>
+    <p class="mut">${KY.url?`Último paquete mandado a Kayak Indoor: ${KY.last?KY.last.name+' · ':''}${Math.round(KY.url.length/1024)} KB. Kayak Indoor lo borra de la barra al abrirlo; acá queda para pegarlo en el chat.`:'Todavía no mandaste ninguna ruta a Kayak Indoor en esta sesión.'}</p>
     <h3>🐞 Errores anotados</h3><div id="dgErr">${errHtml()}</div>
     <div class="row"><button class="btn sm" data-act="errcp"${ERRS.list.length?'':' disabled'}>📋 Copiar errores</button><button class="btn sm" data-act="errclr"${ERRS.list.length?'':' disabled'}>🧹 Borrar la lista</button></div>`,
     async(a,d,el)=>{
@@ -9076,6 +9078,11 @@ function showDiag(){
       else if(a==='errcp'){const txt=errDump();try{await navigator.clipboard.writeText(txt);toast('Copiado: pegalo en el chat',3000);}catch(e){shareFile('rumbo-errores.txt',txt,'text/plain');}}
       else if(a==='errclr'){if(armed(el)){ERRS.list=[];await errSave();showDiag();}}
       else if(a==='csv')shareFile('rumbo-gps.csv','hora,lat,lon,precision_m,altitud_m,precision_vertical_m,velocidad_kmh\n'+GLOG.map(f=>[new Date(f.t).toISOString(),f.lat,f.lon,f.acc??'',f.alt??'',f.va??'',f.kmh??''].join(',')).join('\n'),'text/csv');
+      else if(a==='kycp'){
+        if(!KY.url){toast('Todavía no mandaste ninguna ruta a Kayak Indoor',3000);return;}
+        try{await navigator.clipboard.writeText(KY.url);toast('Link copiado ('+Math.round(KY.url.length/1024)+' KB): pegalo en el chat',4000);}
+        catch(e){errLog(e,'copiar link de Kayak');shareFile('rumbo-link-kayak.txt',KY.url,'text/plain');}
+      }
       else if(a==='copy'){
         const txt='Diagnóstico Rumbo\n'+DIAG.rows.map(([k,v])=>`${k}: ${v}`).join('\n');
         try{await navigator.clipboard.writeText(txt);toast('Copiado: pegalo en el chat',3000);}catch(e){shareFile('rumbo-diagnostico.txt',txt,'text/plain');}
@@ -13594,7 +13601,7 @@ async function callesCollect(P){
     try{const line=bkLine(P),loc=(await callesLocal(P)).map(c=>({c,d:elDistRuta(c[1],line)})).filter(x=>x.d<=CALLES_R).sort((a,b)=>a.d-b.d).slice(0,CALLES_MAX).map(x=>x.c);if(loc.length)return {list:loc,err:'',pts:0,local:loc.length};}catch(e3){errLog(e3,'calles guardadas');}
     return {list:[],err:e.message||String(e),pts:0};}
 }
-const KY={last:null,SP:25,MAX:2000,OFF:[0,25,60,120,220,400,700]};
+const KY={last:null,url:'',SP:25,MAX:2000,OFF:[0,25,60,120,220,400,700]};
 /* color promedio de la foto satelital en grupos de puntos: groups = [[[lat,lon],…],…] → [[r,g,b]|null,…] */
 async function satAvg(groups,z){
   const need=new Map(),G=groups.map(g=>g.map(([la,lo])=>{const t=tileXY(la,lo,z),tx=Math.floor(t.x),ty=Math.floor(t.y);need.set(tx+'/'+ty,1);return {tx,ty,px:Math.floor((t.x%1)*256),py:Math.floor((t.y%1)*256)};}));
@@ -13765,6 +13772,7 @@ async function kySend(o){
   const nL=sh.filter(r=>r[0].d!=null).length,nR=sh.filter(r=>r[1].d!=null).length;
   KY.last={name:nm,L:R.L,len:data.length,hz:!!hz,peaks:peaks.length,elems:elCount(E.list),elErr:E.err,shoreL:nL/P.length,shoreR:nR/P.length,src:shoreIdx?'costas':'relieve',mar:!!sea,marWhy,edif:ED.list.length,edifReal:ED.real,edifErr:ED.err,calles:CA.list.length,callesErr:CA.err};
   toast(`🛶 Listo: ${dec(R.L/1000,1)} km${hz?' · montañas reales':''}${peaks.length?' con nombres':''} · orillas ${shoreIdx?'de tus costas cargadas':'por el relieve'}${E.list.length?' · '+elResumen(E.list):''}${ED.list.length?` · ${ED.list.length} edificios (${ED.real} con altura real)`:''}${CA.list.length?` · ${CA.list.length} calles`:''}${ED.list.length&&CA.list.length?'':' · ⚠️ sin '+[ED.list.length?'':'edificios ('+(ED.err||'no hay')+')',CA.list.length?'':'calles ('+(CA.err||'no hay')+')'].filter(Boolean).join(' ni ')}${E.err?' (muelles y puentes: sin OpenStreetMap, solo los marcados a mano)':''}${sea?'':' · ⚠️ sin limpiar el relieve del mar: '+marWhy}. Se abre Kayak Indoor…`,sea?7000:12000);
+  KY.url=KY_URL+'#rumbo='+data;   // Kayak Indoor borra el #rumbo= de la barra al importar: el link queda acá para copiarlo desde Diagnóstico (Hugo, 16-nov)
   setTimeout(()=>{const a=document.createElement('a');a.href=KY_URL+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 

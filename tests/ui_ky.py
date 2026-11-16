@@ -43,6 +43,7 @@ async def main():
         ok(last['hz'] and last['peaks']==2,'manda montañas y cerros')
         ok(last['shoreL']>0.9 and last['shoreR']>0.9,'encuentra orillas a los dos lados')
         href=await pg.evaluate("window.__href");ok(href.startswith('https://profehugotdf.github.io/Kayak-Indoor-/#rumbo=z'),'abre Kayak Indoor (%d KB)'%(len(href)//1024))
+        ok(await pg.evaluate("KY.url")==href,'guarda el último link para copiarlo desde Diagnóstico')
         # chequeo de las distancias de orilla: ~225 m izq (norte) y ~75 m der
         sh=await pg.evaluate("""()=>{const m=window.__href.match(/#rumbo=z(.*)/);return m[1].length}""")
         await pg.close()
