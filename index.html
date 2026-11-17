@@ -13283,6 +13283,46 @@ async function bkPeaks(bb){
   return [];
 }
 /* --- 🎨 el color real del suelo: en la foto satelital, a 20-60 m de cada lado del camino, cada 100 m */
+/* 🏞️ `cost` (paquete de Bici y Correr; Hugo, 17-nov, Ixtapa–Zihuatanejo: "no se parece al recorrido": Bici dibujaba una pared de roca pelada y agua
+   donde hay ladera de selva). El terreno REAL a cada costado del camino cada 25 m: 7 alturas por lado respecto del camino (relieve, en m) a COST_OFF
+   metros del eje, y el color de la foto satelital cerca (8–22 m) y lejos (50–150 m) de cada lado.
+   {sp:25, n, off:[…], d: base64 de n × 26 bytes}: por muestra, izquierda y después derecha (de la marcha), cada lado = 7 alturas (valor + 128, 1 m,
+   tope ±127) + rgb cerca + rgb lejos. Sin foto satelital, los colores van en 0 (Bici usa los suyos). Puro salvo demS y las teselas. */
+const COST_OFF=[6,12,20,35,60,100,180],COST_NEAR=[8,14,22],COST_FAR=[50,90,150];
+function bkCostPts(P,prof,sp){
+  const L=P[P.length-1][2],n=Math.max(2,Math.floor(L/sp)+1),out=[];
+  for(let k=0;k<n;k++){const i=Math.min(P.length-1,Math.round(k*sp/(L||1)*(P.length-1))),[la,lo]=P[i],a=P[Math.max(0,i-3)],b=P[Math.min(P.length-1,i+3)],kc=Math.cos(la*rad);
+    const dx=(b[1]-a[1])*kc,dy=b[0]-a[0],l=Math.hypot(dx,dy)||1,nx=-dy/l,ny=dx/l;   // (nx,ny) = izquierda de la marcha (este, norte)
+    out.push({i,la,lo,kc,nx,ny,e:prof[i]});}
+  return out;
+}
+function bkCostAt(q,side,off){return [q.la+q.ny*off*side/111320,q.lo+q.nx*off*side/(111320*q.kc)];}
+async function bkCostados(P,prof,demS,zc){
+  const sp=25,Q=bkCostPts(P,prof,sp),n=Q.length,U=new Uint8Array(n*26);
+  Q.forEach((q,k)=>[1,-1].forEach((side,si)=>COST_OFF.forEach((off,j)=>{const [a,b]=bkCostAt(q,side,off),h=demS(a,b);
+    U[k*26+si*13+j]=isFinite(h)?Math.max(1,Math.min(255,Math.round(h-q.e)+128)):128;})));
+  /* colores de la foto satelital (las mismas teselas que el plano de Rumbo) */
+  let conColor=false;
+  try{
+    const need=new Map(),sm=[];
+    Q.forEach((q,k)=>[1,-1].forEach((side,si)=>[COST_NEAR,COST_FAR].forEach((offs,b)=>offs.forEach(off=>{const [a,o]=bkCostAt(q,side,off),t=tileXY(a,o,zc),tx=Math.floor(t.x),ty=Math.floor(t.y);
+      need.set(tx+'/'+ty,1);sm.push({k,si,b,tk:tx+'/'+ty,px:Math.floor((t.x%1)*256),py:Math.floor((t.y%1)*256)});}))));
+    if(need.size<=320){
+      const l=LAYERS.sat,img=new Map(),keys=[...need.keys()];let i=0;
+      const worker=async()=>{while(i<keys.length){const kk=keys[i++],[x,y]=kk.split('/').map(Number),key=`sat/${zc}/${x}/${y}`;
+        try{let blob=await DB.get('tiles',key);if(!blob&&!netBlocked()){blob=await getTileBlob(tileUrl(l,zc,x,y));if(blob&&blob.size>80)try{await DB.put('tiles',key,blob);}catch(e){errLog(e)}}
+          if(!blob)continue;const bm=await createImageBitmap(blob),c=document.createElement('canvas');c.width=c.height=256;const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(bm,0,0);img.set(kk,cx.getImageData(0,0,256,256).data);}catch(e){errLog(e,'foto satelital de los costados')}}};
+      await Promise.all(Array.from({length:4},worker));
+      if(img.size){const acc=new Float32Array(n*2*2*4);
+        for(const s of sm){const d=img.get(s.tk);if(!d)continue;const o=((s.k*2+s.si)*2+s.b)*4;
+          for(let yy=-2;yy<=2;yy+=2)for(let xx=-2;xx<=2;xx+=2){const p=(Math.max(0,Math.min(255,s.py+yy))*256+Math.max(0,Math.min(255,s.px+xx)))*4;acc[o]+=d[p];acc[o+1]+=d[p+1];acc[o+2]+=d[p+2];acc[o+3]++;}}
+        for(let k=0;k<n;k++)for(let si=0;si<2;si++)for(let b=0;b<2;b++){const o=((k*2+si)*2+b)*4,c=acc[o+3],u=k*26+si*13+7+b*3;
+          if(c){U[u]=Math.max(1,acc[o]/c);U[u+1]=Math.max(1,acc[o+1]/c);U[u+2]=Math.max(1,acc[o+2]/c);conColor=true;}
+          else if(k){U[u]=U[u-26];U[u+1]=U[u-25];U[u+2]=U[u-24];}}}
+    }
+  }catch(e){errLog(e,'colores de los costados');}
+  return {sp,n,off:COST_OFF,col:conColor?1:0,d:bkB64(U)};
+}
 async function bkGround(P,z){
   const L=P[P.length-1][2],n=Math.max(2,Math.floor(L/100)+1),need=new Map(),pts=[];
   for(let k=0;k<n;k++){const i=Math.min(P.length-1,Math.round(k*100/(L||1)*(P.length-1))),[la,lo]=P[i],a=P[Math.max(0,i-3)],b=P[Math.min(P.length-1,i+3)];
@@ -13457,16 +13497,20 @@ async function bkSend(o){
     }
   }catch(e){hz=null;}
   try{toast('🎨 Mirando el color del suelo en la foto satelital…',30000);ground=await bkGround(R.pts,R.L>40000?14:15);}catch(e){ground=null;}
+  let COST=null;
+  try{const ex=[],seen=new Set();for(const q of bkCostPts(R.pts,prof,25))for(const s of [1,-1])for(const off of [60,180]){const [a,b]=bkCostAt(q,s,off),pp=tileXY(a,b,z),x=Math.floor(pp.x),y=Math.floor(pp.y),k=x+'/'+y;if(!dem.has(k)&&!seen.has(k)){seen.add(k);ex.push({x,y});}}
+    if(ex.length&&ex.length<=40){const m=await fetchDemList(ex,z);for(const [k,v] of m)dem.set(k,v);}}catch(e){errLog(e,'relieve a los costados');}   // el relieve hasta 180 m del camino puede caer en teselas vecinas
+  try{toast(`${APP.ico} Midiendo el terreno y los colores a los costados del camino…`,30000);COST=await bkCostados(R.pts,prof,demS,R.L>40000?15:16);}catch(e){errLog(e,'terreno a los costados');COST=null;}
   let INF={list:[],err:''};
   try{toast(`${APP.ico} Buscando puentes, túneles y terraplenes del camino…`,30000);INF=await infraCollect(R.pts);}catch(e){errLog(e)}
   let LIN={list:[],err:''};
   try{toast(`${APP.ico} Buscando arroyos y calles cercanas…`,30000);LIN=await linCollect(R.pts);}catch(e){errLog(e)}
   const nm=(o.name||'Ruta de Rumbo').replace(/[<>&"]/g,'').slice(0,60);
   const gpx=`<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Rumbo"><trk><name>${nm}</name><trkseg>`+R.pts.map((p,i)=>`<trkpt lat="${p[0].toFixed(6)}" lon="${p[1].toFixed(6)}"><ele>${prof[i].toFixed(1)}</ele></trkpt>`).join('')+'</trkseg></trk></gpx>';
-  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground,land,infra:INF.list.length?INF.list:undefined,lin:LIN.list.length?LIN.list:undefined,osm:scErr?('sin respuesta: '+scErr).slice(0,120):(BK.osmNivel||'')});
+  const data=await bkPack({v:1,name:nm+'.gpx',gpx,scenes,smoothM:20,hz,peaks,ground,land,infra:INF.list.length?INF.list:undefined,lin:LIN.list.length?LIN.list:undefined,cost:COST||undefined,osm:scErr?('sin respuesta: '+scErr).slice(0,120):(BK.osmNivel||'')});
   const resum=`${dec(R.L/1000,1)} km · ↑ ${Math.round(up)} m · pendiente máx ${Math.round(gm*100)} %`+(scenes?` · escenario de ${scenes.length} tramo${scenes.length>1?'s':''}`:'')+(hz?' · montañas reales':'')+(ground?' · colores del suelo':'')+(land&&land.st.bld?` · ${land.st.bld} casas y edificios`:'')+(land&&land.st.via?' · tipo de calle':'');
   toast(`${APP.ico} Listo: ${resum}${scErr?' (sin datos de OpenStreetMap: escenario solo por altura)':BK.osmNivel&&BK.osmNivel!=='completo'?` (OpenStreetMap respondió solo lo ${BK.osmNivel==='sin casas'?'de las calles, sin casas':'básico'})`:''}. Se abre ${APP.nom}…`,7000);
-  BK.last={infra:INF.list.length,infraErr:INF.err,lin:LIN.list.length,linErr:LIN.err,osm:scErr?'sin datos':BK.osmNivel,name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground,land:land&&land.st};
+  BK.last={cost:COST?COST.n+(COST.col?' con color':' sin color'):0,infra:INF.list.length,infraErr:INF.err,lin:LIN.list.length,linErr:LIN.err,osm:scErr?'sin datos':BK.osmNivel,name:nm,L:R.L,up,gm,scenes,len:data.length,hz:!!hz,hzN:hz&&hz.n,peaks:peaks.length,ground:!!ground,land:land&&land.st};
   setTimeout(()=>{const a=document.createElement('a');a.href=APP.url+'#rumbo='+data;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();},600);
 }
 const BK={last:null};
