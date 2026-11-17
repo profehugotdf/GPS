@@ -49,6 +49,7 @@ async def main():
         await pg.close()
         # Kayak Indoor
         kp=await b.new_page(viewport={'width':412,'height':860});kp.on('pageerror',lambda e:errs.append('kayak: '+str(e)))
+        await kp.add_init_script("try{localStorage.setItem('kayak_gl_costa','0')}catch(e){}")   # estas pruebas miran el dibujo 2D de Kayak (desde v143 el 3D viene prendido)
         await kp.goto('http://127.0.0.1:8793/index.html'+href[href.index('#'):]);await kp.wait_for_timeout(1500)
         r=await kp.evaluate("rutaActiva&&{n:rutaActiva.nombre,L:rutaActiva.L,hz:!!rutaActiva.hz,sh:!!rutaActiva.sh,o:orillaEn(rutaActiva,100,1),o2:orillaEn(rutaActiva,100,-1)}");print('   ',r)
         ok(r and r['n']=='Canal de prueba' and r['hz'] and r['sh'],'Kayak Indoor guarda y elige el recorrido')

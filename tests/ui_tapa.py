@@ -81,6 +81,7 @@ async def main():
             os.makedirs(os.path.join(BUILD,'kyt'),exist_ok=True);open(os.path.join(BUILD,'kyt','index.html'),'wb').write(KY)
             s2=http.server.ThreadingHTTPServer(('127.0.0.1',8812),functools.partial(http.server.SimpleHTTPRequestHandler,directory=os.path.join(BUILD,'kyt')));threading.Thread(target=s2.serve_forever,daemon=True).start()
             kp=await b.new_page(viewport={'width':412,'height':860});kp.on('pageerror',lambda e:errs.append('kayak: '+str(e)))
+            await kp.add_init_script("try{localStorage.setItem('kayak_gl_costa','0')}catch(e){}")   # estas pruebas miran el dibujo 2D de Kayak (desde v143 el 3D viene prendido)
             await kp.goto('http://127.0.0.1:8812/index.html'+href[href.index('#'):]);await kp.wait_for_timeout(1500)
             r=await kp.evaluate("""()=>{const R=rutaActiva;if(!R||!R.tapas)return null;const e=R.xy[R.xy.length-1];
               const tierra=()=>{moverPreviewRuta(R.L-60);const c=document.getElementById('canvasSesionVivo'),x=c.getContext('2d'),w=c.width,h=c.height,d=x.getImageData(0,0,w,h).data;let n=0;
@@ -109,6 +110,7 @@ async def main():
         if KY is not None and b'T.mas' not in KY:print('  (el Kayak Indoor que se bajó todavía no lee tapa.mas: se saltea)')
         if KY is not None and b'T.mas' in KY:
             k2=await b.new_page(viewport={'width':412,'height':860});k2.on('pageerror',lambda e:errs.append('kayak: '+str(e)))
+            await k2.add_init_script("try{localStorage.setItem('kayak_gl_costa','0')}catch(e){}")   # estas pruebas miran el dibujo 2D de Kayak (desde v143 el 3D viene prendido)
             await k2.goto('http://127.0.0.1:8812/index.html'+href2[href2.index('#'):]);await k2.wait_for_timeout(1500)
             r=await k2.evaluate("rutaActiva&&{n:rutaActiva.tapas.length,info:document.getElementById('infoRuta').textContent}")
             ok(r and r['n']==6 and 'puntas y esquinas (6)' in r['info'],'Kayak lee las 6 tapas del circuito y lo dice')

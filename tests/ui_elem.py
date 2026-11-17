@@ -72,6 +72,7 @@ async def main():
         ok(last['elems']=={'muelle':1,'puente':1,'terraplen':2,'crucero':1,'encallado':1},'manda: muelle, puente OSM, 2 terraplenes y 2 barcos (OSM + mano); lo lejano y lo de otro lado quedan afuera: %s'%last['elems'])
         href=await pg.evaluate("window.__href");await pg.close()
         kp=await b.new_page(viewport={'width':412,'height':860});kp.on('pageerror',lambda e:errs.append('kayak: '+str(e)))
+        await kp.add_init_script("try{localStorage.setItem('kayak_gl_costa','0')}catch(e){}")   # estas pruebas miran el dibujo 2D de Kayak (desde v143 el 3D viene prendido)
         await kp.goto('http://127.0.0.1:8795/index.html'+href[href.index('#'):]);await kp.wait_for_timeout(1500)
         r=await kp.evaluate("rutaActiva&&{n:rutaActiva.nombre,e:(rutaActiva.elemsRaw||[]).map(e=>e.k+':'+(e.man?'m':'o')+':'+e.a)}");print('   ',r)
         ok(r and sorted(r['e'])==sorted(['muelle:o:null','puente:o:null','terraplen:o:null','terraplen:m:6','crucero:m:null','encallado:m:35']),'Kayak recibe los elementos con su altura y su origen')
