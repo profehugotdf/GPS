@@ -7556,9 +7556,9 @@ $('#gDel').onclick=async()=>{
 };
 
 /* ---------- Áreas (polígonos): bosques, agua, parques, edificios y zonas cerradas ---------- */
-const AREA_UI={bosque:['🌲','Bosque'],agua:['💧','Agua o lago'],parque:['🌳','Parque'],pastizal:['🌾','Campo o pastizal'],playa:['🏖️','Playa'],nieve:['❄️','Nieve o glaciar'],edificio:['🏢','Edificio'],urbano:['🏘️','Zona urbana'],cerrada:['⛔','Zona cerrada'],otro:['⬛','Otro'],medida:['📐','Medición']};
-const AREA_COL={bosque:'#ADD19E',agua:'#AAD3DF',parque:'#C8FACC',pastizal:'#CDEBB0',playa:'#FFF1BA',nieve:'#F2F7FA',edificio:'#D9D0C9',urbano:'#E6E3DD',cerrada:'#F4B6B0',otro:'#E0DCD2',medida:'#F7C6B8'};
-const AREA_COLN={bosque:'#233A2A',agua:'#1B3A4B',parque:'#24402E',pastizal:'#2D4230',playa:'#4A4630',nieve:'#2E3D47',edificio:'#3A3A3F',urbano:'#25323A',cerrada:'#4A2A2A',otro:'#2C363C',medida:'#5A3A30'};
+const AREA_UI={bosque:['🌲','Bosque'],agua:['💧','Agua o lago'],tierra:['🏝️','Tierra o isla'],parque:['🌳','Parque'],pastizal:['🌾','Campo o pastizal'],playa:['🏖️','Playa'],nieve:['❄️','Nieve o glaciar'],edificio:['🏢','Edificio'],urbano:['🏘️','Zona urbana'],cerrada:['⛔','Zona cerrada'],otro:['⬛','Otro'],medida:['📐','Medición']};
+const AREA_COL={bosque:'#ADD19E',agua:'#AAD3DF',tierra:'#E8DFC4',parque:'#C8FACC',pastizal:'#CDEBB0',playa:'#FFF1BA',nieve:'#F2F7FA',edificio:'#D9D0C9',urbano:'#E6E3DD',cerrada:'#F4B6B0',otro:'#E0DCD2',medida:'#F7C6B8'};
+const AREA_COLN={bosque:'#233A2A',agua:'#1B3A4B',tierra:'#3D3A2C',parque:'#24402E',pastizal:'#2D4230',playa:'#4A4630',nieve:'#2E3D47',edificio:'#3A3A3F',urbano:'#25323A',cerrada:'#4A2A2A',otro:'#2C363C',medida:'#5A3A30'};
 const areaRestricted=e=>{const r=e.props&&e.props.restrict;return !!(r&&(r.foot||r.bike||r.car));};
 function areaLine(e){
   const q=e.props||{},a=[],r=q.restrict||{};
@@ -8437,6 +8437,7 @@ async function pbBuild(){
   }
   if(ch.pts.length<3){toast('Hacen falta más puntos para un área',3500);return;}
   const st={akind:eds.every(e=>e.kind==='costa')?'agua':'otro',name:suggestAreaName(eds.map(e=>e.name||'')),props:{}};
+  if(st.akind==='agua'){try{if(await islaConRelieveGuardado(ch.pts))st.akind='tierra';}catch(er){errLog(er,'¿isla o agua?')}}   // costas cerradas alrededor de tierra = isla
   areaForm(st,'Nueva área',async s=>{
     const e={type:'area',id:uid(),kind:s.akind,name:s.name,pts:ch.pts.map(p=>[+p[0].toFixed(7),+p[1].toFixed(7)]),props:s.props,members:ch.order.map(o=>({id:eds[o.i].id,rev:o.rev})),created:Date.now()};
     await DB.put('kv','edit:'+e.id,e);
@@ -8618,10 +8619,11 @@ async function evToArea(){
   e.pts=pts.map(rnd);await DB.put('kv','edit:'+e.id,e);
   const ring=gap<=PB_TOL&&pts.length>3?pts.slice(0,-1):pts.slice();
   const ar={type:'area',id:uid(),kind:['costa','rio'].includes(e.kind)?'agua':'otro',name:e.name||'',pts:ring.map(rnd),props:{},members:[{id:e.id,rev:false}],created:Date.now()};
+  let esIsla=null;if(e.kind==='costa'){try{esIsla=await islaConRelieveGuardado(ar.pts);}catch(er){errLog(er,'¿isla o agua?')}if(esIsla)ar.kind='tierra';}   // Hugo, 18-nov: una costa cerrada alrededor de tierra es una isla
   await DB.put('kv','edit:'+ar.id,ar);
   closeVEdit();vecInvalidate();try{kayakDrop();}catch(er){errLog(er)}
   await drawEdits();
-  toast(`Área creada: ${fmtArea(polyArea(ar.pts))}`,5000);
+  toast(`Área creada: ${fmtArea(polyArea(ar.pts))}`+(e.kind!=='costa'?'':esIsla?' · 🏝️ quedó como tierra (isla): adentro es más alto que afuera':esIsla===false?' · 💧 quedó como agua':' · 💧 quedó como agua: si es una isla, cambiale el tipo a 🏝️ Tierra o isla'),7000);
   showEditArea(ar.id);
 }
 $('#evArea').onclick=evToArea;
@@ -13238,21 +13240,53 @@ async function hisResumen(P,his){
     if(!e||!e.pts||!e.pts.length||!['path','area'].includes(e.type))continue;
     if(!e.pts.some(q=>q[0]>=bb.s&&q[0]<=bb.n&&q[1]>=bb.w&&q[1]<=bb.e))continue;
     const k=(e.type==='area'?'área ':'')+(e.kind||'?');c[k]=(c[k]||0)+1;}}catch(x){errLog(x)}
-  const t=Object.entries(c).map(([k,v])=>k+' '+v+(k==='costa'&&his&&his.info?' ('+his.info.orientados+' orientada'+(his.info.orientados===1?'':'s')+')':''));
+  const t=Object.entries(c).map(([k,v])=>k+' '+v+(k==='costa'&&his&&his.info?' ('+his.info.orientados+' orientada'+(his.info.orientados===1?'':'s')+')':'')+(k==='área agua'&&his&&his.info&&his.info.islas?' ('+his.info.islas+' tomada'+(his.info.islas===1?'':'s')+' como isla)':''));
   return t.length?t.join(' · '):'nada dibujado cerca';
 }
 /* lo dibujado (edit:) → función de agua/tierra, o null si no hay nada dibujado en la zona */
+/* 🏝️ ¿un anillo cerrado encierra una isla o un espejo de agua? (Hugo, 18-nov: cerró la costa de una isla como superficie y quedó como 💧 agua,
+   así que Kayak aplanaba la isla entera). Compara el relieve de adentro con el de afuera (puntos a 80 m por fuera de cada vértice, desde el centro):
+   isla = adentro claramente más alto que afuera; lago o mar = adentro igual o más bajo. true isla, false agua, null no se sabe (sin relieve o parejo). Pura. */
+function islaPorRelieve(ring,dem){
+  if(!ring||ring.length<3||!dem)return null;
+  let s0=1e9,n0=-1e9,w0=1e9,e0=-1e9,cla=0,clo=0;for(const q of ring){s0=Math.min(s0,q[0]);n0=Math.max(n0,q[0]);w0=Math.min(w0,q[1]);e0=Math.max(e0,q[1]);cla+=q[0];clo+=q[1];}
+  cla/=ring.length;clo/=ring.length;
+  const K=111320,kc=Math.max(.2,Math.cos(cla*rad)),dentro=[],fuera=[],med=a=>{const b=a.slice().sort((x,y)=>x-y);return b[b.length>>1];};
+  for(let i=1;i<8;i++)for(let j=1;j<8;j++){const la=s0+(n0-s0)*i/8,lo=w0+(e0-w0)*j/8;if(pip(la,lo,ring)){const h=dem(la,lo);if(isFinite(h))dentro.push(h);}}
+  const st=Math.max(1,Math.floor(ring.length/32));
+  for(let i=0;i<ring.length;i+=st){const q=ring[i],dy=(q[0]-cla)*K,dx=(q[1]-clo)*K*kc,l=Math.hypot(dx,dy)||1,la=q[0]+dy/l*80/K,lo=q[1]+dx/l*80/(K*kc);
+    if(pip(la,lo,ring))continue;const h=dem(la,lo);if(isFinite(h))fuera.push(h);}
+  if(dentro.length<3||fuera.length<3)return null;
+  const mi=med(dentro),mo=med(fuera);
+  if(mi>mo+2&&mi>1.5)return true;
+  if(mi<=mo+.5)return false;
+  return null;
+}
+/* islaPorRelieve con el relieve que ya está guardado (no baja nada): null si falta alguna tesela */
+async function islaConRelieveGuardado(ring){
+  let a=90,b=-90,c=180,d=-180;for(const p of ring){a=Math.min(a,p[0]);b=Math.max(b,p[0]);c=Math.min(c,p[1]);d=Math.max(d,p[1]);}
+  const mg=.002,bb={n:b+mg,s:a-mg,w:c-mg,e:d+mg};let z=13;while(z>9&&demTiles(bb,z).length>24)z--;
+  const list=demTiles(bb,z);if(list.length>24)return null;
+  for(const t of list)if(!(await DB.has('tiles',`dem/${z}/${t.x}/${t.y}`)))return null;
+  const dem=await fetchDemList(list,z);return islaPorRelieve(ring,(la,lo)=>sampleDem(dem,z,la,lo));
+}
 async function hisWater(dem,ref){
-  const eds=await DB.all('kv','edit:'),coasts=[],aguas=[],tierras=[];
+  const eds=await DB.all('kv','edit:'),coasts=[],aguas=[],tierras=[],byId={};let islas=0;
+  for(const e of eds)if(e&&e.id)byId[e.id]=e;
   for(const e of eds){
     if(e.type==='path'&&e.kind==='costa'&&e.pts&&e.pts.length>1)coasts.push(e.pts.map(q=>[q[0],q[1]]));
     const kAv=e.props&&e.props.restrict&&e.props.restrict.kayak;
     if(e.type==='area'&&e.pts&&e.pts.length>=3&&!kAv){
-      if(e.kind==='agua')aguas.push(e.pts.map(q=>[q[0],q[1]]));
+      const ring=e.pts.map(q=>[q[0],q[1]]);
+      // un área de agua armada con una 🌊 costa cerrada que encierra tierra más alta que la de afuera es una isla, no agua (las viejas quedaron así)
+      if(e.kind==='agua'&&(e.members||[]).some(m=>byId[m.id]&&byId[m.id].kind==='costa')&&islaPorRelieve(ring,dem)===true){tierras.push(ring);islas++;continue;}
+      if(e.kind==='agua')aguas.push(ring);
       else if(!['medida','cerrada','urbano','edificio'].includes(e.kind))tierras.push(e.pts.map(q=>[q[0],q[1]]));
     }
   }
-  return hisSeaFn(coasts,aguas,tierras,dem,ref);
+  const fn=hisSeaFn(coasts,aguas,tierras,dem,ref);
+  if(fn&&fn.info)fn.info.islas=islas;
+  return fn;
 }
 function bkHorizon(P,prof,sp,hNear,hFar){
   const na=BKH.na,idx=[];
