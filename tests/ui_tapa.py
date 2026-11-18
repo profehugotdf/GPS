@@ -57,6 +57,8 @@ async def main():
         ok(100<r['centro']<150,'de frente, la playa a ~120 m: %s'%r['centro'])
         ok(r['lado'] is not None and r['lado']>r['centro']*3,'a 80° la playa queda mucho más lejos: %s'%r['lado'])
         ok(r['prof'][6]>r['prof'][1]>0,'perfil tierra adentro que sube: %s'%r['prof'])
+        # sin Overpass de verdad: en GitHub hay internet y kySend esperaba la costa y los elementos de OSM hasta 60 s cada vez (la prueba llegó a 300 s, build #197)
+        await pg.evaluate("""()=>{const f0=window.fetch;window.fetch=(u,o)=>/overpass|interpreter/.test(String(u&&u.url||u))?Promise.reject(new Error('Overpass apagado en la prueba')):f0(u,o);}""")
         await pg.evaluate("""async()=>{edifCollect=async()=>({list:[[6,0,17.6405,-101.555,12,8,90]],err:'',real:0});const cs=[];for(let i=0;i<=16;i++){const lo=-101.562+i*0.000875;cs.push([2,[[17.6402,lo],[17.6490,lo]]]);}   // un pueblo: 17 calles norte-sur y 13 este-oeste, cada ~90 m
           for(let j=0;j<=12;j++){const la=17.6402+j*0.00073;cs.push([j?2:1,[[la,-101.562],[la,-101.548]]]);}
           cs.push([1,[[17.6345,-101.5575],[17.6345,-101.5525]]]);   // un puente o pasarela que CRUZA el recorrido a mitad de camino

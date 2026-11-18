@@ -22,6 +22,8 @@ async def main():
         await pg.add_init_script("navigator.geolocation.watchPosition=(ok)=>{window.__ok=ok;return 1};navigator.geolocation.clearWatch=()=>{};")
         await pg.goto('http://127.0.0.1:8797/index.html')
         await pg.wait_for_function('!!window.__ok')
+        # sin Overpass de verdad: en GitHub hay internet y elCollect lo esperaba (la prueba tardaba 3 minutos); acá alcanza con lo marcado a mano
+        await pg.evaluate("()=>{const f0=window.fetch;window.fetch=(u,o)=>/overpass|interpreter/.test(String(u&&u.url||u))?Promise.reject(new Error('Overpass apagado en la prueba')):f0(u,o);}")
         await pg.evaluate("async()=>{await openTrace();}")
         ok(await pg.evaluate("!!document.querySelector('#trKind button[data-k=naval]')"), 'el tipo 🛡️ Buque naval aparece en Calcar')
         ok(await pg.evaluate("['naval','patrullera'].every(k=>NOROUTE.has(k)&&BARCOK.includes(k)&&ELEMK.includes(k))&&!!document.querySelector('#trKind button[data-k=patrullera]')"), 'no se rutea y cuenta como barco (largo en "Altura")')
