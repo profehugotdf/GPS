@@ -8,6 +8,12 @@
 #t3 #t3nav b{display:block;font-size:15px;line-height:1.2}
 #t3 #t3nDist{font:800 20px system-ui}
 #t3 #t3nav small{flex-basis:100%;font-size:12.5px}
+/* llegada, lo que falta y el tiempo, grandes como en la tarjeta de Guiarme (Hugo, 20-nov: "más visible mientras voy manejando") */
+#t3 #t3nav .t3ns{flex-basis:100%;display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid rgba(255,255,255,.25);padding-top:4px}
+#t3 #t3nav .t3ns>div{text-align:center;padding:0 4px;min-width:0}
+#t3 #t3nav .t3ns>div+div{border-left:1px solid rgba(255,255,255,.2)}
+#t3 #t3nav .t3ns small{display:block;flex-basis:auto;font:600 10.5px system-ui;opacity:.8;letter-spacing:.04em;text-transform:uppercase}
+#t3 #t3nav .t3ns b{display:block;font:800 26px system-ui;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}
 #t3 .t3bar b{font:800 18px system-ui}#t3 .t3bar span{font:600 13px system-ui;flex:1}
 #t3 button{pointer-events:auto;border:0;border-radius:22px;background:rgba(14,42,54,.82);color:#fff;font:700 16px system-ui;min-width:44px;height:44px;padding:0 12px;box-shadow:0 1px 6px rgba(0,0,0,.35)}
 #t3 button.on{background:#F2A900;color:#111}
@@ -35,7 +41,7 @@
   <div class="t3bar"><button data-t3="x" aria-label="Cerrar 3D">✕</button><b>🏔️ 3D</b><span id="t3msg"></span></div>
   <div class="t3r"><button data-t3="n" aria-label="Norte arriba y vista de arriba"><span id="t3cmp">🧭</span></button><button data-t3="in" aria-label="Acercar">+</button><button data-t3="out" aria-label="Alejar">−</button><button id="t3fp" data-t3="fpv" aria-label="Vista a ras del suelo">👁️</button></div>
   <div class="t3b"><div id="t3tl" hidden><button id="t3pp" data-t3="pp" aria-label="Pausa o seguir">⏸</button><button id="t3cm" data-t3="cm" aria-label="Cámara automática o mi vista">🎥</button><div class="tlw"><input type="range" id="t3sb" min="0" max="1000" step="1" value="0" aria-label="Línea de tiempo"><div id="t3tk"></div></div><span id="t3tt">0:00</span></div><span>Relieve</span><button data-t3="ex" data-ex="1">×1</button><button data-t3="ex" data-ex="1.5">×1,5</button><button data-t3="ex" data-ex="2">×2</button><button id="t3fly" data-t3="fly">▶ Sobrevolar</button><button id="t3rv" data-t3="rv" hidden>🎬 Revivir</button><button id="t3vid" data-t3="vid" hidden>⏺ Video</button></div>
-  <div id="t3nav" hidden><span id="t3nIco">⬆️</span><div><b id="t3nTxt"></b><span id="t3nDist"></span></div><small id="t3nRem"></small></div>
+  <div id="t3nav" hidden><span id="t3nIco">⬆️</span><div><b id="t3nTxt"></b><span id="t3nDist"></span></div><div class="t3ns"><div><small>Llegás</small><b id="t3nEta">–</b></div><div><small>Faltan</small><b id="t3nKm">–</b></div><div><small>Tiempo</small><b id="t3nMin">–</b></div></div></div>
   <div id="t3rel" hidden></div><div id="t3mk" hidden></div>
   <div class="t3h">Un dedo: mover · dos dedos: acercar y girar · subí o bajá los dos dedos para inclinar</div><script>
 const rad=Math.PI/180,R_EARTH=6371008.8,$=q=>document.querySelector(q),pad2=n=>String(n).padStart(2,'0'),esc=x=>String(x);
